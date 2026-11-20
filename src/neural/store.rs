@@ -116,6 +116,18 @@ impl Store {
     }
 }
 
+/// An operator inspection needs neither a writable database nor a runner lock.
+/// The first read pins a single version for every receipt and model in the view.
+/// Dropping the connection releases the read transaction.
+pub fn open_inspection(root: &Path) -> Result<Connection> {
+    let db = Connection::open_with_flags(root.join("neural.sqlite"), rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    db.busy_timeout(std::time::Duration::from_secs(5))?;
+    db.execute_batch("BEGIN DEFERRED")?;
+    let format: String = db.query_row("SELECT value FROM metadata WHERE key='format'", [], |row| row.get(0))?;
+    if format != "neural-runtime-v2" { return Err(failure("Unsupported workspace format")); }
+    Ok(db)
+}
+
 /// Read the workspace projection inside the caller's existing transaction.
 /// Desktop inspection can therefore combine status, messages and artifact
 /// metadata at one SQLite snapshot without acquiring the execution writer.

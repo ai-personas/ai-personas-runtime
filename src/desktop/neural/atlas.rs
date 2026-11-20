@@ -9,6 +9,7 @@ mod portrait;
 struct Key {
     identities: Vec<String>,
     inputs: Values,
+    decision: Option<String>,
 }
 
 #[derive(Default)]
@@ -18,10 +19,12 @@ pub(super) struct Panel {
     pending: Option<(Key, mpsc::Receiver<Result<Atlas, String>>)>,
     inputs: Values,
     draft: Values,
+    decision: Option<String>,
     editing: bool,
     input_axis: usize,
     focus: usize,
     hidden: BTreeSet<String>,
+    people_filter: String,
     // Absence follows the active epoch, including after a live switch.
     epochs: BTreeMap<String, u64>,
 }
@@ -42,7 +45,9 @@ impl App {
         let action = egui::ScrollArea::vertical()
             .id_salt("character-atlas")
             .auto_shrink([false, false])
-            .show(ui, |ui| self.atlas.show(ui, &self.root, people))
+            .show(ui, |ui| {
+                self.atlas.show(ui, &self.root, people, &self.home_index)
+            })
             .inner;
         match action {
             Some(Action::Lab) => self.layout.editor = Editor::Character,
@@ -57,6 +62,15 @@ impl App {
 }
 
 impl Panel {
+    pub(super) fn use_decision(&mut self, decision: String, owner: String, epoch: u64) {
+        self.hidden.remove(&owner);
+        self.epochs.insert(owner, epoch);
+        self.decision = Some(decision);
+        self.inputs.clear();
+        self.draft.clear();
+        self.editing = false;
+    }
+
     fn refresh(&mut self, ctx: &egui::Context, root: &Path, key: Key) {
         if let Some((loading, rx)) = &self.pending {
             let result = match rx.try_recv() {
@@ -79,15 +93,25 @@ impl Panel {
         self.loaded = None;
         let (tx, rx) = mpsc::channel();
         let (root, ctx, inputs) = (root.to_owned(), ctx.clone(), key.inputs.clone());
+        let decision = key.decision.clone();
         self.pending = Some((key, rx));
         std::thread::spawn(move || {
-            let result = data::open(&root).and_then(|db| model::inspect(&db, &[], &inputs));
+            let result = data::open(&root).and_then(|db| match decision {
+                Some(reference) => model::from_decision(&db, &[], &reference),
+                None => model::inspect(&db, &[], &inputs),
+            });
             let _ = tx.send(result.map_err(|e| e.to_string()));
             ctx.request_repaint();
         });
     }
 
-    fn show(&mut self, ui: &mut Ui, root: &Path, people: &[Value]) -> Option<Action> {
+    fn show(
+        &mut self,
+        ui: &mut Ui,
+        root: &Path,
+        people: &[Value],
+        works: &home_index::Index,
+    ) -> Option<Action> {
         let mut action = None;
         let contract = FeatureContract::standard();
         ui.horizontal_wrapped(|ui| {
@@ -107,6 +131,7 @@ impl Panel {
                 .map(|p| s(&p["reference"], "digest").to_owned())
                 .collect(),
             inputs: self.inputs.clone(),
+            decision: self.decision.clone(),
         };
         self.refresh(ui.ctx(), root, key.clone());
         ui.add_space(14.);
@@ -128,6 +153,48 @@ impl Panel {
             }
             Ok(data) => data,
         };
+        if let Some(source) = &report.source {
+            ui.horizontal_wrapped(|ui| {
+                eyebrow(ui, "Received input");
+                ui.strong(format!(
+                    "{} · epoch {} · {}",
+                    source.owner,
+                    source.epoch,
+                    title(&source.basis)
+                ));
+                if ui
+                    .link("Recorded choice")
+                    .on_hover_text(&source.decision)
+                    .clicked()
+                {
+                    action = Some(Action::Inspect(source.decision.clone()));
+                }
+                if ui
+                    .link("Provider receipt")
+                    .on_hover_text(&source.provider_receipt)
+                    .clicked()
+                {
+                    action = Some(Action::Inspect(source.provider_receipt.clone()));
+                }
+            });
+            if let Some(work) = works.activity(&source.work) {
+                ui.small(excerpt(&work.title, 120))
+                    .on_hover_text(&work.title);
+            }
+            let inputs = if report.inputs.is_empty() {
+                "All inputs unknown".into()
+            } else {
+                report
+                    .inputs
+                    .iter()
+                    .map(|(id, v)| format!("{} {v:+}", title(id)))
+                    .collect::<Vec<_>>()
+                    .join("  ·  ")
+            };
+            ui.label(inputs);
+            ui.small("Only the source persona at the named epoch received this input in that decision. Other portraits are local comparisons.");
+            ui.add_space(8.);
+        }
         let visible: Vec<_> = report
             .people
             .iter()
@@ -165,6 +232,7 @@ impl Panel {
                             &contract,
                             &mut self.focus,
                             selected,
+                            report.source.as_ref(),
                         );
                         if let Some(epoch) = choice {
                             self.epochs.insert(entry.owner.clone(), epoch);
@@ -179,7 +247,7 @@ impl Panel {
             });
             ui.add_space(9.);
         }
-        ui.small("A line describes numerical inclinations, not skill, improvement or what someone actually did. Open a generation’s decisions to inspect what reached reasoning.");
+        ui.small("These are inclinations, not measures of skill or improvement. To compare a situation someone actually encountered, choose Inspect decisions → Use situation in Atlas.");
         action
     }
 
@@ -188,6 +256,13 @@ impl Panel {
             ui.set_min_width(ui.available_width());
             ui.horizontal_wrapped(|ui| {
                 eyebrow(ui, "Shared situation");
+                if self.decision.is_some() {
+                    ui.strong("From a recorded decision");
+                    if ui.button("Return to all unknown").clicked() {
+                        self.decision = None;
+                    }
+                    return;
+                }
                 ui.strong(input_label(&self.inputs));
                 if ui
                     .button(if self.editing {
@@ -254,33 +329,57 @@ impl Panel {
                                 .on_hover_text(&axis.meaning);
                         }
                     });
-                ui.menu_button("Choose people…", |ui| {
-                    if ui.button("Show everyone").clicked() {
-                        self.hidden.clear();
-                    }
-                    egui::ScrollArea::vertical()
-                        .max_height(240.)
-                        .show(ui, |ui| {
-                            for person in people {
-                                let b = &person["body"];
-                                let id = s(b, "id");
-                                ui.push_id(id, |ui| {
-                                    let mut shown = !self.hidden.contains(id);
-                                    if ui
-                                        .checkbox(&mut shown, s(b, "label"))
-                                        .on_hover_text(id)
-                                        .changed()
-                                    {
-                                        if shown {
-                                            self.hidden.remove(id);
-                                        } else {
-                                            self.hidden.insert(id.into());
-                                        }
-                                    }
-                                });
+                egui::containers::menu::MenuButton::new("Choose people…")
+                    .config(
+                        egui::containers::menu::MenuConfig::new()
+                            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside),
+                    )
+                    .ui(ui, |ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.people_filter)
+                                .hint_text("Find name or ID")
+                                .desired_width(180.),
+                        );
+                        ui.horizontal(|ui| {
+                            if ui.small_button("Show everyone").clicked() {
+                                self.hidden.clear();
+                            }
+                            if ui.small_button("Clear selection").clicked() {
+                                self.hidden
+                                    .extend(people.iter().map(|p| s(&p["body"], "id").to_owned()));
                             }
                         });
-                });
+                        let find = self.people_filter.to_lowercase();
+                        egui::ScrollArea::vertical()
+                            .max_height(240.)
+                            .show(ui, |ui| {
+                                for person in people {
+                                    let b = &person["body"];
+                                    let id = s(b, "id");
+                                    let name = s(b, "label");
+                                    if !find.is_empty()
+                                        && !id.to_lowercase().contains(&find)
+                                        && !name.to_lowercase().contains(&find)
+                                    {
+                                        continue;
+                                    }
+                                    ui.push_id(id, |ui| {
+                                        let mut shown = !self.hidden.contains(id);
+                                        if ui
+                                            .checkbox(&mut shown, s(b, "label"))
+                                            .on_hover_text(id)
+                                            .changed()
+                                        {
+                                            if shown {
+                                                self.hidden.remove(id);
+                                            } else {
+                                                self.hidden.insert(id.into());
+                                            }
+                                        }
+                                    });
+                                }
+                            });
+                    });
             });
             ui.small(&contract.outputs[self.focus].meaning);
         });

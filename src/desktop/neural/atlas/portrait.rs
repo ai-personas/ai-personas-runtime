@@ -8,6 +8,7 @@ pub(super) fn show(
     contract: &FeatureContract,
     focus: &mut usize,
     mut pinned: Option<u64>,
+    source: Option<&model::Recorded>,
 ) -> (Option<u64>, Option<Action>) {
     let p = theme::palette(ui);
     let ink = p.ink(hue);
@@ -72,6 +73,16 @@ pub(super) fn show(
         let chosen = pinned
             .and_then(|number| epochs.iter().find(|e| e.epoch == number))
             .unwrap_or(active);
+        if let Some(source) = source {
+            let supplied = source.owner == entry.owner
+                && source.epoch == chosen.epoch
+                && source.package == chosen.package;
+            if supplied {
+                theme::badge(ui, "Supplied to the recorded decision", ink);
+            } else {
+                ui.small("Local comparison · not supplied");
+            }
+        }
         ui.add_space(7.);
         let mut plot = |ui: &mut Ui| {
             chart(ui, contract, first, chosen, ink, focus);

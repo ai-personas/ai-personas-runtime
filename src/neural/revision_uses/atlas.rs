@@ -6,7 +6,7 @@ use crate::{
     persona_model::{Appraisal, FeatureContract, FeatureValue},
 };
 use rusqlite::Connection;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub type Values = BTreeMap<String, f64>;
@@ -16,8 +16,24 @@ pub struct Atlas {
     /// Only known axes appear here. A known zero is not an omitted input.
     pub inputs: Values,
     pub contract: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<Recorded>,
     pub people: Vec<Entry>,
     pub scope: &'static str,
+}
+
+/// Only this decision received this input. Other projections are local, even
+/// for a rollback to byte-identical weights or a different owner with equal values.
+#[derive(Serialize, Deserialize)]
+pub struct Recorded {
+    pub decision: String,
+    pub owner: String,
+    pub work: String,
+    pub epoch: u64,
+    pub basis: String,
+    pub provider_receipt: String,
+    pub snapshot: String,
+    pub package: String,
 }
 
 #[derive(Serialize)]
@@ -122,8 +138,59 @@ pub fn inspect(db: &Connection, owners: &[String], inputs: &Values) -> Result<At
             reading,
         });
     }
-    Ok(Atlas { inputs: inputs.clone(), contract: contract.digest().map_err(failure)?, people,
+    Ok(Atlas { inputs: inputs.clone(), contract: contract.digest().map_err(failure)?, source: None, people,
         scope: "Local forward arithmetic on one shared input, not an observed decision, quality score or evidence of beneficial maturation." })
+}
+
+/// A received appraisal can be used as the common numerical situation. Neither
+/// the original prompt nor its support, interpretation or authority is copied
+/// into another persona. Read and verify the source in the same transaction.
+pub fn from_decision(db: &Connection, owners: &[String], decision: &str) -> Result<Atlas> {
+    let mut trace = character_paths::inspect(
+        db,
+        None,
+        &character_paths::Query {
+            decision: decision.into(),
+            axis: None,
+            hidden_unit: None,
+            compare: None,
+        },
+    )?;
+    let appraisal: Appraisal = serde_json::from_value(trace["appraisal"].take())?;
+    let values = appraisal
+        .features
+        .into_iter()
+        .filter_map(|(id, feature)| feature.value.map(|v| (id, v)))
+        .collect();
+    let supplied: Values = serde_json::from_value(trace["supplied"]["paths"]["outputs"].take())?;
+    trace["package"] = trace["supplied"]["package"].take();
+    let source: Recorded = serde_json::from_value(trace)?;
+    let call = source
+        .decision
+        .strip_prefix("experience:")
+        .and_then(|r| r.strip_suffix("@1"))
+        .ok_or_else(|| failure("Choose an exact accepted decision"))?;
+    super::accepted(db, &source.owner, call, false)?;
+    let mut selected = owners.to_vec();
+    let source_only = !selected.is_empty() && !selected.contains(&source.owner);
+    if source_only {
+        selected.push(source.owner.clone());
+    }
+    let mut atlas = inspect(db, &selected, &values)?;
+    let author = atlas.people.iter().find(|e| e.owner == source.owner);
+    if !matches!(author.map(|p| &p.reading), Some(Reading::Available { epochs, .. }) if epochs.iter().any(|e|
+        e.epoch == source.epoch && e.package == source.package && e.inclinations == supplied))
+    {
+        return Err(failure(
+            "The source decision does not match its owner's adopted epoch and outputs",
+        ));
+    }
+    if source_only {
+        atlas.people.retain(|e| e.owner != source.owner);
+    }
+    atlas.scope = "Only the source decision received the recorded input. Every other epoch or owner is a local comparison, not an observed action or a quality verdict.";
+    atlas.source = Some(source);
+    Ok(atlas)
 }
 
 fn history(

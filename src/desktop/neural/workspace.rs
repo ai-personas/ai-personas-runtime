@@ -91,7 +91,7 @@ impl App {
                     });
                 });
             });
-        if self.layout.editor == Editor::Home && self.error.is_none() && self.notice.is_empty()
+        if self.layout.editor.is_workspace_view() && self.error.is_none() && self.notice.is_empty()
             && !self.records("controls").iter().any(|c| c["state"] != "running" && !s(c, "scope").starts_with("job:")) { return; }
         egui::TopBottomPanel::top("studio-context")
             .frame(
@@ -100,7 +100,7 @@ impl App {
                     .inner_margin(egui::Margin::symmetric(14, 6)),
             )
             .show(ctx, |ui| {
-                if self.layout.editor != Editor::Home {
+                if !self.layout.editor.is_workspace_view() {
                     let ended = self.home_index.activity(&self.work).is_some_and(|a| a.phase == "dissolved");
                     let compact = ui.available_width() < 720.;
                     if compact { ui.horizontal(|ui| self.context_title(ui, ended)); }

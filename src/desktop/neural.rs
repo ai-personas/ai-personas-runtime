@@ -76,6 +76,9 @@ enum Editor {
     Atlas,
     Usage,
 }
+impl Editor {
+    fn is_workspace_view(self) -> bool { matches!(self, Self::Home | Self::Atlas) }
+}
 #[derive(Serialize, Deserialize)]
 #[serde(default)]
 struct Layout {
@@ -693,11 +696,12 @@ impl eframe::App for App {
             self.activity_dock(ctx);
         }
         let wide = ctx.content_rect().width() > 1100.;
-        if self.layout.inspector && wide && self.layout.editor != Editor::Home {
+        let workspace_view = self.layout.editor.is_workspace_view();
+        if self.layout.inspector && wide && !workspace_view {
             self.inspector_panel(ctx);
         }
         let show_browser = if ctx.content_rect().width() < COMPACT_BROWSER_WIDTH { self.compact_browser } else { self.layout.outliner };
-        if show_browser && self.layout.editor != Editor::Home {
+        if show_browser && !workspace_view {
             self.outliner(ctx);
         }
         egui::CentralPanel::default()
