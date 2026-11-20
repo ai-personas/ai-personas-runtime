@@ -264,6 +264,15 @@ pub enum Command {
         #[arg(long="resource")]
         resources:Vec<String>,
     },
+    /// Compare each persona's adopted character generations on one hypothetical input, offline.
+    CharacterAtlas {
+        /// Include this identity (repeatable). By default include the whole workspace, in ID order.
+        #[arg(long = "persona")]
+        personas: Vec<String>,
+        /// Known appraisal axis, e.g. uncertainty=0.75 (repeatable). All other axes stay unknown.
+        #[arg(long = "input", value_name = "AXIS=VALUE")]
+        inputs: Vec<String>,
+    },
     /// Trace the supplied weights, appraisal and optional alternate for a recorded choice, offline.
     CharacterPaths(super::character_paths::Query),
     /// Inspect numerical differences on actual decisions for an exact character switch or proposed revision.
@@ -595,6 +604,10 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
                 Command::QuestionHistory{reference}=>store.snapshot(|db|super::question_history::inspect(db,&reference)),
                 Command::ExperienceSearch{persona,search}=>store.snapshot(|db|super::experience::search(db,&persona,&search)),
                 Command::RequestHistory{work,query}=>store.snapshot(|db|super::activity_requests::history(db,&work,None,&query)),
+                Command::CharacterAtlas { personas, inputs } => store.snapshot(|db| {
+                    use super::revision_uses::atlas;
+                    Ok(serde_json::to_value(atlas::inspect(db, &personas, &atlas::parse_inputs(&inputs)?)?)?)
+                }),
                 Command::RevisionUses(query)=>store.snapshot(|db|super::revision_uses::inspect(db,None,&query)),
                 Command::CharacterPaths(query)=>store.snapshot(|db|super::character_paths::inspect(db,None,&query)),
                 Command::AppraisalContext{work,persona}=>store.snapshot(|db|{
