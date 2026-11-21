@@ -1,6 +1,7 @@
 //! The save path is part of the workspace UI so exports also work on desktops
 //! without a file-chooser portal. Only the explicit Save action writes files.
 use super::*;
+use ai_personas::neural::human_requests::HandoffFormat;
 use std::io::Write;
 
 #[derive(Clone)]
@@ -9,7 +10,7 @@ enum Contents {
     Printed { source: print_preview::Source, document: print_preview::Document },
     Deliveries(String),
     Package(String),
-    Handoff { reference: String, files: usize },
+    Handoff { reference: String, files: usize, format: HandoffFormat },
 }
 
 #[derive(Clone)]
@@ -101,8 +102,8 @@ impl App {
         self.export_generation += 1;
         self.export_dialog = Some(Dialog::new(
             self.export_generation,
-            Contents::Handoff { reference: reference.into(), files },
-            folder,
+            Contents::Handoff { reference: reference.into(), files, format: HandoffFormat::Zip },
+            format!("{folder}.zip"),
         ));
     }
     pub(super) fn save_artifact(&mut self, _ctx: &egui::Context) {
@@ -148,7 +149,6 @@ impl App {
         let Some(dialog) = &mut self.export_dialog else {
             return;
         };
-        let file = matches!(dialog.contents, Contents::Artifact { .. } | Contents::Printed { .. } | Contents::Package(_));
         let (heading, description, action) = match &dialog.contents {
             Contents::Artifact { metadata_view: true, .. } => (
                 "Save receipt metadata", "Save the public receipt view, including its audit and usage.", "Save file"),
@@ -157,12 +157,10 @@ impl App {
             Contents::Printed { .. } => ("Save print PDF", "Save the PDF generated for this preview.", "Save PDF"),
             Contents::Deliveries(_) => ("Export deliveries", "Export this task's delivered files with their delivery records.", "Export deliveries"),
             Contents::Package(_) => ("Save file package", "The ZIP contains the selected file revisions with their original names and folders.", "Save file"),
-            Contents::Handoff { reference, .. } if reference.starts_with("delivery:") => (
-                "Save delivery handoff",
-                "The new folder contains a printable Delivery.html with the author’s scope and remaining work, plus Files.zip with the exact issued files.",
-                "Save handoff"),
-            Contents::Handoff { files: 0, .. } => ("Save handoff", "Open or print Request.html offline. Active requests with a verified origin include a fillable field report.", "Save handoff"),
-            Contents::Handoff { .. } => ("Save handoff", "Open or print Request.html offline. Files.zip contains the exact attachments. Active requests with a verified origin include a fillable field report.", "Save handoff"),
+            Contents::Handoff { reference, .. } if reference.starts_with("delivery:") =>
+                ("Save delivery handoff", "The recipient gets the issuer’s instructions and the exact files in this edition.", "Save handoff"),
+            Contents::Handoff { .. } =>
+                ("Save request handoff", "The recipient can read the request offline and bring back a field report for an active request.", "Save handoff"),
         };
         let mut open = true;
         let mut save = false;
@@ -173,9 +171,50 @@ impl App {
         .open(&mut open)
         .default_width(560.)
         .max_width((ctx.content_rect().width() - 32.).max(160.))
+        .max_height((ctx.content_rect().height() - 48.).max(120.))
+        .vscroll(true)
         .collapsible(false)
         .show(ctx, |ui| {
-            ui.label(description);
+            if let Contents::Handoff { reference, files, format } = &mut dialog.contents {
+                let delivery = reference.starts_with("delivery:");
+                egui::Frame::new().fill(theme::palette(ui).header).corner_radius(7).inner_margin(12).show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    eyebrow(ui, "Persona Studio  /  Outgoing handoff");
+                    ui.label(RichText::new(if *format == HandoffFormat::Zip { "One file to send" } else { "A folder to open locally" }).size(21.).strong());
+                    ui.label(description);
+                    ui.add_space(6.);
+                    ui.horizontal_wrapped(|ui| {
+                        theme::glyph(ui, Icon::Files, theme::palette(ui).muted);
+                        ui.strong(if delivery { "Delivery.html" } else { "Request.html" });
+                        ui.small(if delivery { "Supported use and remaining work" } else { "Requested action and what to return" });
+                    });
+                    if *files > 0 {
+                        ui.horizontal_wrapped(|ui| {
+                            theme::glyph(ui, Icon::Files, theme::palette(ui).muted);
+                            ui.strong("Files.zip");
+                            ui.small(format!("{} with original paths and bytes", counted(*files as u64, "file", "files")));
+                        });
+                    }
+                });
+                let previous = *format;
+                ui.add_enabled_ui(!dialog.busy, |ui| ui.horizontal_wrapped(|ui| {
+                    ui.strong("Save as");
+                    ui.selectable_value(format, HandoffFormat::Zip, "Shareable ZIP");
+                    ui.selectable_value(format, HandoffFormat::Folder, "Folder");
+                }));
+                if *format != previous {
+                    if *format == HandoffFormat::Folder {
+                        if let Some(stem) = dialog.name.strip_suffix(".zip") {
+                            dialog.name = stem.to_owned();
+                        }
+                    } else if !dialog.name.ends_with(".zip") {
+                        dialog.name.push_str(".zip");
+                    }
+                }
+            } else {
+                ui.label(description);
+            }
+            let file = !matches!(dialog.contents, Contents::Handoff { format: HandoffFormat::Folder, .. } | Contents::Deliveries(_));
             if let Contents::Artifact { reference, member: Some(member), .. } = &dialog.contents {
                 let edition = reference.rsplit_once('@').map(|(_, n)| n).unwrap_or(reference);
                 ui.small(format!("{}  ·  Revision {edition}", member.path)).on_hover_text(reference);
@@ -235,7 +274,7 @@ impl App {
         let name = std::path::Path::new(&dialog.name);
         if name.file_name() != Some(name.as_os_str()) || matches!(dialog.name.as_str(), "." | "..")
         {
-            dialog.error = Some(format!("Enter a {} name without folder separators.", if file { "file" } else { "folder" }));
+            dialog.error = Some("Enter a name without folder separators.".into());
             return;
         }
         let path = PathBuf::from(&dialog.directory).join(name);
@@ -262,9 +301,9 @@ impl App {
                         let db = data::open(&root).map_err(|e|e.to_string())?;
                         ai_personas::neural::human_requests::export_package(&db, &reference, &path).map_err(|e|e.to_string())?;
                     }
-                    Contents::Handoff { reference, .. } => {
+                    Contents::Handoff { reference, format, .. } => {
                         let db = data::open(&root).map_err(|e| e.to_string())?;
-                        ai_personas::neural::human_requests::export_handoff(&db, &reference, &path)
+                        ai_personas::neural::human_requests::export_handoff(&db, &reference, &path, format)
                             .map_err(|e| e.to_string())?;
                     }
                     Contents::Artifact { reference, source, member, .. } => {

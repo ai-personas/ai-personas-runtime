@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
 mod package;
-pub use package::{export_handoff, export_package};
+pub use package::{export_handoff, export_package, HandoffFormat};
 mod correspondence;
 pub use correspondence::correspondence;
 mod field_report;
@@ -72,7 +72,8 @@ pub(super) fn withdraw(db: &Connection, snapshot: &Snapshot, input: Withdraw) ->
     Ok(json!({"reference":updated.handle(),"state":"withdrawn","event":event}))
 }
 
-fn files(db: &Connection, refs: &[String]) -> Result<Vec<(String, String)>> {
+/// The same portable file tree must be usable at issue and at export.
+pub(super) fn files(db: &Connection, refs: &[String]) -> Result<Vec<(String, String)>> {
     let mut entries = Vec::new();
     let mut names = BTreeSet::new();
     let mut directories = BTreeSet::new();
@@ -88,19 +89,20 @@ fn files(db: &Connection, refs: &[String]) -> Result<Vec<(String, String)>> {
             .iter()
             .any(|p| p.contains(['\\', ':', '\0']) || p.ends_with([' ', '.']))
         {
-            return Err(failure(
-                "Use portable relative filenames for the human's ZIP",
-            ));
+            return Err(failure(format!(
+                "Cannot package {} ({reference}): use portable relative filenames without colons, backslashes or trailing spaces/dots",
+                path.display()
+            )));
         }
         let name = components.join("/");
         let folded = name.to_lowercase();
         if directories.contains(&folded) || !names.insert(folded.clone()) {
-            return Err(failure("Colliding filenames in the human's package"));
+            return Err(failure(format!("Conflicting file or folder at {name:?} ({reference}); choose distinct package paths ignoring case")));
         }
         for (index, _) in folded.match_indices('/') {
             let dir = &folded[..index];
             if names.contains(dir) {
-                return Err(failure("An attached file also names a folder"));
+                return Err(failure(format!("The folder {dir:?} needed by {name:?} also names a package file")));
             }
             directories.insert(dir.to_owned());
         }

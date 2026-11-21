@@ -166,8 +166,14 @@ pub enum Command {
     },
     /// Save the exact files of one delivery or human request as a portable ZIP.
     ExportPackage { reference: String, destination: PathBuf },
-    /// Save a printable issued delivery or human request and its files in a new folder.
-    ExportHandoff { reference: String, directory: PathBuf },
+    /// Save a printable issued delivery or human request and its files together.
+    ExportHandoff {
+        reference: String,
+        destination: PathBuf,
+        /// A single sendable ZIP or a new folder with the same contents.
+        #[arg(long, value_enum, default_value = "folder")]
+        format: super::human_requests::HandoffFormat,
+    },
     /// Read human feedback and directly addressed replies for one issued delivery.
     DeliveryFeedback {
         delivery: String,
@@ -616,7 +622,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
                 }),
                 Command::ActivitySources{work,persona,query}=>store.snapshot(|db|super::activity_sources::inspect(db,&work,persona.as_deref(),&query)),
                 Command::ExportPackage{reference,destination}=>store.snapshot(|db|super::human_requests::export_package(db,&reference,&destination)),
-                Command::ExportHandoff{reference,directory}=>store.snapshot(|db|super::human_requests::export_handoff(db,&reference,&directory)),
+                Command::ExportHandoff{reference,destination,format}=>store.snapshot(|db|super::human_requests::export_handoff(db,&reference,&destination,format)),
                 Command::CommandHistory(query)=>store.snapshot(|db|super::commands::history(db,&query)),
                 Command::GeometryHistory{reference,offset,page_size}=>store.snapshot(|db|super::geometry::history::lookup(db,&super::geometry::history::Lookup{reference,offset,page_size})),
                 Command::PackageReviews{work,query}=>store.snapshot(|db|super::package_review::lookup(db,work.as_deref(),&query)),

@@ -6,6 +6,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{fs::File, io::Write, path::Path};
 
+#[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HandoffFormat {
+    Folder,
+    Zip,
+}
+
 #[path = "delivery_sheet.rs"]
 mod delivery_sheet;
 #[path = "sheet.rs"]
@@ -79,7 +86,8 @@ fn package_files(db: &Connection, refs: &[String], writer: &mut File) -> Result<
         zip.start_file(
             &path,
             zip::write::SimpleFileOptions::default()
-                .compression_method(zip::CompressionMethod::Deflated),
+                .compression_method(zip::CompressionMethod::Deflated)
+                .large_file(bytes.len() as u64 >= u32::MAX as u64),
         )?;
         zip.write_all(&bytes)?;
         entries.push(SheetFile {
@@ -188,15 +196,15 @@ fn request_sheet(
     ))
 }
 
-/// Publish both files together from a single database snapshot. The folder is
-/// visible only after the sheet and every exact member are written successfully.
-pub fn export_handoff(db: &Connection, reference: &str, destination: &Path) -> Result<Value> {
+/// Publish the same printable sheet and exact attachments in either transport.
+/// In ZIP form the sheet's relative link to Files.zip still works after unpacking.
+pub fn export_handoff(db: &Connection, reference: &str, destination: &Path, format: HandoffFormat) -> Result<Value> {
     enum Handoff {
         Delivery(delivery_feedback::Issued),
         Request(store::Record),
     }
     let selected = match reference.split_once(':').map(|(kind, _)| kind) {
-        Some("delivery") => Handoff::Delivery(delivery_feedback::issued(db, reference)?),
+        Some("delivery") => Handoff::Delivery(crate::neural::activity_sources::delivery::edition(db, reference)?.issue),
         Some("human_request") => Handoff::Request(super::exact(db, reference)?),
         _ => {
             return Err(failure(
@@ -232,12 +240,36 @@ pub fn export_handoff(db: &Connection, reference: &str, destination: &Path) -> R
     document.write_all(html.as_bytes())?;
     document.sync_all()?;
     drop(document);
-    #[cfg(unix)]
-    File::open(stage.path())?.sync_all()?;
-    archive::publish_directory(stage.path(), destination)?;
+    match format {
+        HandoffFormat::Folder => {
+            #[cfg(unix)]
+            File::open(stage.path())?.sync_all()?;
+            archive::publish_directory(stage.path(), destination)?;
+            receipt["directory"] = json!(destination);
+        }
+        HandoffFormat::Zip => {
+            let mut temp = tempfile::NamedTempFile::new_in(parent)?;
+            let mut zip = zip::ZipWriter::new(temp.as_file_mut());
+            for member in std::iter::once(name).chain(archive) {
+                let mut source = File::open(stage.path().join(member))?;
+                let method = if member == name {
+                    zip::CompressionMethod::Deflated
+                } else {
+                    zip::CompressionMethod::Stored
+                };
+                zip.start_file(member, zip::write::SimpleFileOptions::default()
+                    .compression_method(method)
+                    .large_file(source.metadata()?.len() >= u32::MAX as u64))?;
+                std::io::copy(&mut source, &mut zip)?;
+            }
+            zip.finish()?.sync_all()?;
+            temp.persist_noclobber(destination)?;
+            receipt["file"] = json!(destination);
+        }
+    }
     #[cfg(unix)]
     File::open(parent)?.sync_all()?;
-    receipt["directory"] = json!(destination);
+    receipt["format"] = json!(format);
     receipt["sheet"] = json!(name);
     receipt["archive"] = json!(archive);
     receipt["file_count"] = json!(files.len());

@@ -697,7 +697,7 @@ fn internal(
                 ));
             }
             check_references(db, &x.evidence)?;
-            package_paths(db, &x.artifacts)?;
+            super::human_requests::files(db, &x.artifacts)?;
             check_shared_evidence(db,Some(actor),&x.review_inputs)?;
             if !x.reviews.is_empty() {
                 let mandate=snapshot.data["work"]["reference"].as_str().ok_or_else(||failure("Missing delivery mandate"))?;
