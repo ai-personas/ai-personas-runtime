@@ -18,7 +18,7 @@ use std::{
     },
     path::{Path, PathBuf},
     process::Command,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -45,6 +45,11 @@ pub struct Run {
     /// Omitted streams provide an excerpt and an exact object address for selective reads.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub return_text: BTreeSet<Stream>,
+    /// Your optional deadline, in seconds after this process starts. A timeout
+    /// ends its local process group and returns available diagnostics and files.
+    /// Omit for no deadline.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_seconds: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -74,6 +79,11 @@ impl Run {
     pub(crate) fn validate(&self, db: &Connection) -> Result<()> {
         if self.program.trim().is_empty() || self.program.contains('\0') {
             return Err(failure("Name the local executable to run"));
+        }
+        if self.timeout_seconds == Some(0) {
+            return Err(failure(
+                "Choose a positive timeout_seconds or omit the deadline",
+            ));
         }
         check_run_paths(&self.arguments, &self.files, &self.outputs)?;
         if self.directory == Directory::Workspace && !self.files.is_empty() {
@@ -232,6 +242,7 @@ pub(crate) fn run(
         "inherited_environment_sha256":crate::host_command::environment_sha256()});
     let mut process_started = false;
     let mut cancelled = false;
+    let mut timed_out = false;
     let terminal = (|| -> Result<_> {
         if !project.is_dir() {
             return Err(failure(format!(
@@ -261,11 +272,22 @@ pub(crate) fn run(
             .process_group(0)
             .spawn()?;
         process_started = true;
+        let launched = Instant::now();
         loop {
             match child.try_wait() {
                 Ok(Some(status)) => return Ok(status),
-                Ok(None) if !stop() => std::thread::sleep(Duration::from_millis(80)),
                 outcome => {
+                    if outcome.is_ok() {
+                        cancelled = stop();
+                        timed_out = !cancelled
+                            && input
+                                .timeout_seconds
+                                .is_some_and(|s| launched.elapsed().as_secs() >= s);
+                        if !cancelled && !timed_out {
+                            std::thread::sleep(Duration::from_millis(80));
+                            continue;
+                        }
+                    }
                     // The child is unreaped; the process group still belongs to this launch.
                     unsafe {
                         libc::kill(-(child.id() as i32), libc::SIGKILL);
@@ -273,7 +295,6 @@ pub(crate) fn run(
                     let _ = child.kill();
                     let status = child.wait()?;
                     outcome?;
-                    cancelled = true;
                     return Ok(status);
                 }
             }
@@ -283,7 +304,14 @@ pub(crate) fn run(
         Ok(status) => (
             status.code(),
             status.signal(),
-            cancelled.then(|| "Stopped by workspace control".to_owned()),
+            if timed_out {
+                Some(format!(
+                    "The selected {} s process deadline elapsed",
+                    input.timeout_seconds.unwrap_or_default()
+                ))
+            } else {
+                cancelled.then(|| "Stopped by workspace control".to_owned())
+            },
         ),
         Err(error) => (None, None, Some(error.to_string())),
     };
@@ -316,7 +344,7 @@ pub(crate) fn run(
         let body = json!({"format":"local-project-run-v1","engine":"local","origin":"persona","actor":origin.actor,
             "work":origin.work,"invocation":origin.invocation,"operation":origin.operation,"intent":input,
             "argv0":input.program,"arguments":input.arguments,"files_supplied":files,"stdin":stdin_source,"host":host,
-            "process_started":process_started,"process_succeeded":ok,"exit_code":exit,"signal":signal,"cancelled":cancelled,
+            "process_started":process_started,"process_succeeded":ok,"exit_code":exit,"signal":signal,"cancelled":cancelled,"timed_out":timed_out,
             "error":error,"outputs":outputs,"missing_outputs":missing,"file_errors":file_errors,
             "stdout":stream(db,&stdout)?,"stderr":stream(db,&stderr)?,"started":started,"finished":now(),
             "outputs_complete":missing.is_empty(),"success":ok && missing.is_empty()});

@@ -353,7 +353,7 @@ fn recovery_event(db: &rusqlite::Connection, mut event: Value) -> Result<Value> 
             let run = &result["result"];
             body["result"]["command_status"] = json!({"receipt":result["receipt"],
                 "process_started":run["process_started"],"exit_code":run["exit_code"],
-                "signal":run["signal"],"success":run["success"]});
+                "signal":run["signal"],"cancelled":run["cancelled"],"timed_out":run["timed_out"],"success":run["success"]});
             for stream in ["stdout", "stderr"] {
                 body["result"]["raw_logs"][stream] = json!({"reference":run[stream]["object"],
                     "bytes":run[stream]["bytes"],"body_not_supplied":true});

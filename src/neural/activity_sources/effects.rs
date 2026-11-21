@@ -500,6 +500,10 @@ fn command(
                 || r["host"]["working_directory"] != time.snapshot.data["host_working_directory"]) {
             return Err(failure("Shared command directory differs from the admitted decision"));
         }
+        if r["timed_out"] == true && (input.timeout_seconds.is_none() || r["process_started"] != true
+            || r["cancelled"] != false || r["success"] != false || !r["error"].is_string()) {
+            return Err(failure("Local timeout differs from the selected deadline or process outcome"));
+        }
         if r["format"] != "local-project-run-v1"
             || r["engine"] != "local"
             || r["intent"] != json!(input)
