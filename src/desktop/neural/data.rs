@@ -445,6 +445,11 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
         ("Superseded before dispatch".to_owned(), false)
     } else if body["tool"] == "command.install" {
         (format!("Available · {}", result["record"]["name"].as_str().unwrap_or("command")),false)
+    } else if body["tool"] == "workspace.open" && result["view"].is_string() {
+        let count = result["files"].as_array().map_or(0, Vec::len);
+        (if count == 0 { "Closed working sources".into() } else {
+            format!("Kept {} for later decisions", super::counted(count as u64, "source", "sources"))
+        }, false)
     } else if matches!(body["tool"].as_str(), Some("command.run" | "command.local")) {
         let run=&result["result"];
         let label=match (run["error"].as_str(),run["exit_code"].as_i64(),run["outputs_complete"].as_bool()) {
@@ -453,6 +458,7 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
             (_,Some(code),_)=>format!("Exit {code}"),
             _=>"Command outcome unavailable".into(),
         };
+        let label = if run["host"]["directory_mode"] == "workspace" { format!("Shared project · {label}") } else { label };
         (label,run["success"]!=true)
     } else if body["tool"] == "geometry.install" {
         (if result["already_installed"]==true { "Compiler already installed" } else { "Compiler installed" }.to_owned(), false)
@@ -509,6 +515,10 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
             projection["file_path"] = file.body["path"].clone();
         }
     }
+    if body["tool"]=="workspace.open" && !problem {
+        projection["project_view"]=result["view"].clone();
+        projection["open_sources"]=result["files"].clone();
+    }
     if matches!(body["tool"].as_str(), Some("command.run" | "command.local")) {
         projection["receipt"]=result["receipt"].clone();
         for key in ["installation","program","exit_code","error","stdout","stderr","outputs","missing_outputs"] {
@@ -557,6 +567,8 @@ fn verify_source_file(db: &Connection, source: &str, name: &str, object: &str, l
                 record.body["amendments"].as_array().into_iter().flatten()
                     .any(|change| contains(&change["attachments"])),
             "human_request" => contains(&record.body["last_report"]["attachments"]),
+            "project_view" => record.body["files"].as_array().into_iter().flatten().any(|f|
+                f["path"] == name && f["reference"] == object && f["bytes"].as_u64() == Some(length as u64)),
             _ => false,
         }
     };
@@ -588,7 +600,7 @@ pub(super) fn preview_output(root: &Path, reference: &str, output: Option<&(Stri
         let mut metadata=json!({"reference":reference,"media":media,"format":suffix});
         if projected {metadata["view"]=json!("provider_receipt_metadata");}
         let name=if let Some((source,path))=output.filter(|(r,_)|
-            r.starts_with("work:") || r.starts_with("experience:") || r.starts_with("human_request:")) {
+            r.starts_with("work:") || r.starts_with("experience:") || r.starts_with("human_request:") || r.starts_with("project_view:")) {
             if projected {
                 return Err(neural::failure("This file is available only as a provider receipt metadata view"));
             }

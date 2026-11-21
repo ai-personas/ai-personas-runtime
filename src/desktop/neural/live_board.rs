@@ -81,8 +81,9 @@ impl Filter {
                             | "host.command"
                             | "host.start"
                             | "host.cancel"
-                             | "command.run"
-                             | "command.local"
+                            | "command.run"
+                            | "command.local"
+                            | "workspace.open"
                             | "compute.run"
                             | "document.render_pdf"
                             | "geometry.render"
@@ -1429,6 +1430,28 @@ impl App {
                         super::overview::source_file_links(ui, &body["attachments"], &source)
                     {
                         action = Some(EventAction::SourceFile { source, object, name });
+                    }
+                }
+                if let (Some(view), Some(files)) = (result["project_view"].as_str(), result["open_sources"].as_array()) {
+                    if !files.is_empty() {
+                        egui::CollapsingHeader::new("Working sources")
+                            .id_salt(("working-sources", seq)).show(ui, |ui| {
+                            ui.weak("Frozen for this persona’s later decisions. Open a name to inspect the complete captured file.");
+                            for f in files {
+                                let (Some(name), Some(object)) = (f["path"].as_str(), f["reference"].as_str()) else {continue};
+                                ui.horizontal_wrapped(|ui| {
+                                    theme::glyph(ui, Icon::Files, p.accent);
+                                    if ui.link(name).on_hover_text(object).clicked() {
+                                        action = Some(EventAction::SourceFile {source:view.into(), object:object.into(), name:name.into()});
+                                    }
+                                    if f["start"] == 0 && f["end"] == f["bytes"] {
+                                        ui.small(format!("Whole file · {} B", f["bytes"]));
+                                    } else {
+                                        ui.small(format!("Bytes {}–{} of {} · end exclusive", f["start"], f["end"], f["bytes"]));
+                                    }
+                                });
+                            }
+                        });
                     }
                 }
                 ui.horizontal_wrapped(|ui| {
