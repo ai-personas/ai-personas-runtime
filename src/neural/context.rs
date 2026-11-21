@@ -877,7 +877,7 @@ pub(super) fn prepare_when(
         // request reconstruction does not depend on the current binary's schema.
         let definitions=json!({
             "feature_contract":{"digest":contract.digest().map_err(failure)?,"definition":contract},
-            "decision_schema":serde_json::to_value(schemars::schema_for!(DecisionV4))?
+            "decision_schema":decision_schema(!bootstrap)?
         });
         let prefix=format!("{CONTRACT}\nHost-owned interface definitions (not observations):\n{}",serde_json::to_string(&definitions)?);
         let mut data=json!({"invocation":invocation,"now_unix":observed_at,"control_versions":store::control_versions(db,work_id,actor)?,"identity":{"id":actor,"label":persona.label,"epoch":persona.epoch,"active_model":persona.model,"numerical":numerical},

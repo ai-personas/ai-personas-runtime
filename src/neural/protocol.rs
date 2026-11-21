@@ -1,7 +1,7 @@
 use crate::persona_model::{Appraisal, ModelPackage, ParameterPatch};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 /// Short names belong to a single complete response. Persistent handles and
 /// revisions are resolved by the runtime, never invented by the language model.
@@ -33,6 +33,28 @@ pub struct DecisionV4 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply_to: Option<String>,
     pub operations: Vec<Operation>,
+}
+
+/// An initial character has no earlier experience or active appraisal. Once
+/// active, publish the same field obligations that adoption actually checks.
+pub(super) fn decision_schema(active: bool) -> super::Result<Value> {
+    let mut schema = serde_json::to_value(schemars::schema_for!(DecisionV4))?;
+    if active {
+        schema["required"]
+            .as_array_mut()
+            .ok_or_else(|| super::failure("Decision schema is missing its required fields"))?
+            .push(json!("considered_experience"));
+        schema["properties"]["considered_experience"]["type"] = json!("array");
+        // persona.evaluate is itself an explicit appraisal choice. It can
+        // replace next_context.appraisal, but never considered_experience.
+        schema["if"] = json!({"properties":{"operations":{"not":{"contains":{
+            "type":"object","properties":{"tool":{"const":"persona.evaluate"}},"required":["tool"]
+        }}}}});
+        schema["then"] = json!({"properties":{"next_context":{
+            "required":["appraisal"],"properties":{"appraisal":{"type":"object"}}
+        }}});
+    }
+    Ok(schema)
 }
 
 /// Preserve duplicate-key rejection and identify the failing decision field.
