@@ -6,7 +6,7 @@ The design revision is `7d86efb`, published November 17, 2026. The Linux evaluat
 
 On November 21 a [new Studio society](autonomous-production.md) completed two unrelated digital production tasks, coordinated an on-site handoff and reused the earlier work across activities. The operator gave one brief per activity and no further task input.
 
-In a [PC power-supply trial](pc-power-studio.md), two newly initialized personas issued a 15-file digital engineering-prototype package from a single brief. The report distinguishes their manufacturing files, the actual model and tool receipts, and the physical qualification still outstanding.
+In a [PC power-supply trial](pc-power-studio.md), two newly initialized personas issued a 15-file digital engineering-prototype package for a native-12 V desktop. In a separate conventional ATX brief they wrote component definitions and identified design issues but did not deliver an integrated PCB or fabrication set. The report distinguishes the two outcomes, model and tool receipts, and physical qualification.
 
 ## Observing autonomous activity in Studio
 

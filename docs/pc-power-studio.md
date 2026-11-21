@@ -36,3 +36,23 @@ The same two personas received a **new activity** for a 24-pin ATX motherboard a
 At a runner-update checkpoint, the participants had made 270 accepted decisions, exchanged 87 peer messages and executed 250 local commands. All 271 completed provider inputs and final outputs were checked, including one rejected response. They had obtained component references and negotiated responsibilities but had not issued a new circuit or fabrication package. Their discussions repeatedly referred to a generator they intended to write as though it should already exist. Calling the earlier 12 V assembly an ATX result would be incorrect.
 
 During this run both personas chose the new complete-text option for local commands. Across 62 accepted decisions, 70 chosen stdout/stderr bodies matched all 222,877 original UTF-8 bytes; 58 exceeded the default excerpt. This demonstrates delivery of chosen observations. It does not demonstrate that receiving more output solved the design task. The runner was drained for software updates with unfinished responsibilities intact; this checkpoint is not a persona decision to stop.
+
+### Final ATX observation
+
+The updated Studio continued the same saved activity. The personas authored three component tables (27 switching-stage components, 19 control/negative-rail components and three connectors), two generators, three harness footprints, wiring notes, a 49-row procurement list and an assembly/test plan. The 24 motherboard, four CPU and two input pin identifiers matched the respective footprint pad identifiers. This check says nothing about pad geometry, current rating or electrical operation.
+
+**There was no ATX delivery.** Neither an integrated KiCad PCB nor an integrated KiCad schematic was present in the project. No fabrication set or hardware qualification was demonstrated. The participants raised, but did not resolve, a possible package mismatch: their procurement file still paired `SS54-E3/57T` with `D_SMA`. A local download named `ss54_verified.pdf` actually began with an HTML doctype. A file named as a datasheet did not verify that part.
+
+The evaluator finished the paid run with both personas still choosing `ready`; no task amendment, corrective message, or operator-authored design file was supplied. The local operator saved 11 unchanged working files separately from the issued PC60 ZIP. They are **work in progress, not files for a manufacturer**. The workspace retains both activities and their individual continuation states.
+
+| Final ATX measurement | Observed |
+|---|---:|
+| Accepted decisions / rejected responses | 532 / 3 |
+| Verified completed provider inputs / terminal outputs | 535 / 535 |
+| Verified ordinary character uses | 532 |
+| Persona-to-persona messages / operator follow-up task messages | 147 / 0 |
+| Local command receipts | 512 |
+| Time between first admission and last completed call, including runner handovers | 39 min 27 s |
+| Reported tokens, including rejected calls | 7,375,969 (3,650,294 cached input) |
+
+**Conclusion:** the trial demonstrated independent research, cooperation, digital prototype delivery for the narrower PC60 brief, and enough evidence to see where work broke down. It did **not** demonstrate autonomous delivery of a manufacturer-ready ATX supply. Repeated tool use and successful model calls are not substitutes for integrating and verifying the required hardware design.
