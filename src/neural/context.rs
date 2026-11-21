@@ -33,6 +33,7 @@ Exact references use kind:id@revision, or object:digest for immutable JSON/bytes
 If context_recovery is present, the provider explicitly rejected the previous input for context length or image capacity. This fresh request supplies metadata instead of event, selected-resource and image bodies; it does not mean those contents were observed. Exact bytes remain retained. Use the supplied object references and asset.read byte ranges to inspect what you need, then explicitly choose a workable next_context. Raw stdout/stderr references avoid reading an entire structured command receipt. For an image-capacity refusal, choose appropriate host tools to prepare a usable image, crop or export; the runtime does not resize the original for you. Do not rerun completed commands merely to recover their output or select the same rejected body whole. Character activation/rollback waits for an ordinary request with observed evidence. There is no application token or image quota or silent truncation; the provider's actual refusal triggered this recovery.
 Each next_context also contains working_note: your concise factual handoff for the next decision. Its exact text is supplied in decision_continuity.previous_work_decision.working_note after adoption. Rewrite it from your prior note and newly observed evidence: retain useful discoveries, current artifact locations and interfaces, working tool invocations, failed approaches, exact evidence pointers, and the next concrete action. Keep observed results distinct from operations that are only requested or pending. A repeated intention to act is not a record of what you learned. When alternating between different inspections, carry forward their useful findings so you can combine them instead of rediscovering each in turn. This note needs no asset.save operation; use assets for reusable skills and longer supporting material. Replace obsolete facts, keep it focused on the next work, or use an empty string when nothing needs retaining. The runtime supplies your chosen note verbatim, never summarizes or chooses its content. It is supporting work context, not character; initialization notes remain withheld after initial activation.
 Original briefs can include materials. Messages and amendments can include attachments. Their manifests give the supplied filenames and exact byte references. You choose which contents to inspect. When useful, command.local can run software on this computer with your chosen project files; command.install also offers portable Python. A library save is not automatically a host file: map exact references (or earlier $save IDs) to filenames. For a local run, return_text:["stdout"] and/or "stderr" supplies the chosen full UTF-8 streams to your following decision. An incomplete excerpt is not a failed command: you can also read its retained stream object, choose a range, or select it for later without repeating the work. Inspect actual output and correct it yourself. If the remaining step requires somebody outside, give them the exact ready-to-use files and action. Asking them need not pause independent work; their silence is not consent or evidence it happened.
+For a task, distinguish what you intend to make from what you or a peer have actually produced. decision_continuity.activity_file_progress reports retained library changes in this activity, not everything on the host. Compare your prior purpose with the observed consequences. If repeated inspection is not revealing new information and an input is yours to create, make and check a concrete first version rather than treating your own unwritten work as a missing prerequisite. You choose how; do not invent file contents, another person's progress or an obligation on the requester.
 Your own outcomes are supplied in full. Peer outcome views preserve their complete descriptions, states, assumptions, dependencies and remaining work. Artifact and evidence counts are discovery metadata; artifact_membership_supplied=false means the artifact list is not in that view. Read or select the exact outcome reference to obtain its full artifact and evidence lists, then choose the resources needed for your decision. Counts do not establish usability or completion, and the author's qualifications still apply.
 The deliveries list is a discovery index of exact versions, with original authorship, scope, latest attributed human review and remaining work preserved. A null review means no review has been recorded. An index entry does not supply its supported-use description, artifact membership or evidence. Those exact fields remain available through asset.read or next_context selection of the delivery reference. Choose the records useful for your next decision; delivery does not establish overall quality or user acceptance.
 current_controls supplies applicable execution-control state and exact history references when retained. control_changed events attribute changes. A running control permits work at that scope; other controls and your continuation still apply. A control change is not a terminal execution receipt and does not resume an explicitly stopped participation.
@@ -174,6 +175,29 @@ fn decision_continuity(
         }
     }
     Ok(view)
+}
+
+/// A compact activity-local observation, not a claim that the requested
+/// deliverable exists or that an empty library means the host tree is empty.
+/// Keep the catalogue out of the request; only the most recent change is named.
+fn file_progress(db: &rusqlite::Connection, work: &str) -> Result<Value> {
+    let from = "FROM versions v JOIN invocations i ON i.id=v.invocation
+                WHERE v.kind='asset' AND i.work=?1 AND i.state='accepted'";
+    let (editions, files): (i64, i64) = db.query_row(
+        &format!("SELECT count(*),count(DISTINCT v.id) {from}"), [work],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    let last: Option<(String, i64, String, String, String)> = db.query_row(
+        &format!("SELECT v.id,v.revision,v.digest,i.actor,i.id {from} ORDER BY v.rowid DESC LIMIT 1"),
+        [work], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+    ).optional()?;
+    let last = last.map(|(id, revision, digest, actor, call)| -> Result<Value> {
+        let file: Value = store::object(db, &digest)?;
+        Ok(json!({"reference":format!("asset:{id}@{revision}"),"path":file["path"],
+            "retired":file["retired"],"changed_by":actor,"decision":format!("experience:{call}@1")}))
+    }).transpose()?;
+    Ok(json!({"distinct_files_changed":files,"edition_changes":editions,"latest_change":last,
+        "scope":"Library writes, registrations and metadata changes by accepted decisions in this activity. Host-only files, unregistered command outputs and earlier activities are outside this count. A plan or message is not a file change; a registered file is not necessarily a delivered result."}))
 }
 
 /// Current execution records are distinct from a persona's chosen continuation.
@@ -902,6 +926,9 @@ pub(super) fn prepare_when(
             "selected_resources":selected,"previously_selected_tools_unavailable":unavailable_tools,"available_tools":tool_schemas,"host_working_directory":if bootstrap{Value::Null}else{config.body["working_directory"].clone()}});
         if let Some(structure)=structure {data["identity"]["appraisal_structure"]=structure;}
         if !bootstrap {
+            if data["work"]["record"]["kind"] != "social" && participation.accepted {
+                data["decision_continuity"]["activity_file_progress"] = file_progress(db, work_id)?;
+            }
             if let Some(origin)=super::activity_requests::origin(db,work_id)? {
                 data["request_origin"]=json!({"request":origin.request,"parent":origin.parent,
                     "requester":origin.requester,"returns_to":"requester in originating activity"});
