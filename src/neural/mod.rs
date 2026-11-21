@@ -36,6 +36,7 @@ pub mod discovery;
 pub mod context;
 pub mod controls;
 pub mod workspace;
+pub mod web;
 pub mod operations;
 pub mod protocol;
 pub mod recovery;

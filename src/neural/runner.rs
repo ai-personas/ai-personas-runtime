@@ -18,6 +18,8 @@ use std::{
     sync::Arc,
 };
 mod pdf;
+mod returned_file;
+use returned_file::ReturnedFile;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -638,6 +640,13 @@ async fn external(
     }
 }
 
+async fn fetch_source(root: &Path, work: &str, actor: &str, input: Value) -> Result<(Value, Option<ReturnedFile>)> {
+    let controls = Store::open(root)?;
+    let (receipt, body) = super::web::fetch(serde_json::from_value(input)?,
+        move || control_observation(&controls, work, actor).is_some()).await?;
+    Ok((receipt, body.map(ReturnedFile::Web)))
+}
+
 async fn effects(root: &Path, actor: &str, selected_work:&str) -> Result<()> {
     let mut store = Store::open(root)?;
     loop {
@@ -675,10 +684,10 @@ async fn effects(root: &Path, actor: &str, selected_work:&str) -> Result<()> {
             Ok(true)
         })?;
         if !dispatched { continue; }
-        let result = if matches!(op.tool.as_str(), "document.print_html" | "document.render_pdf") {
-            pdf::execute(root, &work, actor, op.clone()).await
-        } else {
-            external(root, &work, actor, &invocation, &op).await.map(|value| (value, None))
+        let result = match op.tool.as_str() {
+            "document.print_html" | "document.render_pdf" => pdf::execute(root, &work, actor, op.clone()).await,
+            "web.fetch" => fetch_source(root, &work, actor, op.input.clone()).await,
+            _ => external(root, &work, actor, &invocation, &op).await.map(|value| (value, None)),
         };
         let (mut value, file) = match result {
             Ok(value) => value,

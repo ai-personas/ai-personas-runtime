@@ -323,6 +323,7 @@ pub const NAMES: &[(&str,&str)] = &[
     ("command.local","Run a program with literal arguments. Use directory:\"workspace\" for continuing work: relative paths start in the shared project, edits stay there and peers can use them. Name files in outputs to capture their exact bytes, including existing sources for your next decision. Scratch (default) instead stages files from exact references in a fresh directory. return_text:[\"stdout\"] and/or \"stderr\" supplies complete UTF-8 streams; otherwise read the exact stream object for more. Register exact outputs with asset.register for delivery."),
     ("command.history","List installed portable commands and discover local and portable executions across activities by exact installation, receipt, source, log or output reference."),
     ("workspace.list","List names and file types in one chosen shared-workspace directory. Import selected file contents separately."),
+    ("web.fetch","Retrieve an HTTP(S) source and retain its exact response bytes. Reports final URL, status, declared media type and observed file header. Optionally expect a PDF, HTML, ZIP or image header. Even an error page or unexpected format has its own byte reference when fully received. Read or render the returned object to inspect its contents."),
     ("workspace.open","Keep the actual text of chosen shared project files in your decisions while you work. paths accepts filenames or {path,start,end} UTF-8 byte ranges. One successful call replaces your open set with exact frozen editions; no automatic refresh or reread. Use paths:[] to close it. Failed opens preserve the prior set. This does not publish assets."),
     ("tools.search","Find tool names and purposes using literal or regex search; no execution."),
     ("tools.describe","Read exact input schemas for named tools."),
@@ -418,6 +419,7 @@ pub fn describe(name: &str) -> Result<Value> {
         "command.install" => schema::<super::commands::Install>()?,
         "command.run" => schema::<super::commands::Run>()?,
         "command.local" => schema::<super::commands::local::Run>()?,
+        "web.fetch" => schema::<super::web::Fetch>()?,
         "workspace.open" => schema::<super::workspace::open::Open>()?,
         "command.history" => schema::<super::commands::History>()?,
         "persona.patch" => schema::<protocol::PatchModel>()?,
@@ -511,6 +513,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
         "command.install" => parse::<super::commands::Install>(value),
         "command.run" => parse::<super::commands::Run>(value),
         "command.local" => parse::<super::commands::local::Run>(value),
+        "web.fetch" => serde_json::from_value::<super::web::Fetch>(value.clone())?.validate().map(|_| ()),
         "workspace.open" => parse::<super::workspace::open::Open>(value),
         "command.history" => parse::<super::commands::History>(value),
         "persona.patch" => parse::<protocol::PatchModel>(value),
@@ -563,7 +566,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
 pub fn is_external(name: &str) -> bool {
     matches!(
         name,
-        "command.install" | "command.run" | "command.local" | "compute.inspect" | "compute.run" | "geometry.install" | "geometry.render" | "geometry.inspect_stl" | "geometry.profile_stl" | "workspace.list" | "workspace.open" | "asset.import" | "image.read" | "image.render_svg" | "document.print_html" | "document.render_pdf" | "persona.assess"
+        "command.install" | "command.run" | "command.local" | "web.fetch" | "compute.inspect" | "compute.run" | "geometry.install" | "geometry.render" | "geometry.inspect_stl" | "geometry.profile_stl" | "workspace.list" | "workspace.open" | "asset.import" | "image.read" | "image.render_svg" | "document.print_html" | "document.render_pdf" | "persona.assess"
     )
 }
 pub fn asset_mutation(name: &str) -> bool {

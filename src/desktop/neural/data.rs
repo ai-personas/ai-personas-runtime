@@ -445,6 +445,17 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
         ("Superseded before dispatch".to_owned(), false)
     } else if body["tool"] == "command.install" {
         (format!("Available · {}", result["record"]["name"].as_str().unwrap_or("command")),false)
+    } else if body["tool"] == "web.fetch" {
+        let status = result["http_status"].as_u64().map_or_else(|| "No HTTP status".into(), |n| format!("HTTP {n}"));
+        let format = result["observed_signature"].as_str().map_or_else(|| "unrecognized header".into(), str::to_uppercase);
+        let label = if result["body_complete"] != true {
+            format!("{status} · no complete response")
+        } else if let Some(expected) = result["expected_signature"].as_str().filter(|_| result["signature_matches"] == false) {
+            format!("{status} · {format} (expected {})", expected.to_uppercase())
+        } else {
+            format!("{status} · {format}")
+        };
+        (label, result["success"] != true)
     } else if body["tool"] == "workspace.open" && result["view"].is_string() {
         let count = result["files"].as_array().map_or(0, Vec::len);
         (if count == 0 { "Closed working sources".into() } else {
@@ -518,6 +529,14 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
     if body["tool"]=="workspace.open" && !problem {
         projection["project_view"]=result["view"].clone();
         projection["open_sources"]=result["files"].clone();
+    }
+    if body["tool"] == "web.fetch" {
+        for key in ["requested_url", "final_url", "content_type", "received_bytes", "failure"] {
+            projection[key] = result[key].clone();
+        }
+        if result["body_complete"] == true {
+            projection["retrieved_object"] = result["reference"].clone();
+        }
     }
     if matches!(body["tool"].as_str(), Some("command.run" | "command.local")) {
         projection["receipt"]=result["receipt"].clone();

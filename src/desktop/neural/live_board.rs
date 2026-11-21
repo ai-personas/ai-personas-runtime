@@ -84,6 +84,7 @@ impl Filter {
                             | "command.run"
                             | "command.local"
                             | "workspace.open"
+                            | "web.fetch"
                             | "compute.run"
                             | "document.render_pdf"
                             | "geometry.render"
@@ -120,7 +121,8 @@ impl Filter {
                     || event["body"]["recipient_kind"] == "operator"
             }
             Self::Files => {
-                file || human_file_count(event) > 0 || feedback_reference(event).is_some()
+                file || event["tool_outcome"]["retrieved_object"].is_string()
+                    || human_file_count(event) > 0 || feedback_reference(event).is_some()
                     || matches!(
                         kind,
                         "delivery" | "request_delivery" | "package_review" | "user_acceptance" | "asset_feedback"
@@ -1424,6 +1426,20 @@ impl App {
                         }
                     });
                 }
+                if let Some(url) = result["requested_url"].as_str() {
+                    let final_url = result["final_url"].as_str().unwrap_or(url);
+                    ui.add(egui::Label::new(RichText::new(final_url).small()).truncate())
+                        .on_hover_text(if url == final_url { url.to_owned() } else { format!("Requested: {url}\nReturned by: {final_url}") });
+                    ui.horizontal_wrapped(|ui| {
+                        if let Some(object) = result["retrieved_object"].as_str() {
+                            if text_action(ui, "Inspect returned file").on_hover_text(object).clicked() {
+                                action = Some(EventAction::Open(object.into()));
+                            }
+                        }
+                        if let Some(n) = result["received_bytes"].as_u64() { ui.small(size(n)); }
+                        if let Some(t) = result["content_type"].as_str() { ui.small(format!("Server type: {t}")); }
+                    });
+                }
                 if human_file_count(event) > 0 {
                     let source = reference();
                     if let Some((object, name)) =
@@ -1616,6 +1632,7 @@ impl App {
                     result["file_reference"].is_string(),
                     s(result, "label"),
                 ) {
+                    ("web.fetch", _, label) => format!("requested a source · {label}"),
                     ("document.render_pdf", _, label) if result["page_image"].is_string() => {
                         label.replacen("Rendered", "rendered", 1)
                     }

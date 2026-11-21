@@ -1151,6 +1151,7 @@ pub fn validate_external(db: &Connection, persona: &Persona, op: &Operation) -> 
         "command.install" => {super::commands::validate_install(db,&decode(&op.input)?)?;}
         "command.run" => super::commands::validate_run(db,&decode(&op.input)?)?,
         "command.local" => decode::<super::commands::local::Run>(&op.input)?.validate(db)?,
+        "web.fetch" => { decode::<super::web::Fetch>(&op.input)?.validate()?; }
         "geometry.install" => {
             let input: super::geometry::Install = decode(&op.input)?;
             super::geometry::validate_install(db,&input)?;
