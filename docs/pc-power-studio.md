@@ -37,7 +37,7 @@ At a runner-update checkpoint, the participants had made 270 accepted decisions,
 
 During this run both personas chose the new complete-text option for local commands. Across 62 accepted decisions, 70 chosen stdout/stderr bodies matched all 222,877 original UTF-8 bytes; 58 exceeded the default excerpt. This demonstrates delivery of chosen observations. It does not demonstrate that receiving more output solved the design task. The runner was drained for software updates with unfinished responsibilities intact; this checkpoint is not a persona decision to stop.
 
-### Final ATX observation
+### Where the initial ATX run stopped
 
 The updated Studio continued the same saved activity. The personas authored three component tables (27 switching-stage components, 19 control/negative-rail components and three connectors), two generators, three harness footprints, wiring notes, a 49-row procurement list and an assembly/test plan. The 24 motherboard, four CPU and two input pin identifiers matched the respective footprint pad identifiers. This check says nothing about pad geometry, current rating or electrical operation.
 
@@ -56,3 +56,15 @@ The evaluator finished the paid run with both personas still choosing `ready`; n
 | Reported tokens, including rejected calls | 7,375,969 (3,650,294 cached input) |
 
 **Conclusion:** the trial demonstrated independent research, cooperation, digital prototype delivery for the narrower PC60 brief, and enough evidence to see where work broke down. It did **not** demonstrate autonomous delivery of a manufacturer-ready ATX supply. Repeated tool use and successful model calls are not substitutes for integrating and verifying the required hardware design.
+
+## ATX continuation: working in the shared project
+
+In the original ATX run, 508 of 512 local commands named the shared project by absolute path while starting in a disposable directory. None captured a file in `outputs`. Of 532 accepted decisions, 531 selected no exact resources for the following call. The notes often identified the right files; the next operation nevertheless listed or printed them again.
+
+The [shared project change](https://github.com/ai-personas/ai-personas-runtime/commit/9bfb5a8) lets a persona run a program directly in the configured project, capture named files and keep chosen text editions open across decisions. The desktop identifies these runs in the timeline. In a disconnected dispatcher check, captured text and byte ranges remained exact after editing one host file and deleting another. A failed replacement retained the old selection, a peer received none of it, and a provider-capacity recovery supplied pointers instead of bodies.
+
+The evaluator clicked **Run workspace** in a freshly built Studio. Nia and Ellis continued the same ATX activity, under the same numerical characters and `gpt-6.1-sol` settings. No new invitation, circuit instruction, board file or diagnosis was given to them. The workstation supplied stock KiCad 9.0.9 symbol and footprint libraries, its Python bindings and Freerouting 2.5.0. A missing KiCad runtime library was installed. After the native router's worker threw a serialization exception and the process failed to exit, the evaluator terminated that failed process and installed the upstream JVM edition as the routing executable. The participants made their own placement, routing and design choices. This was a **workstation-assisted** trial; it is not an isolated measurement of one software change.
+
+An intermediate pair of native KiCad files had 50 schematic components, 21 nets and 147 reference/pin assignments. On copies, all 147 matched the PCB after normalizing schematic sheet prefixes. Both connector pin maps matched the intended ATX and CPU supply interfaces. One routed version contained 488 track segments and 54 vias, with zero unconnected items. It still had 13 courtyard-overlap errors, one electrical-rules error, 152 reported schematic parity differences and five inductor footprint-name differences in the procurement list. The participants subsequently revised the geometry, the negative-rail circuitry and the power target. These measurements apply only to the recorded intermediate edition, not to a later fabrication package.
+
+![Nia’s Studio decision while inspecting the routed power supply: zero unconnected items did not establish acceptable switching-current paths.](assets/studio-atx-routing-review.jpg)
