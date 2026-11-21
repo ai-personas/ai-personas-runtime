@@ -26,12 +26,17 @@ use std::{
 pub struct Run {
     /// Local executable name on PATH or path. Arguments are literal, not shell syntax.
     pub program: String,
+    /// workspace starts in the configured shared project, where edits persist and
+    /// outputs name real project files. The default scratch tree stages exact files.
+    #[serde(default, skip_serializing_if = "Directory::is_scratch")]
+    pub directory: Directory,
     #[serde(default)]
     pub arguments: Vec<String>,
     /// Relative filenames in the new project directory mapped to exact asset revisions or byte objects.
     #[serde(default)]
     pub files: BTreeMap<String, String>,
     /// Relative regular files to capture after exit, even after a nonzero exit.
+    /// In workspace mode these may already exist; capture does not prove authorship.
     #[serde(default)]
     pub outputs: Vec<String>,
     /// Exact asset revision or byte object for standard input. Empty if omitted.
@@ -40,6 +45,20 @@ pub struct Run {
     /// Omitted streams provide an excerpt and an exact object address for selective reads.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub return_text: BTreeSet<Stream>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Directory {
+    #[default]
+    Scratch,
+    Workspace,
+}
+
+impl Directory {
+    fn is_scratch(&self) -> bool {
+        *self == Self::Scratch
+    }
 }
 
 #[derive(
@@ -57,6 +76,9 @@ impl Run {
             return Err(failure("Name the local executable to run"));
         }
         check_run_paths(&self.arguments, &self.files, &self.outputs)?;
+        if self.directory == Directory::Workspace && !self.files.is_empty() {
+            return Err(failure("Workspace mode operates on existing project files. Use scratch to stage a file map, or omit files to work in the shared directory."));
+        }
         for reference in self.files.values().chain(&self.stdin) {
             workspace::byte_digest(db, reference)?;
         }
@@ -144,10 +166,13 @@ pub(crate) fn project_streams(db: &Connection, result: &mut Value) -> Result<()>
             }
         }
     }
-    // Large argument programs and intent are already available in the receipt.
+    // In the shared tree the actor needs the actual command alongside the
+    // result (e.g. which relative path produced a diagnostic). Keep one copy.
     if let Some(obj) = run.as_object_mut() {
         obj.remove("intent");
-        obj.remove("arguments");
+        if obj["host"]["directory_mode"] != "workspace" {
+            obj.remove("arguments");
+        }
     }
     Ok(())
 }
@@ -156,19 +181,29 @@ pub(crate) fn project_streams(db: &Connection, result: &mut Value) -> Result<()>
 /// is no command retry on an error, cancellation or interrupted process.
 pub(crate) fn run(
     root: &Path,
+    shared_directory: &Path,
     origin: Origin<'_>,
     input: Run,
     mut stop: impl FnMut() -> bool,
 ) -> Result<Value> {
     let mut workspace = store::Store::open(root)?;
     input.validate(&workspace.db)?;
-    let project = tempfile::Builder::new()
-        .prefix("personas-project-")
-        .tempdir()?;
+    let scratch = input
+        .directory
+        .is_scratch()
+        .then(|| {
+            tempfile::Builder::new()
+                .prefix("personas-project-")
+                .tempdir()
+        })
+        .transpose()?;
+    let project = scratch
+        .as_ref()
+        .map_or(shared_directory, tempfile::TempDir::path);
     let mut files = BTreeMap::new();
     for (path, reference) in &input.files {
         let (digest, bytes) = content(&workspace.db, reference)?;
-        let destination = project.path().join(path);
+        let destination = project.join(path);
         fs::create_dir_all(
             destination
                 .parent()
@@ -193,12 +228,18 @@ pub(crate) fn run(
     let stderr = tempfile::tempfile()?;
     let started = now();
     let mut host = json!({"os":std::env::consts::OS,"arch":std::env::consts::ARCH,
-        "effective_uid":unsafe { libc::geteuid() },"working_directory":project.path(),
+        "effective_uid":unsafe { libc::geteuid() },"working_directory":project,"directory_mode":input.directory,
         "inherited_environment_sha256":crate::host_command::environment_sha256()});
     let mut process_started = false;
     let mut cancelled = false;
     let terminal = (|| -> Result<_> {
-        let path = executable(&input.program, project.path())?;
+        if !project.is_dir() {
+            return Err(failure(format!(
+                "Working directory is unavailable: {}",
+                project.display()
+            )));
+        }
+        let path = executable(&input.program, project)?;
         // Keep the invoked name (a multicall executable can inspect argv[0]).
         host["executable"] = json!(path);
         host["resolved_executable"] = json!(path.canonicalize()?);
@@ -213,7 +254,7 @@ pub(crate) fn run(
         }
         let mut child = Command::new(path)
             .args(&input.arguments)
-            .current_dir(project.path())
+            .current_dir(project)
             .stdin(stdin)
             .stdout(stdout.try_clone()?)
             .stderr(stderr.try_clone()?)
@@ -252,7 +293,7 @@ pub(crate) fn run(
     let mut file_errors = BTreeMap::new();
     if process_started {
         for name in &input.outputs {
-            match workspace::read_file(project.path(), name) {
+            match workspace::read_file(project, name) {
                 Ok((_, data)) => {
                     outputs.insert(name, data);
                 }

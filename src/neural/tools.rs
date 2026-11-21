@@ -320,9 +320,10 @@ pub struct AssetMetadata {
 pub const NAMES: &[(&str,&str)] = &[
     ("command.install","Install Python 3.12 (engine=python, includes its bundled standard library), ngspice, or any retained WASI Preview 1 command for shared use. An omitted source downloads the published Python or ngspice release; an exact matching copy also works offline. Include the installation operation ID in asset_maintenance.operations with kind change. Use the returned installation reference for command.run."),
     ("command.run","Execute a workspace command, including Python scripts you write. Mount exact assets or byte objects under relative filenames, pass literal arguments (e.g. [\"build.py\"]), name outputs to capture. stdout, stderr and files are returned as exact byte references; read the streams for diagnostics or register a finished output for delivery."),
-    ("command.local","Run a local executable on a fresh project directory of exact files with literal arguments and optional stdin. Use the available software to create, convert, check, analyze or package work. Choose output filenames to capture. To receive an entire UTF-8 stream on your next decision, select return_text:[\"stdout\"] and/or \"stderr\". Otherwise you receive an excerpt and an exact stream object: read that object for more without rerunning the command. Use asset.register to keep and deliver selected outputs."),
+    ("command.local","Run a program with literal arguments. Use directory:\"workspace\" for continuing work: relative paths start in the shared project, edits stay there and peers can use them. Name files in outputs to capture their exact bytes, including existing sources for your next decision. Scratch (default) instead stages files from exact references in a fresh directory. return_text:[\"stdout\"] and/or \"stderr\" supplies complete UTF-8 streams; otherwise read the exact stream object for more. Register exact outputs with asset.register for delivery."),
     ("command.history","List installed portable commands and discover local and portable executions across activities by exact installation, receipt, source, log or output reference."),
     ("workspace.list","List names and file types in one chosen shared-workspace directory. Import selected file contents separately."),
+    ("workspace.open","Keep the actual text of chosen shared project files in your decisions while you work. paths accepts filenames or {path,start,end} UTF-8 byte ranges. One successful call replaces your open set with exact frozen editions; no automatic refresh or reread. Use paths:[] to close it. Failed opens preserve the prior set. This does not publish assets."),
     ("tools.search","Find tool names and purposes using literal or regex search; no execution."),
     ("tools.describe","Read exact input schemas for named tools."),
     ("persona.initialize","Author your initial network as explicit sparse numerical parameters. Unspecified coordinates are zero; no training or random initialization."),
@@ -417,6 +418,7 @@ pub fn describe(name: &str) -> Result<Value> {
         "command.install" => schema::<super::commands::Install>()?,
         "command.run" => schema::<super::commands::Run>()?,
         "command.local" => schema::<super::commands::local::Run>()?,
+        "workspace.open" => schema::<super::workspace::open::Open>()?,
         "command.history" => schema::<super::commands::History>()?,
         "persona.patch" => schema::<protocol::PatchModel>()?,
         "persona.assess" => schema::<AssessModel>()?,
@@ -509,6 +511,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
         "command.install" => parse::<super::commands::Install>(value),
         "command.run" => parse::<super::commands::Run>(value),
         "command.local" => parse::<super::commands::local::Run>(value),
+        "workspace.open" => parse::<super::workspace::open::Open>(value),
         "command.history" => parse::<super::commands::History>(value),
         "persona.patch" => parse::<protocol::PatchModel>(value),
         "persona.assess" => parse::<AssessModel>(value),
@@ -560,7 +563,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
 pub fn is_external(name: &str) -> bool {
     matches!(
         name,
-        "command.install" | "command.run" | "command.local" | "compute.inspect" | "compute.run" | "geometry.install" | "geometry.render" | "geometry.inspect_stl" | "geometry.profile_stl" | "workspace.list" | "asset.import" | "image.read" | "image.render_svg" | "document.print_html" | "document.render_pdf" | "persona.assess"
+        "command.install" | "command.run" | "command.local" | "compute.inspect" | "compute.run" | "geometry.install" | "geometry.render" | "geometry.inspect_stl" | "geometry.profile_stl" | "workspace.list" | "workspace.open" | "asset.import" | "image.read" | "image.render_svg" | "document.print_html" | "document.render_pdf" | "persona.assess"
     )
 }
 pub fn asset_mutation(name: &str) -> bool {

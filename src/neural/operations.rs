@@ -1170,6 +1170,7 @@ pub fn validate_external(db: &Connection, persona: &Persona, op: &Operation) -> 
             let _ = super::workspace::program(db,&query.program)?;
         }
         "workspace.list" => {let _:tools::ListDirectory=decode(&op.input)?;}
+        "workspace.open" => {let _:super::workspace::open::Open=decode(&op.input)?;}
         "compute.run" => {
             let compute: tools::Compute = decode(&op.input)?;
             let _ = super::workspace::program(db, &compute.program)?;

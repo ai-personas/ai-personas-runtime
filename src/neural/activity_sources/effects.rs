@@ -495,6 +495,11 @@ fn command(
     let local = op.tool == "command.local";
     let (files, stdin, expected_outputs) = if local {
         let input: commands::local::Run = serde_json::from_value(op.input.clone())?;
+        if input.directory == commands::local::Directory::Workspace
+            && (r["host"]["directory_mode"] != "workspace" || !r["host"]["working_directory"].is_string()
+                || r["host"]["working_directory"] != time.snapshot.data["host_working_directory"]) {
+            return Err(failure("Shared command directory differs from the admitted decision"));
+        }
         if r["format"] != "local-project-run-v1"
             || r["engine"] != "local"
             || r["intent"] != json!(input)

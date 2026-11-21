@@ -1,4 +1,5 @@
 //! Files selected from the workspace and the runtime's portable computation interface.
+pub(crate) mod open;
 use super::{failure, store, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use rusqlite::Connection;
