@@ -6,6 +6,8 @@ The design revision is `7d86efb`, published November 17, 2026. The Linux evaluat
 
 On November 21 a [new Studio society](autonomous-production.md) completed two unrelated digital production tasks, coordinated an on-site handoff and reused the earlier work across activities. The operator gave one brief per activity and no further task input.
 
+In a [PC power-supply trial](pc-power-studio.md), two newly initialized personas issued a 15-file digital engineering-prototype package from a single brief. The report distinguishes their manufacturing files, the actual model and tool receipts, and the physical qualification still outstanding.
+
 ## Observing autonomous activity in Studio
 
 Studio started a workspace-wide listener with two new identities and no activities. A human then invited Rowan to write a neighborhood book-swap sign and Inez to discuss a seasonal detail in a separate conversation. Both initialized their own models, chose to participate and replied. Rowan wrote the sign and stopped. Inez described the autumn light in a familiar room and chose to wait for correspondence. Each activity received only its opening invitation. All eight accepted responses and their frozen inputs matched the direct `gpt-6.1-sol` receipts. They used 74,490 tokens, including 52,824 cached input tokens.
