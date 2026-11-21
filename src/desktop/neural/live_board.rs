@@ -1,6 +1,7 @@
 //! Activity-scoped observations, retained events, and human participation.
 pub(super) mod draft;
 mod tool_result;
+mod journal;
 
 use super::*;
 use ai_personas::neural::live::RunnerObservation;
@@ -14,6 +15,7 @@ enum View {
     #[default]
     Live,
     Work,
+    Journal,
 }
 
 #[derive(Clone, Copy, Default, PartialEq)]
@@ -145,6 +147,7 @@ pub(super) struct Board {
     limit: usize,
     jump_to_latest: bool,
     work_focus: Option<WorkSection>,
+    journal: journal::Journal,
     expanded: Option<i64>,
     draft_call: String,
     traces: BTreeMap<String, VecDeque<(i64, u64)>>,
@@ -164,6 +167,7 @@ impl Default for Board {
             limit: PAGE,
             jump_to_latest: true,
             work_focus: None,
+            journal: Default::default(),
             expanded: None,
             draft_call: String::new(),
             traces: BTreeMap::new(),
@@ -458,12 +462,14 @@ fn small_text(ui: &mut Ui, text: impl Into<String>) {
 }
 
 impl App {
-    pub(super) fn live_workspace_selected(&mut self, ui: &mut Ui) -> bool {
+    pub(super) fn show_activity_view(&mut self, ui: &mut Ui) -> bool {
         self.live_board.select_scope(&self.work);
         let available = ui.available_width();
         ui.horizontal_wrapped(|ui| {
             ui.selectable_value(&mut self.live_board.view, View::Live, "Live activity");
             ui.selectable_value(&mut self.live_board.view, View::Work, "Work & deliveries");
+            ui.selectable_value(&mut self.live_board.view, View::Journal, "Decision journal")
+                .on_hover_text("Follow each persona’s assessment, remaining work and chosen next step.");
             let mut earlier = |ui: &mut Ui| {
                 if ui
                     .add_enabled(!self.work.is_empty(), egui::Button::new("Earlier work…"))
@@ -474,14 +480,18 @@ impl App {
                     self.open_sources(ui.ctx(), &work, None);
                 }
             };
-            if available >= 450. {
+            if available >= 590. {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), earlier);
             } else {
                 earlier(ui);
             }
         });
         ui.add_space(7.);
-        self.live_board.view == View::Live
+        match self.live_board.view {
+            View::Work => false,
+            View::Live => { self.studio_live(ui); true }
+            View::Journal => { self.decision_journal(ui); true }
+        }
     }
 
     pub(super) fn studio_live(&mut self, ui: &mut Ui) {

@@ -961,8 +961,7 @@ impl App {
         }
     }
     pub(super) fn studio(&mut self, ui: &mut Ui) {
-        if self.live_workspace_selected(ui) {
-            self.studio_live(ui);
+        if self.show_activity_view(ui) {
             return;
         }
         egui::ScrollArea::vertical()
