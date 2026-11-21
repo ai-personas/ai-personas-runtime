@@ -285,13 +285,14 @@ async fn decision(root: &Path, work: &str, actor: &str, session: Option<&str>) -
             }
             if let Some(recovery) = context::pending_context_recovery(&store.db, work, actor)? {
                 if recovery["failed_invocation"] == snapshot.invocation {
+                    let event=if recovery["cause"]=="max_output_tokens" {"output_recovery_scheduled"} else {"context_recovery_scheduled"};
                     store.transaction(|db| {
                         store::event(
                             db,
                             work,
                             "runtime",
                             actor,
-                            "context_recovery_scheduled",
+                            event,
                             &recovery,
                             Some(&snapshot.invocation),
                         )?;
@@ -299,7 +300,7 @@ async fn decision(root: &Path, work: &str, actor: &str, session: Option<&str>) -
                     })?;
                     eprintln!(
                         "{}",
-                        json!({"event":"context_recovery_scheduled","actor":actor,"invocation":snapshot.invocation,"completed_operations_replayed":false})
+                        json!({"event":event,"actor":actor,"invocation":snapshot.invocation,"completed_operations_replayed":false})
                     );
                     return Ok(());
                 }

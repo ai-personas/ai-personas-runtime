@@ -36,6 +36,7 @@ Original briefs, messages and amendments can include exact file attachments. For
 For a task, distinguish what you intend to make from what you or a peer have actually produced. decision_continuity.activity_file_progress reports retained library changes in this activity, not everything on the host. Compare your prior purpose with the observed consequences. If repeated inspection is not revealing new information and an input is yours to create, make and check a concrete first version rather than treating your own unwritten work as a missing prerequisite. You choose how; do not invent file contents, another person's progress or an obligation on the requester.
 Your own outcomes are supplied in full. Peer outcome views preserve their complete descriptions, states, assumptions, dependencies and remaining work. Artifact and evidence counts are discovery metadata; artifact_membership_supplied=false means the artifact list is not in that view. Read or select the exact outcome reference to obtain its full artifact and evidence lists, then choose the resources needed for your decision. Counts do not establish usability or completion, and the author's qualifications still apply.
 The deliveries list is a discovery index of exact versions, with original authorship, scope, latest attributed human review and remaining work preserved. A null review means no review has been recorded. An index entry does not supply its supported-use description, artifact membership or evidence. Those exact fields remain available through asset.read or next_context selection of the delivery reference. Choose the records useful for your next decision; delivery does not establish overall quality or user acceptance.
+Issuing a delivery does not stop your work. When a coherent edition already supports a real use, you can preserve it for the requester with result.deliver and continue improving its successor. Name the exact intended use and outstanding findings of that edition; do not claim readiness from a file count, an earlier revision's checks or an observer's copy.
 current_controls supplies applicable execution-control state and exact history references when retained. control_changed events attribute changes. A running control permits work at that scope; other controls and your continuation still apply. A control change is not a terminal execution receipt and does not resume an explicitly stopped participation.
 Each participant's execution view reports retained inference, unfinished effect and background-job state at this request's snapshot, including the originating work. A ready continuation does not mean that peer is idle: an earlier command or another work may still occupy its execution. Dispatched means awaiting an observed result, not proof that a host process started or succeeded. Uncertain remains unresolved. These observations do not assign duties, rank peers, change controls or establish that a peer has read your message.
 "#;
@@ -239,8 +240,8 @@ pub fn execution_status(
         "persona_control":super::controls::for_activity(db,work,&format!("persona:{actor}"))?}))
 }
 
-/// An explicit provider capacity refusal permits a different, metadata-only
-/// observation. Other failures and uncertain dispatches retain their pause.
+/// An explicit input-capacity refusal permits a metadata-only observation.
+/// Output exhaustion keeps the ordinary input and adds a failed-attempt notice.
 /// Rejected recovery decisions keep this projection until one is accepted.
 pub fn pending_context_recovery(
     db: &rusqlite::Connection,
@@ -248,7 +249,7 @@ pub fn pending_context_recovery(
     actor: &str,
 ) -> Result<Option<Value>> {
     let row: Option<(String, String, String)> = db.query_row(
-        "SELECT id,snapshot,receipt FROM invocations i WHERE work=?1 AND actor=?2 AND state='provider_failed' AND receipt IS NOT NULL AND rowid>COALESCE((SELECT MAX(rowid) FROM invocations WHERE work=?1 AND actor=?2 AND state='accepted'),0)
+        "SELECT id,snapshot,receipt FROM invocations i WHERE work=?1 AND actor=?2 AND state='provider_failed' AND response IS NULL AND receipt IS NOT NULL AND rowid>COALESCE((SELECT MAX(rowid) FROM invocations WHERE work=?1 AND actor=?2 AND state='accepted'),0)
          AND NOT EXISTS(SELECT 1 FROM events e WHERE e.invocation=i.id AND e.kind='inference_recovery_scheduled')
          ORDER BY rowid DESC LIMIT 1",
         params![work, actor], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
@@ -257,6 +258,22 @@ pub fn pending_context_recovery(
         return Ok(None);
     };
     let attempt: Value = store::object(db, &receipt)?;
+    if attempt["reported_terminal_status"] == "incomplete" && attempt["http_status"] == 200
+        && attempt["response_completed"] == false && attempt["audit"]["invocation_id"] == invocation
+        && attempt["stream_diagnostic"]["event_type"] == "response.incomplete"
+        && attempt["stream_diagnostic"]["incomplete_reason"] == "max_output_tokens" {
+        let prior: Value = store::object(db, &snapshot)?;
+        if prior.get("contract_object").is_none() || !prior["data"]["output_recovery"].is_null() {
+            return Ok(None);
+        }
+        let untouched: bool = db.query_row("SELECT NOT EXISTS(SELECT 1 FROM versions WHERE invocation=?1)
+            AND NOT EXISTS(SELECT 1 FROM outbox WHERE invocation=?1)", [&invocation], |r| r.get(0))?;
+        if !untouched {return Ok(None);}
+        return Ok(Some(json!({"cause":"max_output_tokens","failed_invocation":invocation,
+            "failed_snapshot":format!("object:{snapshot}"),"failed_receipt":format!("object:{receipt}"),
+            "reported_output_tokens":attempt["usage"]["output_tokens"],"prior_response_adopted":false,
+            "meaning":"The provider ran out of output space before returning a complete decision. No part of that answer was adopted or executed. Your ordinary input, chosen sources and prior accepted responsibility are still supplied. Choose a smaller useful operation you can finish in one decision; use a short program for repetitive data instead of spelling out a large artifact in your answer. Observe its result before the next increment."})));
+    }
     let image_capacity = attempt["audit"]["image_inputs"].as_array()
         .filter(|images| !images.is_empty())
         .and_then(|_| ["stream_error_diagnostic", "http_diagnostic"].into_iter()
@@ -753,7 +770,10 @@ pub(super) fn prepare_when(
         }
         let work=store::required(db,"work",work_id)?;
         let contract=FeatureContract::standard();
-        let recovery=pending_context_recovery(db,work_id,actor)?;
+        let capacity=pending_context_recovery(db,work_id,actor)?;
+        let (recovery,output_recovery)=if capacity.as_ref().is_some_and(|v|v["cause"]=="max_output_tokens") {
+            (None,capacity)
+        } else { (capacity,None) };
         let events=store::events(db,work_id,actor,participation.cursor)?;
         // Withheld invitations/messages remain unread until an own-model call.
         let cursor=if bootstrap{participation.cursor}else{events.iter().filter_map(|e|e["event"].as_i64()).max().unwrap_or(participation.cursor)};
@@ -928,6 +948,7 @@ pub(super) fn prepare_when(
             "peers":if bootstrap{vec![]}else{peers},"participants":if bootstrap{vec![]}else{participants},"outcomes":if bootstrap{vec![]}else{outcomes},"deliveries":if bootstrap{vec![]}else{deliveries},"new_events":supplied_events,
             "selected_resources":selected,"previously_selected_tools_unavailable":unavailable_tools,"available_tools":tool_schemas,"host_working_directory":if bootstrap{Value::Null}else{config.body["working_directory"].clone()}});
         if let Some(structure)=structure {data["identity"]["appraisal_structure"]=structure;}
+        if let Some(notice)=output_recovery {data["output_recovery"]=notice;}
         if let Some(files)=open_files {data["participation"]["selection"]["open_files"]=files;}
         if !bootstrap {
             if data["work"]["record"]["kind"] != "social" && participation.accepted {
