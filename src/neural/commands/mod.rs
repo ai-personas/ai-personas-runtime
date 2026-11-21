@@ -1,6 +1,7 @@
 //! Install portable commands and run them against an exact file tree.
 //! Installations, executions and registered output assets have separate identities.
 mod wasi;
+pub mod local;
 pub use wasi::worker as wasi_worker;
 
 use super::{failure, store, workspace, Result};
@@ -19,21 +20,34 @@ use tokio::io::AsyncWriteExt;
 const NGSPICE_URL: &str = "https://cdn.jsdelivr.net/npm/@o.z/ngspice-wasm@0.0.0/ngspice.js";
 const NGSPICE_SHA: &str = "b285fc2d5b19135ed9b775ab41a6ceeb9bb75482bc6b3a44956cc6c959406b93";
 const NGSPICE_WORKER: &str = include_str!("ngspice.mjs");
+const PYTHON_URL: &str = "https://github.com/vmware-labs/webassembly-language-runtimes/releases/download/python%2F3.12.0%2B20231211-040d5a6/python-3.12.0.wasm";
+const PYTHON_SHA: &str = "e5dc5a398b07b54ea8fdb503bf68fb583d533f10ec3f930963e02b9505f7a763";
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, JsonSchema, clap::ValueEnum, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum Engine {
     Ngspice,
     Wasi,
+    Python,
+}
+
+impl Engine {
+    fn release(self) -> Option<(&'static str, &'static str, &'static str)> {
+        match self {
+            Self::Ngspice => Some(("ngspice-wasm-0.0.0", NGSPICE_SHA, NGSPICE_URL)),
+            Self::Python => Some(("cpython-wasi-3.12.0", PYTHON_SHA, PYTHON_URL)),
+            Self::Wasi => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, clap::Args)]
 #[serde(deny_unknown_fields)]
 pub struct Install {
-    /// ngspice installs the published simulator. wasi installs a retained Preview 1 command.
+    /// python installs CPython 3.12 with its bundled standard library; ngspice installs a circuit simulator; wasi installs any retained Preview 1 command.
     #[arg(value_enum)]
     pub engine: Engine,
-    /// Exact asset or object. Required for WASI. Optional offline copy for ngspice.
+    /// Exact asset or object. Required for wasi. Optional matching offline copy for a published release.
     #[arg(long)]
     pub source: Option<String>,
 }
@@ -65,9 +79,9 @@ fn relative(path: &str) -> Result<()> {
     Ok(())
 }
 
-fn check_run_paths(run: &Run) -> Result<()> {
+fn check_run_paths(arguments: &[String], inputs: &BTreeMap<String, String>, outputs: &[String]) -> Result<()> {
     let mut files = BTreeSet::new();
-    for name in run.files.keys().chain(&run.outputs) {
+    for name in inputs.keys().chain(outputs) {
         relative(name)?;
         files.insert(Path::new(name));
     }
@@ -80,22 +94,20 @@ fn check_run_paths(run: &Run) -> Result<()> {
             return Err(failure("A project file cannot also be a directory"));
         }
     }
-    if run.arguments.iter().any(|s| s.contains('\0')) {
+    if arguments.iter().any(|s| s.contains('\0')) {
         return Err(failure("Command arguments cannot contain null bytes"));
     }
     Ok(())
 }
 
 pub(super) fn validate_install(db: &Connection, input: &Install) -> Result<String> {
-    match (input.engine, input.source.as_deref()) {
-        (Engine::Ngspice, None) => Ok(NGSPICE_SHA.to_owned()),
-        (Engine::Wasi, None) => Err(failure("Select a retained WASI Preview 1 command module")),
-        (_, Some(reference)) => {
+    match (input.engine.release(), input.source.as_deref()) {
+        (Some((_, expected, _)), None) => Ok(expected.to_owned()),
+        (None, None) => Err(failure("Select a retained WASI Preview 1 command module")),
+        (release, Some(reference)) => {
             let digest = workspace::byte_digest(db, reference)?;
-            if input.engine == Engine::Ngspice && digest != NGSPICE_SHA {
-                return Err(failure(
-                    "The selected bytes differ from the published ngspice module",
-                ));
+            if let Some((id, _, _)) = release.filter(|(_, expected, _)| digest != *expected) {
+                return Err(failure(format!("The selected bytes differ from the published {id} module")));
             }
             Ok(digest)
         }
@@ -115,16 +127,14 @@ fn installation(db: &Connection, reference: &str) -> Result<(store::Record, Engi
         .and_then(|s| s.strip_prefix("object:"))
         .ok_or_else(|| failure("Installation has no recorded program"))?
         .to_owned();
-    if engine == Engine::Ngspice && digest != NGSPICE_SHA {
-        return Err(failure(
-            "The installation differs from the pinned ngspice program",
-        ));
+    if let Some((id, _, _)) = engine.release().filter(|(_, expected, _)| digest != *expected) {
+        return Err(failure(format!("The installation differs from the pinned {id} program")));
     }
     Ok((record, engine, digest))
 }
 
 pub(super) fn validate_run(db: &Connection, run: &Run) -> Result<()> {
-    check_run_paths(run)?;
+    check_run_paths(&run.arguments, &run.files, &run.outputs)?;
     installation(db, &run.installation)?;
     for reference in run.files.values().chain(&run.stdin) {
         workspace::byte_digest(db, reference)?;
@@ -164,9 +174,9 @@ async fn execute(
     let executable = match engine {
         Engine::Ngspice => workspace::node_executable()?,
         #[cfg(target_os = "linux")]
-        Engine::Wasi => PathBuf::from("/proc/self/exe"),
+        Engine::Python | Engine::Wasi => PathBuf::from("/proc/self/exe"),
         #[cfg(not(target_os = "linux"))]
-        Engine::Wasi => std::env::current_exe()?,
+        Engine::Python | Engine::Wasi => std::env::current_exe()?,
     };
     let host_path = executable
         .canonicalize()
@@ -183,7 +193,7 @@ async fn execute(
                 NGSPICE_WORKER,
             ]);
         }
-        Engine::Wasi => {
+        Engine::Python | Engine::Wasi => {
             command.arg("wasi-worker");
         }
     }
@@ -255,19 +265,14 @@ pub async fn install(
     let digest = match &local {
         Some(bytes) => {
             let digest = crate::store::sha256_bytes(bytes);
-            if input.engine == Engine::Ngspice && digest != NGSPICE_SHA {
-                return Err(failure(
-                    "The file differs from the published ngspice package",
-                ));
+            if let Some((id, _, _)) = input.engine.release().filter(|(_, expected, _)| digest != *expected) {
+                return Err(failure(format!("The file differs from the published {id} package")));
             }
             digest
         }
         None => validate_install(&db.db, input)?,
     };
-    let id = match input.engine {
-        Engine::Ngspice => "ngspice-wasm-0.0.0".to_owned(),
-        Engine::Wasi => format!("wasi-{digest}"),
-    };
+    let id = input.engine.release().map_or_else(|| format!("wasi-{digest}"), |(id, _, _)| id.to_owned());
     let existing = |c: &Connection| -> Result<Option<Value>> {
         let Some(rec) = store::head(c, "installation", &id)? else {
             return Ok(None);
@@ -290,9 +295,10 @@ pub async fn install(
     } else if let Some(reference) = &input.source {
         (store::bytes(&db.db, &digest)?, reference.as_str())
     } else {
+        let (_, _, url) = input.engine.release().ok_or_else(|| failure("No release source selected"))?;
         let bytes = workspace::controlled(
             async {
-                Ok(reqwest::get(NGSPICE_URL)
+                Ok(reqwest::get(url)
                     .await?
                     .error_for_status()?
                     .bytes()
@@ -302,7 +308,7 @@ pub async fn install(
             &mut stopped,
         )
         .await?;
-        (bytes, NGSPICE_URL)
+        (bytes, url)
     };
     if crate::store::sha256_bytes(&bytes) != digest {
         return Err(failure("Command package digest mismatch"));
@@ -327,18 +333,25 @@ pub async fn install(
                     .map(str::to_owned)
             })
             .unwrap_or_else(|| "command.wasm".into())
+    } else if input.engine == Engine::Python {
+        "python".into()
     } else {
         "ngspice".into()
     };
     let probe = match input.engine {
         Engine::Wasi => wasi::validate(&bytes)?,
-        Engine::Ngspice => {
+        Engine::Ngspice | Engine::Python => {
+            let (arg, marker) = if input.engine == Engine::Python {
+                ("--version", "Python 3.12.0")
+            } else {
+                ("-v", "ngspice-")
+            };
             let report = execute(
                 input.engine,
                 &Invocation {
                     program: STANDARD.encode(&bytes),
                     name: name.clone(),
-                    arguments: vec!["-v".into()],
+                    arguments: vec![arg.into()],
                     files: BTreeMap::new(),
                     outputs: vec![],
                     stdin: String::new(),
@@ -347,14 +360,14 @@ pub async fn install(
             )
             .await?;
             let stdout = String::from_utf8(STANDARD.decode(report.stdout)?)?;
-            let version = stdout.lines().find(|line| line.contains("ngspice-"));
+            let version = stdout.lines().find(|line| line.contains(marker));
             if report.exit_code != Some(0) || report.error.is_some() || version.is_none() {
                 return Err(failure(format!(
-                    "ngspice version probe failed: {:?} {}",
+                    "{name} version probe failed: {:?} {}",
                     report.error, stdout
                 )));
             }
-            json!({"kind":"executed_version","arguments":["-v"],"exit_code":report.exit_code,"version":version,"stdout":stdout,
+            json!({"kind":"executed_version","arguments":[arg],"exit_code":report.exit_code,"version":version,"stdout":stdout,
                 "stderr":String::from_utf8_lossy(&STANDARD.decode(report.stderr)?),"host":report.host})
         }
     };
@@ -386,12 +399,16 @@ fn content(db: &Connection, reference: &str) -> Result<(String, Vec<u8>)> {
 
 fn stored_output(db: &Connection, encoded: &str) -> Result<Value> {
     let bytes = STANDARD.decode(encoded)?;
-    let media = if std::str::from_utf8(&bytes).is_ok() {
+    store_output_bytes(db, &bytes)
+}
+
+fn store_output_bytes(db: &Connection, bytes: &[u8]) -> Result<Value> {
+    let media = if std::str::from_utf8(bytes).is_ok() {
         "text/plain; charset=utf-8"
     } else {
         "application/octet-stream"
     };
-    let digest = store::put_bytes(db, media, &bytes)?;
+    let digest = store::put_bytes(db, media, bytes)?;
     Ok(json!({"object":format!("object:{digest}"),"bytes":bytes.len()}))
 }
 
@@ -556,7 +573,7 @@ pub fn history(db: &Connection, query: &History) -> Result<Value> {
         }
         if total >= query.offset && runs.len() < query.page_size {
             runs.push(json!({"receipt":handle,"actor":body["actor"],"origin":body["origin"],"work":body["work"],
-                "installation":body["installation"],"engine":body["engine"],"arguments":body["arguments"],
+                 "installation":body["installation"],"engine":body["engine"],"argv0":body["argv0"],"arguments":body["arguments"],
                 "exit_code":body["exit_code"],"success":body["success"],"outputs":body["outputs"],"finished":body["finished"]}));
         }
         total += 1;

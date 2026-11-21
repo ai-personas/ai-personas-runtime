@@ -22,6 +22,7 @@ fn external(tool: &str) -> bool {
         tool,
         "compute.run"
             | "command.run"
+            | "command.local"
             | "image.render_svg"
             | "document.print_html"
             | "document.render_pdf"
@@ -203,15 +204,22 @@ fn package(
         .transpose()?
         .unwrap_or_default();
     if kind == "human_request" {
-        let deliveries: Vec<String> = op.input.get("deliveries")
-            .map(|r| serde_json::from_value(r.clone())).transpose()?.unwrap_or_default();
+        let deliveries: Vec<String> = op
+            .input
+            .get("deliveries")
+            .map(|r| serde_json::from_value(r.clone()))
+            .transpose()?
+            .unwrap_or_default();
         let (files, included) =
             crate::neural::human_requests::attachments(catalog.db, &requested, &deliveries)?;
         let handles = included.iter().map(|p| &p.reference).collect::<Vec<_>>();
         if package.body.get("deliveries").cloned() != (!included.is_empty()).then(|| json!(handles))
-            || package.body.get("delivery_details").cloned() != (!included.is_empty()).then(|| json!(included))
+            || package.body.get("delivery_details").cloned()
+                != (!included.is_empty()).then(|| json!(included))
         {
-            return Err(failure("Included deliveries differ from the accepted human request"));
+            return Err(failure(
+                "Included deliveries differ from the accepted human request",
+            ));
         }
         requested = files;
     }
@@ -353,25 +361,31 @@ fn execution(
                 );
                 files
             }
-            "command.run" => {
-                let input: commands::Run = serde_json::from_value(op.input.clone())?;
+            "command.run" | "command.local" => {
                 let mut files = Vec::new();
-                let installation = store::exact(catalog.db, &input.installation)?;
-                if installation.reference.handle() == input.installation
-                    && installation.body["format"] == "portable-command-v1"
-                {
-                    if let Some(source) = installation.body["source"].as_str() {
-                        files.push(member(source, "requested_program", requested.clone()));
+                let (inputs, stdin) = if op.tool == "command.run" {
+                    let input: commands::Run = serde_json::from_value(op.input.clone())?;
+                    let installation = store::exact(catalog.db, &input.installation)?;
+                    if installation.reference.handle() == input.installation
+                        && installation.body["format"] == "portable-command-v1"
+                    {
+                        if let Some(source) = installation.body["source"].as_str() {
+                            files.push(member(source, "requested_program", requested.clone()));
+                        }
                     }
-                }
-                for (path, r) in input.files {
+                    (input.files, input.stdin)
+                } else {
+                    let input: commands::local::Run = serde_json::from_value(op.input.clone())?;
+                    (input.files, input.stdin)
+                };
+                for (path, r) in inputs {
                     files.push(member(
                         &r,
                         "requested_file",
                         json!({"mount":path,"input_bytes_confirmed":false}),
                     ))
                 }
-                if let Some(stdin) = input.stdin {
+                if let Some(stdin) = stdin {
                     files.push(member(&stdin, "requested_stdin", requested))
                 }
                 files
@@ -382,7 +396,7 @@ fn execution(
     }
     match op.tool.as_str() {
         "compute.run" => compute(catalog, op, result),
-        "command.run" => command(catalog, time, op, result),
+        "command.run" | "command.local" => command(catalog, time, op, result),
         "image.render_svg" => svg(catalog, op, result),
         "document.render_pdf" => {
             let page = crate::neural::pdf_evidence::verify(catalog.db, &op.input, result)?;
@@ -394,7 +408,10 @@ fn execution(
                 "width": page.width,
                 "height": page.height
             });
-            Ok(Execution::new(true, vec![member(&page.source, "render_source", detail)]))
+            Ok(Execution::new(
+                true,
+                vec![member(&page.source, "render_source", detail)],
+            ))
         }
         "geometry.render" => render(catalog, op, result),
         _ => Err(failure("Unknown execution receipt")),
@@ -460,57 +477,96 @@ fn command(
     let reference = named(&result["receipt"])?;
     let receipt = store::exact(catalog.db, reference)?;
     let r = &receipt.body;
-    let input: commands::Run = serde_json::from_value(op.input.clone())?;
     if receipt.reference.kind != "command_run"
         || receipt.reference.handle() != reference
         || !store::written_by(catalog.db, &receipt, &time.snapshot.invocation)?
         || r != &result["result"]
-        || r["format"] != "portable-command-run-v1"
         || r["origin"] != "persona"
         || r["actor"] != time.snapshot.actor
         || r["work"] != time.snapshot.work
         || r["invocation"] != time.snapshot.invocation
         || r["operation"] != op.id
-        || r["intent"] != serde_json::to_value(&input)?
-        || r["installation"] != input.installation
-        || r["arguments"] != json!(input.arguments)
     {
         return Err(failure(
-            "Portable command receipt differs from the accepted operation",
+            "Command receipt differs from the accepted operation",
         ));
     }
-    let installed = store::exact(catalog.db, &input.installation)?;
-    if installed.reference.kind != "installation"
-        || installed.reference.handle() != input.installation
-        || installed.body["format"] != "portable-command-v1"
-        || installed.body["program"] != r["program"]
-        || installed.body["engine"] != r["engine"]
-    {
-        return Err(failure(
-            "Portable command differs from its installed program",
-        ));
-    }
-    let object = named(&r["program"])?;
-    checked_bytes(catalog, object, &r["program"], &installed.body["bytes"])?;
     let mut members = Vec::new();
-    if let Some(source) = installed.body["source"]
-        .as_str()
-        .filter(|s| s.starts_with("asset:"))
-    {
-        checked_bytes(catalog, source, &r["program"], &installed.body["bytes"])?;
-        members.push(member(
-            source,
-            "program",
-            json!({"installation":input.installation,"receipt":reference}),
-        ));
-    }
+    let local = op.tool == "command.local";
+    let (files, stdin, expected_outputs) = if local {
+        let input: commands::local::Run = serde_json::from_value(op.input.clone())?;
+        if r["format"] != "local-project-run-v1"
+            || r["engine"] != "local"
+            || r["intent"] != json!(input)
+            || r["argv0"] != input.program
+            || r["arguments"] != json!(input.arguments)
+            || !r["process_started"].is_boolean()
+            || !r["cancelled"].is_boolean()
+            || (r["process_started"] == true && !r["host"]["executable"].is_string())
+        {
+            return Err(failure(
+                "Local project receipt differs from the selected program or intent",
+            ));
+        }
+        for item in [&r["stdout"], &r["stderr"]].into_iter().chain(
+            r["outputs"]
+                .as_object()
+                .into_iter()
+                .flat_map(|map| map.values()),
+        ) {
+            checked_bytes(
+                catalog,
+                named(&item["object"])?,
+                &item["object"],
+                &item["bytes"],
+            )?;
+        }
+        (input.files, input.stdin, input.outputs)
+    } else {
+        let input: commands::Run = serde_json::from_value(op.input.clone())?;
+        if r["format"] != "portable-command-run-v1"
+            || r["intent"] != json!(input)
+            || r["arguments"] != json!(input.arguments)
+            || r["installation"] != input.installation
+        {
+            return Err(failure(
+                "Portable command receipt differs from the accepted intent",
+            ));
+        }
+        let installed = store::exact(catalog.db, &input.installation)?;
+        if installed.reference.kind != "installation"
+            || installed.reference.handle() != input.installation
+            || installed.body["format"] != "portable-command-v1"
+            || installed.body["program"] != r["program"]
+            || installed.body["engine"] != r["engine"]
+        {
+            return Err(failure(
+                "Portable command differs from its installed program",
+            ));
+        }
+        let object = named(&r["program"])?;
+        checked_bytes(catalog, object, &r["program"], &installed.body["bytes"])?;
+        if let Some(source) = installed.body["source"]
+            .as_str()
+            .filter(|s| s.starts_with("asset:"))
+        {
+            checked_bytes(catalog, source, &r["program"], &installed.body["bytes"])?;
+            members.push(member(
+                source,
+                "program",
+                json!({"installation":input.installation,"receipt":reference}),
+            ));
+        }
+        (input.files, input.stdin, input.outputs)
+    };
     let mounted = r["files_supplied"]
         .as_object()
         .ok_or_else(|| failure("Missing portable project files"))?;
-    if mounted.len() != input.files.len() {
+    if mounted.len() != files.len() {
         return Err(failure("Mounted project files differ"));
     }
-    for (path, file) in &input.files {
+    let launched = !local || r["process_started"] == true;
+    for (path, file) in &files {
         let item = &r["files_supplied"][path];
         if item["reference"] != *file {
             return Err(failure("Different mounted file"));
@@ -518,25 +574,38 @@ fn command(
         checked_bytes(catalog, file, &item["object"], &item["bytes"])?;
         members.push(member(
             file,
-            "project_file",
+            if launched {
+                "project_file"
+            } else {
+                "staged_file"
+            },
             json!({"mount":path,"receipt":reference}),
         ));
     }
-    if let Some(stdin) = input.stdin {
+    if let Some(stdin) = stdin {
         if r["stdin"]["reference"] != stdin {
             return Err(failure("Different command stdin"));
         }
         checked_bytes(catalog, &stdin, &r["stdin"]["object"], &r["stdin"]["bytes"])?;
-        members.push(member(&stdin, "stdin", json!({"receipt":reference})));
+        members.push(member(
+            &stdin,
+            if launched { "stdin" } else { "staged_stdin" },
+            json!({"receipt":reference}),
+        ));
     } else if !r["stdin"].is_null() {
         return Err(failure("Unexpected command stdin"));
     }
-    let process = r["exit_code"] == 0 && r["error"].is_null();
+    let process = launched
+        && r["exit_code"] == 0
+        && r["error"].is_null()
+        && (!local || (r["cancelled"] == false && r["signal"].is_null()));
     let outputs = r["outputs"]
         .as_object()
         .ok_or_else(|| failure("Missing command outputs"))?;
-    let missing: Vec<_> = input
-        .outputs
+    if outputs.keys().any(|path| !expected_outputs.contains(path)) {
+        return Err(failure("Receipt contains an unrequested output"));
+    }
+    let missing: Vec<_> = expected_outputs
         .iter()
         .filter(|path| !outputs.contains_key(*path))
         .collect();
@@ -546,7 +615,7 @@ fn command(
         || r["missing_outputs"] != json!(missing)
         || r["success"] != success
     {
-        return Err(failure("Inconsistent portable command outcome"));
+        return Err(failure("Inconsistent command outcome"));
     }
     Ok(Execution::new(success, members))
 }

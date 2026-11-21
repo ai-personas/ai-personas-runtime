@@ -1,0 +1,224 @@
+//! Run local production tools against a fresh tree of exact project files.
+//! The accepted outbox operation owns dispatch. Receipts keep output bytes
+//! separate from their later registration, qualification and delivery.
+use super::{check_run_paths, content, store_output_bytes, Origin};
+use crate::neural::{failure, now, store, workspace, Result};
+use rusqlite::Connection;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
+use std::{
+    collections::BTreeMap,
+    fs::{self, File},
+    io::{Read, Seek, Write},
+    os::unix::{
+        fs::PermissionsExt,
+        process::{CommandExt, ExitStatusExt},
+    },
+    path::{Path, PathBuf},
+    process::Command,
+    time::Duration,
+};
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Run {
+    /// Local executable name on PATH or path. Arguments are literal, not shell syntax.
+    pub program: String,
+    #[serde(default)]
+    pub arguments: Vec<String>,
+    /// Relative filenames in the new project directory mapped to exact asset revisions or byte objects.
+    #[serde(default)]
+    pub files: BTreeMap<String, String>,
+    /// Relative regular files to capture after exit, even after a nonzero exit.
+    #[serde(default)]
+    pub outputs: Vec<String>,
+    /// Exact asset revision or byte object for standard input. Empty if omitted.
+    pub stdin: Option<String>,
+}
+
+impl Run {
+    pub(crate) fn validate(&self, db: &Connection) -> Result<()> {
+        if self.program.trim().is_empty() || self.program.contains('\0') {
+            return Err(failure("Name the local executable to run"));
+        }
+        check_run_paths(&self.arguments, &self.files, &self.outputs)?;
+        for reference in self.files.values().chain(&self.stdin) {
+            workspace::byte_digest(db, reference)?;
+        }
+        Ok(())
+    }
+}
+
+fn executable(program: &str, cwd: &Path) -> Result<PathBuf> {
+    let accessible = |path: &Path| {
+        path.metadata()
+            .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    };
+    let path = if program.contains('/') {
+        Some(cwd.join(program)).filter(|p| accessible(p))
+    } else {
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+            .map(|dir| cwd.join(dir).join(program))
+            .find(|p| accessible(p))
+    };
+    path.ok_or_else(|| {
+        failure(format!(
+            "Local executable {program:?} was not found or is not executable"
+        ))
+    })
+}
+
+fn read_stream(mut file: File) -> Result<Vec<u8>> {
+    let end = file.metadata()?.len();
+    file.rewind()?;
+    let mut bytes = Vec::new();
+    file.take(end).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 != end {
+        return Err(failure("Output changed while capturing the observed range"));
+    }
+    Ok(bytes)
+}
+
+fn stream(db: &Connection, bytes: &[u8]) -> Result<Value> {
+    let mut v = store_output_bytes(db, bytes)?;
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        let end = text.char_indices().nth(480).map_or(text.len(), |(i, _)| i);
+        v["excerpt"] = json!(&text[..end]);
+        v["excerpt_complete"] = json!(end == bytes.len());
+    }
+    Ok(v)
+}
+
+/// Only called by the runner after pending → dispatched. In particular there
+/// is no command retry on an error, cancellation or interrupted process.
+pub(crate) fn run(
+    root: &Path,
+    origin: Origin<'_>,
+    input: Run,
+    mut stop: impl FnMut() -> bool,
+) -> Result<Value> {
+    let mut workspace = store::Store::open(root)?;
+    input.validate(&workspace.db)?;
+    let project = tempfile::Builder::new()
+        .prefix("personas-project-")
+        .tempdir()?;
+    let mut files = BTreeMap::new();
+    for (path, reference) in &input.files {
+        let (digest, bytes) = content(&workspace.db, reference)?;
+        let destination = project.path().join(path);
+        fs::create_dir_all(
+            destination
+                .parent()
+                .ok_or_else(|| failure("Missing project directory"))?,
+        )?;
+        File::create_new(destination)?.write_all(&bytes)?;
+        files.insert(
+            path,
+            json!({"reference":reference,"object":format!("object:{digest}"),"bytes":bytes.len()}),
+        );
+    }
+    let mut stdin = tempfile::tempfile()?;
+    let stdin_source = if let Some(reference) = &input.stdin {
+        let (digest, bytes) = content(&workspace.db, reference)?;
+        stdin.write_all(&bytes)?;
+        stdin.rewind()?;
+        json!({"reference":reference,"object":format!("object:{digest}"),"bytes":bytes.len()})
+    } else {
+        Value::Null
+    };
+    let stdout = tempfile::tempfile()?;
+    let stderr = tempfile::tempfile()?;
+    let started = now();
+    let mut host = json!({"os":std::env::consts::OS,"arch":std::env::consts::ARCH,
+        "effective_uid":unsafe { libc::geteuid() },"working_directory":project.path(),
+        "inherited_environment_sha256":crate::host_command::environment_sha256()});
+    let mut process_started = false;
+    let mut cancelled = false;
+    let terminal = (|| -> Result<_> {
+        let path = executable(&input.program, project.path())?;
+        // Keep the invoked name (a multicall executable can inspect argv[0]).
+        host["executable"] = json!(path);
+        host["resolved_executable"] = json!(path.canonicalize()?);
+        if let Ok(mut file) = File::open(&path) {
+            let mut hash = Sha256::new();
+            std::io::copy(&mut file, &mut hash)?;
+            host["executable_sha256_before_launch"] = json!(hex::encode(hash.finalize()));
+        }
+        if stop() {
+            cancelled = true;
+            return Err(failure("Stopped before launch"));
+        }
+        let mut child = Command::new(path)
+            .args(&input.arguments)
+            .current_dir(project.path())
+            .stdin(stdin)
+            .stdout(stdout.try_clone()?)
+            .stderr(stderr.try_clone()?)
+            .process_group(0)
+            .spawn()?;
+        process_started = true;
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => return Ok(status),
+                Ok(None) if !stop() => std::thread::sleep(Duration::from_millis(80)),
+                outcome => {
+                    // The child is unreaped; the process group still belongs to this launch.
+                    unsafe {
+                        libc::kill(-(child.id() as i32), libc::SIGKILL);
+                    }
+                    let _ = child.kill();
+                    let status = child.wait()?;
+                    outcome?;
+                    cancelled = true;
+                    return Ok(status);
+                }
+            }
+        }
+    })();
+    let (exit, signal, error) = match terminal {
+        Ok(status) => (
+            status.code(),
+            status.signal(),
+            cancelled.then(|| "Stopped by workspace control".to_owned()),
+        ),
+        Err(error) => (None, None, Some(error.to_string())),
+    };
+    let stdout = read_stream(stdout)?;
+    let stderr = read_stream(stderr)?;
+    let mut outputs = BTreeMap::new();
+    let mut file_errors = BTreeMap::new();
+    if process_started {
+        for name in &input.outputs {
+            match workspace::read_file(project.path(), name) {
+                Ok((_, data)) => {
+                    outputs.insert(name, data);
+                }
+                Err(e) => {
+                    file_errors.insert(name, e.to_string());
+                }
+            }
+        }
+    }
+    let missing: Vec<_> = input
+        .outputs
+        .iter()
+        .filter(|p| !outputs.contains_key(p))
+        .collect();
+    workspace.transaction(|db| {
+        let outputs = outputs.iter().map(|(name, bytes)| Ok((name, store_output_bytes(db, bytes)?)))
+            .collect::<Result<BTreeMap<_, _>>>()?;
+        let ok = process_started && exit == Some(0) && error.is_none() && !cancelled;
+        let id = format!("local-{}", crate::store::sha256_bytes(&serde_json::to_vec(&origin)?));
+        let body = json!({"format":"local-project-run-v1","engine":"local","origin":"persona","actor":origin.actor,
+            "work":origin.work,"invocation":origin.invocation,"operation":origin.operation,"intent":input,
+            "argv0":input.program,"arguments":input.arguments,"files_supplied":files,"stdin":stdin_source,"host":host,
+            "process_started":process_started,"process_succeeded":ok,"exit_code":exit,"signal":signal,"cancelled":cancelled,
+            "error":error,"outputs":outputs,"missing_outputs":missing,"file_errors":file_errors,
+            "stdout":stream(db,&stdout)?,"stderr":stream(db,&stderr)?,"started":started,"finished":now(),
+            "outputs_complete":missing.is_empty(),"success":ok && missing.is_empty()});
+        let r = store::write(db, "command_run", &id, 0, &body, origin.invocation)?;
+        Ok(json!({"receipt":r.handle(),"result":body}))
+    })
+}

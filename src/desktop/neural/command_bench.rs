@@ -28,7 +28,7 @@ pub(super) struct Bench {
     outputs: Vec<String>,
     stdin: String,
     asset_filter: String,
-    wasi: bool,
+    engine: Option<Engine>,
     local: String,
     retained: String,
     from_library: bool,
@@ -192,12 +192,17 @@ impl Bench {
     fn install_form(&mut self, ui: &mut Ui, app: &mut App) {
         ui.heading("Install a command");
         ui.horizontal_wrapped(|ui| {
-            ui.selectable_value(&mut self.wasi, false, "ngspice circuit simulator");
-            ui.selectable_value(&mut self.wasi, true, "WASI Preview 1 program");
+            let engine = self.engine.get_or_insert(Engine::Python);
+            ui.selectable_value(engine, Engine::Python, "Python");
+            ui.selectable_value(engine, Engine::Wasi, "WASI program");
+            ui.selectable_value(engine, Engine::Ngspice, "ngspice");
         });
         ui.add_space(7.);
-        if self.wasi {
+        let engine = self.engine.unwrap_or(Engine::Python);
+        if engine == Engine::Wasi {
             ui.label("Select a module with an exported _start function and memory.");
+        } else if engine == Engine::Python {
+            ui.label("CPython 3.12 with its bundled standard library. Studio checks the published module and runs its version command.");
         } else {
             ui.label("Studio verifies the published simulator and runs its version command. An exact local copy can also supply the package.");
         }
@@ -215,10 +220,10 @@ impl Bench {
             ui.horizontal(|ui| {
                 ui.add(
                     egui::TextEdit::singleline(&mut self.local)
-                        .hint_text(if self.wasi {
+                        .hint_text(if engine == Engine::Wasi {
                             "Path to a .wasm or .wat file"
                         } else {
-                            "Leave empty to download ngspice"
+                            "Leave empty to download the published release"
                         })
                         .desired_width((ui.available_width() - 110.).clamp(80., 435.)),
                 );
@@ -242,7 +247,7 @@ impl Bench {
             .map(PathBuf::from);
         if ui
             .add_enabled(
-                !self.wasi || retained.is_some() || local.is_some(),
+                engine != Engine::Wasi || retained.is_some() || local.is_some(),
                 theme::primary("Install command"),
             )
             .clicked()
@@ -253,11 +258,7 @@ impl Bench {
                 Pending::Install,
                 Command::InstallCommand {
                     package: Install {
-                        engine: if self.wasi {
-                            Engine::Wasi
-                        } else {
-                            Engine::Ngspice
-                        },
+                        engine,
                         source: retained,
                     },
                     from_file: local,
@@ -454,11 +455,11 @@ impl Bench {
             let mut selected = None;
             for row in self.history["runs"].as_array().into_iter().flatten() {
                 let label = format!(
-                    "{}  ·  {}  ·  {}   {}",
-                    s(row, "engine"),
-                    s(row, "actor"),
+                    "{}  ·  {}  ·  {}  ·  {}",
+                    row["argv0"].as_str().unwrap_or_else(|| s(row, "engine")),
+                    if row["origin"] == "persona" { app.label(s(row,"actor")) } else { s(row,"actor") },
                     exit_label(row),
-                    row["arguments"]
+                    counted(row["outputs"].as_object().map_or(0, |v|v.len()) as u64, "file", "files")
                 );
                 if ui
                     .selectable_label(row["receipt"] == self.detail["receipt"], label)
@@ -513,8 +514,12 @@ impl Bench {
             ui.weak(format!("{} · {}", s(r, "origin"), s(r, "actor")));
         });
         ui.horizontal_wrapped(|ui| {
-            ui.monospace(format!("Arguments  {}", r["arguments"]));
-            if ui
+            ui.collapsing("Arguments", |ui| {
+                for (i, arg) in r["arguments"].as_array().into_iter().flatten().enumerate() {
+                    ui.add(egui::Label::new(RichText::new(format!("{}  {}",i + 1,arg.as_str().unwrap_or(""))).monospace()).wrap());
+                }
+            });
+            if r["engine"] != "local" && ui
                 .small_button("Load as new run")
                 .on_hover_text("Edit these exact inputs and arguments before running again")
                 .clicked()
@@ -543,7 +548,17 @@ impl Bench {
         }
         let mut show = None;
         ui.collapsing("Program and input files", |ui| {
-            if ui
+            if r["engine"] == "local" {
+                if let Some(path) = r["host"]["executable"].as_str() {
+                    ui.label("Local executable");
+                    ui.monospace(path);
+                    if let Some(digest) = r["host"]["executable_sha256_before_launch"].as_str() {
+                        ui.small(format!("SHA-256 before launch · {}", digest.get(..12).unwrap_or(digest))).on_hover_text(digest);
+                    }
+                } else {
+                    ui.weak("No executable resolved");
+                }
+            } else if ui
                 .link(format!("Installed program · {}", s(r, "argv0")))
                 .on_hover_text(s(r, "installation"))
                 .clicked()

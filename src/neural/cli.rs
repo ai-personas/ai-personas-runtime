@@ -177,7 +177,7 @@ pub enum Command {
         limit: usize,
     },
     Status,
-    /// Install a retained WASI command or the published ngspice simulator.
+    /// Install a retained WASI command or a published Python or ngspice release.
     InstallCommand {
         #[command(flatten)]
         package: super::commands::Install,

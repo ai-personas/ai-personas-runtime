@@ -50,7 +50,7 @@ cat > "$output/README.md" <<'GUIDE'
 
 On Linux, open `Personas`. On macOS, open `Personas.app`. The native interface includes the runtime and provider helpers.
 
-Choose **New workspace** to enter the starting profiles and connect a reasoning provider. Choose **Open folder** for an existing workspace. Use **+ New** to invite personas to a task or a voluntary conversation. In **Overview**, choose **Run workspace** to listen across activities. Each persona chooses whether and how to participate. **Character Lab** shows how each persona's numerical model develops. **Artifacts** searches retained versions and exports exact deliveries. **Usage** shows provider receipts, context use and workspace storage.
+Choose **New workspace** to enter the starting profiles and connect a reasoning provider. Choose **Open folder** for an existing workspace. Use **+ New** to invite personas to a task or a voluntary conversation. **Invite & run workspace** starts listening across activities. Each persona chooses whether and how to participate. **Character Lab** shows how each persona's numerical model develops. **Artifacts** searches retained versions and exports exact deliveries. **Usage** shows provider receipts, context use and workspace storage.
 
 **Workspace activity** on Overview follows people as they work. Choose **Message** beside a persona to write or attach a file while watching everyone. **Find…** opens people, activities, requests, deliveries and exact file revisions across the workspace.
 
@@ -69,6 +69,8 @@ In **Activity → Participate → Agreement book**, read and respond to the exac
 In **Activity → People & tools**, **Last tool result** opens what a persona’s most recent tool actually returned. **Event #** takes you to the action in the timeline.
 
 Open an issued delivery to inspect its drawing, file revisions and remaining checks. **Save handoff…** places the printable `Delivery.html` alongside `Files.zip`. **Send feedback…** addresses a message or attachment to the issuer and keeps it with that edition. Open **Check receipt** on the delivery to see what reached the persona.
+
+If the delivery includes a ready-to-use archive, select it in **File preview**, inspect its members and choose **Save this ZIP unchanged…**. **Inputs & outputs** on a command in the timeline opens the persona’s execution receipt.
 
 Choose **Print preview** on a saved HTML document to see its paginated print layout and save that PDF. Studio and the personas use local WeasyPrint for layout and the Poppler programs `pdfinfo` and `pdftoppm` on PATH to display individual PDF pages. A PDF attachment keeps its original bytes and its page receipts.
 

@@ -9,6 +9,8 @@ use std::{
 
 #[path = "html.rs"]
 mod html;
+#[path = "archive.rs"]
+mod archive;
 use super::super::pdf_pages as pdf;
 
 // These bounds apply to the inline preview only. The original revision stays
@@ -24,6 +26,7 @@ enum Kind {
     Vector,
     Raster,
     Html,
+    Archive,
     Text,
     Other,
 }
@@ -47,6 +50,7 @@ impl Format {
             .trim()
             .to_ascii_lowercase();
         let kind = match (ext.as_str(), mime.as_str()) {
+            ("zip", _) | (_, "application/zip") => Kind::Archive,
             ("pdf", _) | (_, "application/pdf") => Kind::Pdf,
             ("svg", _) | (_, "image/svg+xml") => Kind::Vector,
             ("png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tif" | "tiff" | "ico", _)
@@ -71,6 +75,7 @@ impl Format {
             (Kind::Vector, _) => "SVG drawing".into(),
             (Kind::Raster, _) => "Raster image".into(),
             (Kind::Html, _) => "HTML document".into(),
+            (Kind::Archive, _) => "ZIP archive".into(),
             (Kind::Text, "md" | "markdown") => "Markdown".into(),
             (Kind::Text, "gbr") => "Gerber source".into(),
             (Kind::Text, "drl") => "Drill source".into(),
@@ -95,6 +100,9 @@ impl Format {
     pub fn html(&self) -> bool {
         matches!(self.kind, Kind::Html)
     }
+    pub fn archive(&self) -> bool {
+        matches!(self.kind, Kind::Archive)
+    }
 }
 
 struct Job {
@@ -109,6 +117,7 @@ enum Content {
     Image(egui::ColorImage, Option<String>),
     Pdf(egui::ColorImage, u32),
     Html(html::Preview),
+    Archive(archive::Listing),
     Other,
     Text(String, bool),
 }
@@ -151,6 +160,7 @@ enum View {
     Image(egui::TextureHandle, Option<String>),
     Pdf(egui::TextureHandle),
     Html(html::Preview),
+    Archive(archive::Listing),
     Text(String, bool),
     Note(String),
 }
@@ -245,6 +255,7 @@ impl Inline {
                         ))
                     }
                     Ok(Content::Html(page)) => View::Html(page),
+                    Ok(Content::Archive(listing)) => View::Archive(listing),
                     Ok(Content::Text(body, truncated)) => View::Text(body, truncated),
                     Ok(Content::Other) => {
                         View::Note("Use the full file viewer for this format.".into())
@@ -266,7 +277,7 @@ impl Inline {
             self.request(ui, root, file);
         }
         let p = theme::palette(ui);
-        match &self.view {
+        match &mut self.view {
             View::Pending if document => self.pages.loading(ui),
             View::Pending => {
                 ui.horizontal_wrapped(|ui| {
@@ -276,6 +287,7 @@ impl Inline {
             }
             View::Pdf(texture) => self.pages.show(ui, texture, &file.path, &file.reference),
             View::Html(page) => page.show(ui, &file.reference, &mut self.html_source),
+            View::Archive(listing) => listing.show(ui),
             View::Image(texture, note) => {
                 let available = ui.available_width();
                 let height = (available * 0.72)
@@ -301,7 +313,7 @@ impl Inline {
                     egui::StrokeKind::Inside,
                 );
                 if let Some(note) = note {
-                    ui.small(note);
+                    ui.small(note.as_str());
                 }
             }
             View::Text(body, truncated) => {
@@ -321,13 +333,13 @@ impl Inline {
                             ui.weak("Empty file");
                         } else {
                             ui.add(
-                                egui::Label::new(RichText::new(body).monospace().size(12.)).wrap(),
+                                egui::Label::new(RichText::new(body.as_str()).monospace().size(12.)).wrap(),
                             );
                         }
                     });
             }
             View::Note(text) => {
-                ui.weak(text);
+                ui.weak(text.as_str());
                 if document
                     && file.bytes.is_some_and(|n| n <= SOURCE_LIMIT)
                     && ui.small_button("Retry page").clicked()
@@ -431,6 +443,7 @@ fn load(job: &Job, cancelled: impl Fn() -> bool) -> ai_personas::neural::Result<
             ))
         }
         Kind::Html => Ok(Content::Html(html::Preview::read(&bytes)?)),
+        Kind::Archive => Ok(Content::Archive(archive::Listing::read(&bytes)?)),
         Kind::Text => {
             if bytes.contains(&0) {
                 return Err(ai_personas::neural::failure(

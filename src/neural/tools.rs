@@ -318,9 +318,10 @@ pub struct AssetMetadata {
 }
 
 pub const NAMES: &[(&str,&str)] = &[
-    ("command.install","Install the published ngspice circuit simulator or a retained WASI Preview 1 command into the workspace. This changes shared resources. Include the local installation operation ID in asset_maintenance.operations with kind change. Read the exact installation before running it."),
-    ("command.run","Execute an installed portable command with literal arguments, selected files and stdin. Name output files to retain. The receipt links stdout, stderr and output bytes, including partial or failed runs."),
-    ("command.history","List installed portable commands. Find actual executions across activities by exact installation, receipt, source, log or output reference."),
+    ("command.install","Install Python 3.12 (engine=python, includes its bundled standard library), ngspice, or any retained WASI Preview 1 command for shared use. An omitted source downloads the published Python or ngspice release; an exact matching copy also works offline. Include the installation operation ID in asset_maintenance.operations with kind change. Use the returned installation reference for command.run."),
+    ("command.run","Execute a workspace command, including Python scripts you write. Mount exact assets or byte objects under relative filenames, pass literal arguments (e.g. [\"build.py\"]), name outputs to capture. stdout, stderr and files are returned as exact byte references; read the streams for diagnostics or register a finished output for delivery."),
+    ("command.local","Run a local executable on a fresh project directory of exact files with literal arguments and optional stdin. Use the software available on this computer to create, convert, check, analyze or package work in any domain. Choose output filenames to capture. The receipt gives the exit status, stdout/stderr excerpts and exact output byte references; use asset.register to keep and deliver the selected outputs."),
+    ("command.history","List installed portable commands and discover local and portable executions across activities by exact installation, receipt, source, log or output reference."),
     ("workspace.list","List names and file types in one chosen shared-workspace directory. Import selected file contents separately."),
     ("tools.search","Find tool names and purposes using literal or regex search; no execution."),
     ("tools.describe","Read exact input schemas for named tools."),
@@ -415,6 +416,7 @@ pub fn describe(name: &str) -> Result<Value> {
         "persona.paths" => schema::<super::character_paths::Query>()?,
         "command.install" => schema::<super::commands::Install>()?,
         "command.run" => schema::<super::commands::Run>()?,
+        "command.local" => schema::<super::commands::local::Run>()?,
         "command.history" => schema::<super::commands::History>()?,
         "persona.patch" => schema::<protocol::PatchModel>()?,
         "persona.assess" => schema::<AssessModel>()?,
@@ -506,6 +508,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
         "persona.paths" => parse::<super::character_paths::Query>(value),
         "command.install" => parse::<super::commands::Install>(value),
         "command.run" => parse::<super::commands::Run>(value),
+        "command.local" => parse::<super::commands::local::Run>(value),
         "command.history" => parse::<super::commands::History>(value),
         "persona.patch" => parse::<protocol::PatchModel>(value),
         "persona.assess" => parse::<AssessModel>(value),
@@ -557,7 +560,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
 pub fn is_external(name: &str) -> bool {
     matches!(
         name,
-        "command.install" | "command.run" | "compute.inspect" | "compute.run" | "geometry.install" | "geometry.render" | "geometry.inspect_stl" | "geometry.profile_stl" | "workspace.list" | "asset.import" | "image.read" | "image.render_svg" | "document.print_html" | "document.render_pdf" | "persona.assess"
+        "command.install" | "command.run" | "command.local" | "compute.inspect" | "compute.run" | "geometry.install" | "geometry.render" | "geometry.inspect_stl" | "geometry.profile_stl" | "workspace.list" | "asset.import" | "image.read" | "image.render_svg" | "document.print_html" | "document.render_pdf" | "persona.assess"
     )
 }
 pub fn asset_mutation(name: &str) -> bool {

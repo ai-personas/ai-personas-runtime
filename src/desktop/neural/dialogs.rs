@@ -1,5 +1,6 @@
 use super::*;
 use ai_personas::neural::input_files::{CapturedFile, InputFiles};
+mod invitation;
 
 #[derive(Default)]
 pub(super) struct SourceFiles {
@@ -34,6 +35,7 @@ pub(super) enum Dialog {
         text: String,
         invitees: BTreeSet<String>,
         sources: SourceFiles,
+        retry: Option<(String, String)>,
     },
     Participation {
         work: String,
@@ -71,6 +73,7 @@ impl Dialog {
             text: String::new(),
             invitees: BTreeSet::new(),
             sources: SourceFiles::default(),
+            retry: None,
         }
     }
     pub(super) fn persona(provider: &str) -> Self {
@@ -159,7 +162,7 @@ impl App {
             ));
             ui.label(s(review, "reason"));
         } else {
-            ui.small("Awaiting operator acceptance");
+            ui.small("No operator review recorded");
         }
         if ui.small_button("Package findings…").clicked() {
             self.package_reviews.open(ui.ctx(),&self.root,&self.work,Some(reference));
@@ -179,12 +182,20 @@ impl App {
         };
         let mut open = true;
         let mut command = None;
-        let scroll = matches!(&draft, Dialog::Activity { .. } | Dialog::Participation { .. } | Dialog::Agreement(_));
+        let mut start_workspace = false;
+        let invitation = matches!(draft, Dialog::Activity { .. });
+        let scroll = matches!(&draft, Dialog::Participation { .. } | Dialog::Agreement(_))
+            || (invitation && ctx.content_rect().height() < 370.);
         let width=(ctx.content_rect().width()-24.).max(1.);
         let mut window=egui::Window::new(draft.title());
-        if matches!(draft,Dialog::Agreement(_)) { window=window.min_width(1.).max_width(width); }
+        if matches!(draft,Dialog::Agreement(_) | Dialog::Activity {..}) { window=window.min_width(1.).max_width(width); }
+        if invitation {
+            let bounds = ctx.content_rect();
+            let initial = egui::vec2(552.0_f32.min(width), 575.0_f32.min((bounds.height()-84.).max(64.)));
+            window = window.default_pos(bounds.center()-initial*0.5).default_height(initial.y);
+        }
         window
-            .id(egui::Id::new("studio-dialog"))
+            .id(egui::Id::new(if invitation {"studio-invitation"} else {"studio-dialog"}))
             .open(&mut open)
             .default_width(510.0_f32.min(width))
             .resizable(true)
@@ -195,50 +206,10 @@ impl App {
                         text,
                         invitees,
                         sources,
+                        ..
                     } => {
-                        ui.strong(if *social {
-                            "Opening topic (optional)"
-                        } else {
-                            "What would you like to work on?"
-                        });
-                        multiline(
-                            ui,
-                            text,
-                            if *social {
-                                "Leave open for the participants to choose…"
-                            } else {
-                                "Describe the result you want…"
-                            },
-                        );
-                        ui.add_space(8.);
-                        sources.picker.show(ui, &mut sources.files);
-                        ui.add_space(8.);
-                        ui.strong("Invite personas");
-                        for p in self.records("personas") {
-                            let id = s(&p["body"], "id");
-                            let mut selected = invitees.contains(id);
-                            if ui.checkbox(&mut selected, s(&p["body"], "label")).changed() {
-                                if selected {
-                                    invitees.insert(id.into());
-                                } else {
-                                    invitees.remove(id);
-                                }
-                            }
-                        }
-                        let enabled = !sources.picker.busy()
-                            && !invitees.is_empty()
-                            && (*social || !text.trim().is_empty());
-                        if ui
-                            .add_enabled(
-                                enabled,
-                                theme::primary(if *social {
-                                    "Open conversation"
-                                } else {
-                                    "Create task"
-                                }),
-                            )
-                            .clicked()
-                        {
+                        if let Some(start) = invitation::form(self, ui, *social, text, invitees, sources) {
+                            start_workspace = start;
                             let invite = invitees.iter().cloned().collect();
                             command = Some(if *social {
                                 Command::Social {
@@ -449,18 +420,25 @@ impl App {
                 }
             }));
         if open {
-            let request = if command.is_some() {
+            let request = if let Some(submission) = &command {
                 if let Dialog::Agreement(form) = &mut draft {
                     match form.request_id() {
                         Ok(id) => Some(id),
                         Err(error) => { self.error=Some(error.to_string()); command=None; None }
+                    }
+                } else if let Dialog::Activity {retry, ..} = &mut draft {
+                    // Same submission, same receipt. Editing the brief, roster or
+                    // attachments after a failure creates a new intent.
+                    match invitation::request_key(submission, retry) {
+                        Ok(id)=>Some(id),
+                        Err(e)=>{self.error=Some(e.to_string()); command=None; None}
                     }
                 } else { None }
             } else { None };
             self.dialog = Some(draft);
             if let Some(command) = command {
                 self.submitting_dialog = true;
-                self.command_with_request(ctx, command, request);
+                self.dispatch(ctx, command, request, start_workspace);
             }
         } else if matches!(draft, Dialog::Settings) {
             self.save_layout();

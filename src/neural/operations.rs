@@ -162,7 +162,7 @@ fn resolve(value: &mut Value, aliases: &BTreeMap<String, String>) -> Result<()> 
     Ok(())
 }
 pub(super) fn resolve_operation(op: &mut Operation, aliases: &BTreeMap<String, String>) -> Result<()> {
-    if op.tool == "command.run" {
+    if matches!(op.tool.as_str(), "command.run" | "command.local") {
         if let Some(files) = op.input.get_mut("files").and_then(Value::as_object_mut) {
             for reference in files.values_mut() { resolve(reference, aliases)?; }
         }
@@ -1048,7 +1048,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         // Host commands may be read-only; explicit asset mutations must be acknowledged.
         maintenance(&decision.persona_maintenance,&decision.operations,tools::model_mutation,|name|matches!(name,"persona.evaluate"|"persona.assess"|"development.update"),switching)
             .map_err(|e|failure(format!("persona_maintenance: {e}")))?;
-        maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"result.review"|"asset.feedback"|"image.read"|"image.render_svg"|"document.print_html"|"document.render_pdf"|"command.run"|"geometry.render"|"geometry.inspect_stl"|"geometry.profile_stl"|"work.outcome"|"result.deliver"),false)
+        maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"result.review"|"asset.feedback"|"image.read"|"image.render_svg"|"document.print_html"|"document.render_pdf"|"command.run"|"command.local"|"geometry.render"|"geometry.inspect_stl"|"geometry.profile_stl"|"work.outcome"|"result.deliver"),false)
             .map_err(|e|failure(format!("asset_maintenance: {e}")))?;
         super::development::record_applications(db,snapshot,&decision.examining)?;
         super::development::consider(db,snapshot,decision)?;
@@ -1150,6 +1150,7 @@ pub fn validate_external(db: &Connection, persona: &Persona, op: &Operation) -> 
     match op.tool.as_str() {
         "command.install" => {super::commands::validate_install(db,&decode(&op.input)?)?;}
         "command.run" => super::commands::validate_run(db,&decode(&op.input)?)?,
+        "command.local" => decode::<super::commands::local::Run>(&op.input)?.validate(db)?,
         "geometry.install" => {
             let input: super::geometry::Install = decode(&op.input)?;
             super::geometry::validate_install(db,&input)?;

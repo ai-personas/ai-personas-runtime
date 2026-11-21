@@ -758,7 +758,7 @@ impl App {
                 field_report: ReturnForm::from_report(attempt.field.as_deref()),
             };
             let result = operator_call(&root, &attempt.operator, cmd, Some(&attempt.id));
-            let _ = tx.send(Update::Done(result));
+            let _ = tx.send(Update::Done { result, start_workspace: false });
             ctx.request_repaint();
         });
     }

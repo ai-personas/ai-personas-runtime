@@ -135,6 +135,7 @@ impl Package {
         self.files
             .iter()
             .position(|f| f.format.visual() && f.bytes.is_some_and(|n| n <= preview::SOURCE_LIMIT))
+            .or_else(|| self.files.iter().position(|f| f.format.archive() && f.bytes.is_some_and(|n| n <= preview::SOURCE_LIMIT)))
             .or_else(|| {
                 self.files.iter().position(|f| {
                     f.format.inline() && f.bytes.is_some_and(|n| n <= preview::SOURCE_LIMIT)
@@ -507,7 +508,7 @@ impl App {
                         action = Some(Action::History);
                     }
                     if ui
-                        .add_enabled(file.digest.is_some(), egui::Link::new("Save this file…"))
+                        .add_enabled(file.digest.is_some(), egui::Link::new(if file.format.archive() { "Save this ZIP unchanged…" } else { "Save this file…" }))
                         .on_hover_text(format!("Save {} from this delivery", file.path))
                         .on_disabled_hover_text("This edition’s byte reference is unavailable.")
                         .clicked()

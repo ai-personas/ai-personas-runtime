@@ -115,6 +115,7 @@ fn operation_name(tool: &str) -> &str {
         "command.history" => "Command history",
         "command.install" => "Command installation",
         "command.run" | "host.command" => "Command run",
+        "command.local" => "Local project run",
         "host.start" => "Background job",
         "host.cancel" => "Job cancellation",
         "history.search" => "Activity history search",

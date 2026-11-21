@@ -209,16 +209,8 @@ impl Drop for RunningCommand {
     }
 }
 
-/// Run once, after native intent dispatch. The host observes actual work controls
-/// before launch and while waiting; this adds no command duration limit.
-/// Retain the complete observed output; logs also remain available as host files.
-pub fn execute(
-    input: &Inputs,
-    directory: &Path,
-    mut observe_stop: impl FnMut() -> Option<serde_json::Value>,
-) -> Outcome {
+pub(crate) fn environment_sha256() -> String {
     use std::os::unix::ffi::OsStrExt;
-    let started = Instant::now();
     let mut environment: Vec<_> = std::env::vars_os().collect();
     environment.sort();
     let mut environment_bytes = Vec::new();
@@ -229,6 +221,18 @@ pub fn execute(
             environment_bytes.extend_from_slice(bytes);
         }
     }
+    sha256_bytes(&environment_bytes)
+}
+
+/// Run once, after native intent dispatch. The host observes actual work controls
+/// before launch and while waiting; this adds no command duration limit.
+/// Retain the complete observed output; logs also remain available as host files.
+pub fn execute(
+    input: &Inputs,
+    directory: &Path,
+    mut observe_stop: impl FnMut() -> Option<serde_json::Value>,
+) -> Outcome {
+    let started = Instant::now();
     let mut outcome = Outcome {
         succeeded: false,
         process_started: false,
@@ -247,7 +251,7 @@ pub fn execute(
             .and_then(|path| file_hash(&path)),
         // SAFETY: geteuid has no arguments or memory access requirements.
         effective_uid: unsafe { libc::geteuid() },
-        inherited_environment_sha256: sha256_bytes(&environment_bytes),
+        inherited_environment_sha256: environment_sha256(),
         elapsed_milliseconds: 0,
     };
     let run = (|| -> std::io::Result<()> {

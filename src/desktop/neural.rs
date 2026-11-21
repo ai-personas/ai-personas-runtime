@@ -115,7 +115,7 @@ impl Default for Layout {
 use dialogs::Dialog;
 enum Update {
     Status(data::Monitor, Result<data::Refresh, String>),
-    Done(Result<Value, String>),
+    Done { result: Result<Value, String>, start_workspace: bool },
     BenchDone(Result<Value, String>),
     LiveMessage(live_composer::SubmissionResult),
     RunDone(Result<Value, String>),
@@ -380,6 +380,9 @@ impl App {
         self.command_with_request(ctx, command, None);
     }
     fn command_with_request(&mut self, ctx: &egui::Context, command: Command, request: Option<String>) {
+        self.dispatch(ctx, command, request, false);
+    }
+    fn dispatch(&mut self, ctx: &egui::Context, command: Command, request: Option<String>, start_workspace: bool) {
         let operator = self.operator.trim().to_owned();
         let run = matches!(command, Command::Run { .. });
         let bench = matches!(&command,Command::InstallCommand{..}|Command::RunCommand{..}|Command::CommandHistory(_));
@@ -397,7 +400,7 @@ impl App {
             } else if bench {
                 Update::BenchDone(result)
             } else {
-                Update::Done(result)
+                Update::Done { result, start_workspace }
             });
             ctx.request_repaint();
         });
@@ -553,7 +556,7 @@ impl App {
                     self.command_bench.receive(result);
                     self.last_poll=Instant::now()-Duration::from_secs(3);
                 }
-                Update::Done(result) => {
+                Update::Done { result, start_workspace } => {
                     self.busy = false;
                     if self.submitting_dialog {
                         let keep_project=matches!(self.dialog,Some(Dialog::Render(_))) && result.as_ref().is_ok_and(|v|v["already_installed"].is_boolean());
@@ -566,7 +569,9 @@ impl App {
                             self.open_resource(ctx,target.into());
                         }
                     }
+                    let invited = result.as_ref().is_ok_and(|v|v["work"].is_string() && v["invited"].is_array());
                     self.command_finished(result);
+                    if start_workspace && invited && !self.closing { self.start_follow(ctx, None); }
                 }
                 Update::RunDone(result) => {
                     self.running = false;

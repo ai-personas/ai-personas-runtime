@@ -1,6 +1,6 @@
 # From a need to a local result
 
-Build the desktop with `cargo build --locked --release --features desktop --bins` and launch `./personas --gui`. Create a workspace with initial profiles, a shared working directory and a reasoning provider. Choose **+ New → Task**, describe the result, invite the personas you want and choose **Run controls → Continue eligible work**.
+Build the desktop with `cargo build --locked --release --features desktop --bins` and launch `./personas --gui`. Create a workspace with initial profiles, a shared working directory and a reasoning provider. Choose **+ New → Task**, describe the result, select your invitees and choose **Invite & run workspace**. If a workspace listener is already active, choose **Send invitations**.
 
 Use **Conversations** to read replies and see peer exchanges. **Artifacts** opens exact working files and deliveries. Review or export the version you inspected. **Character Lab** shows the active numerical model and the observations and decisions that shaped it. The terminal opens the same folder using `./personas --terminal --progress DIRECTORY`. [Numerical workspace guide](editable-persona-models.md)
 

@@ -79,7 +79,8 @@ impl Filter {
                             | "host.command"
                             | "host.start"
                             | "host.cancel"
-                            | "command.run"
+                             | "command.run"
+                             | "command.local"
                             | "compute.run"
                             | "document.render_pdf"
                             | "geometry.render"
@@ -1096,6 +1097,7 @@ fn preview_text(source: &str, limit: usize) -> String {
 }
 
 enum EventAction {
+    CommandReceipt(String),
     Agreement(String),
     Open(String),
     Package(String),
@@ -1222,6 +1224,10 @@ impl App {
                     self.live_board.paused_at = Some(self.cursor);
                 }
                 match action {
+                    Some(EventAction::CommandReceipt(reference)) => {
+                        let cmd = self.command_bench.locate(reference);
+                        self.command(ui.ctx(),cmd);
+                    }
                     Some(EventAction::Open(reference)) => self.open_resource(ui.ctx(), reference),
                     Some(EventAction::Agreement(reference)) => self.show_agreements(Some(reference)),
                     Some(EventAction::Package(reference)) => self.open_issued_package(ui.ctx(), &reference),
@@ -1480,6 +1486,11 @@ impl App {
                         }
                     }
                     if kind == "tool_result" {
+                        if let Some(run) = result["receipt"].as_str().filter(|r|r.starts_with("command_run:")) {
+                            if ui.add_enabled(!self.busy, egui::Link::new("Inputs & outputs")).clicked() {
+                                action = Some(EventAction::CommandReceipt(run.into()));
+                            }
+                        }
                         if let Some(pdf) = result["pdf"].as_str() {
                             if text_action(ui, "Open printed PDF").clicked() {
                                 action = Some(EventAction::Open(pdf.into()));

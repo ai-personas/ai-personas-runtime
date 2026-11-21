@@ -511,6 +511,14 @@ async fn external(
             let origin=super::commands::Origin{actor,work:Some(work),invocation:Some(invocation),operation:Some(&op.id)};
             super::commands::run(root,origin,&input,move ||control_observation(&store,work,actor).is_some()).await
         }
+        "command.local" => {
+            let input = serde_json::from_value(op.input.clone())?;
+            let (root, work, actor, call, operation) = (root.to_owned(), work.to_owned(), actor.to_owned(), invocation.to_owned(), op.id.clone());
+            tokio::task::spawn_blocking(move || {
+                let origin = super::commands::Origin {actor:&actor, work:Some(&work), invocation:Some(&call), operation:Some(&operation)};
+                super::commands::local::run(&root, origin, input, || control_observation(&store, &work, &actor).is_some())
+            }).await?
+        }
         "geometry.install" => {
             let input = serde_json::from_value(op.input.clone())?;
             super::geometry::install(root,actor,Some(invocation),&input,move ||control_observation(&store,work,actor).is_some()).await

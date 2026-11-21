@@ -444,7 +444,7 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
         ("Superseded before dispatch".to_owned(), false)
     } else if body["tool"] == "command.install" {
         (format!("Available · {}", result["record"]["name"].as_str().unwrap_or("command")),false)
-    } else if body["tool"] == "command.run" {
+    } else if matches!(body["tool"].as_str(), Some("command.run" | "command.local")) {
         let run=&result["result"];
         let label=match (run["error"].as_str(),run["exit_code"].as_i64(),run["outputs_complete"].as_bool()) {
             (Some(error),_,_)=>error.to_owned(),
@@ -508,7 +508,7 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
             projection["file_path"] = file.body["path"].clone();
         }
     }
-    if body["tool"]=="command.run" {
+    if matches!(body["tool"].as_str(), Some("command.run" | "command.local")) {
         projection["receipt"]=result["receipt"].clone();
         for key in ["installation","program","exit_code","error","stdout","stderr","outputs","missing_outputs"] {
             projection[key]=result["result"][key].clone();
