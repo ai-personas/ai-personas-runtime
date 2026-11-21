@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs::{self, File},
     io::{Read, Seek, Write},
     os::unix::{
@@ -36,6 +36,19 @@ pub struct Run {
     pub outputs: Vec<String>,
     /// Exact asset revision or byte object for standard input. Empty if omitted.
     pub stdin: Option<String>,
+    /// Supply complete UTF-8 text from these streams to your following decision.
+    /// Omitted streams provide an excerpt and an exact object address for selective reads.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub return_text: BTreeSet<Stream>,
+}
+
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum Stream {
+    Stdout,
+    Stderr,
 }
 
 impl Run {
@@ -89,6 +102,54 @@ fn stream(db: &Connection, bytes: &[u8]) -> Result<Value> {
         v["excerpt_complete"] = json!(end == bytes.len());
     }
     Ok(v)
+}
+
+/// Render only the actor's selected streams into the *following input*. The
+/// immutable execution receipt retains the intent and byte objects, not a
+/// second copy of every log. This projection never dispatches the command.
+pub(crate) fn project_streams(db: &Connection, result: &mut Value) -> Result<()> {
+    let run = &mut result["result"];
+    if run["format"] != "local-project-run-v1" {
+        return Ok(());
+    }
+    let selected: BTreeSet<Stream> = run["intent"]
+        .get("return_text")
+        .map(|v| serde_json::from_value(v.clone()))
+        .transpose()?
+        .unwrap_or_default();
+    for mode in selected {
+        let name = match mode {
+            Stream::Stdout => "stdout",
+            Stream::Stderr => "stderr",
+        };
+        let observed = &mut run[name];
+        let reference = observed["object"]
+            .as_str()
+            .and_then(|r| r.strip_prefix("object:"))
+            .ok_or_else(|| failure("Missing local stream reference"))?;
+        let bytes = store::bytes(db, reference)?;
+        let length = bytes.len();
+        if observed["bytes"].as_u64() != Some(length as u64) {
+            return Err(failure(
+                "Local stream length differs from the execution receipt",
+            ));
+        }
+        match String::from_utf8(bytes) {
+            Ok(text) => {
+                *observed = json!({"object":observed["object"],"reference":observed["object"],
+                    "bytes":length,"range":[0,length],"text":text});
+            }
+            Err(_) => {
+                observed["text_unavailable"] = json!("Stream is not UTF-8; exact bytes retained")
+            }
+        }
+    }
+    // Large argument programs and intent are already available in the receipt.
+    if let Some(obj) = run.as_object_mut() {
+        obj.remove("intent");
+        obj.remove("arguments");
+    }
+    Ok(())
 }
 
 /// Only called by the runner after pending → dispatched. In particular there
