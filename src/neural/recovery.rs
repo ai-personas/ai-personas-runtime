@@ -27,7 +27,7 @@ pub fn pending(db: &Connection, actor: &str) -> Result<Option<Value>> {
 }
 
 /// Called in the transaction that retains the failed attempt. Only an ordinary
-/// decision with no complete response qualifies. Authentication, HTTP refusals,
+/// decision with no complete response qualifies. Authentication, provider refusals,
 /// malformed streams, binding errors, cancellation and probes keep their own
 /// dispositions. Remote termination and absence of charges are never inferred.
 pub fn schedule(
@@ -39,21 +39,30 @@ pub fn schedule(
     error: &ProviderError,
     probe: bool,
 ) -> Result<bool> {
-    let ProviderError::Attempt { failure: Failure::Network, receipt } = error else {
+    let ProviderError::Attempt { failure: kind, receipt } = error else {
         return Ok(false);
     };
-    if probe || receipt.response_completed || receipt.reported_terminal_status.is_some()
-        || receipt.http_status.is_some_and(|status| status != 200)
-    {
+    if probe || receipt.response_completed || receipt.reported_terminal_status.is_some() {
         return Ok(false);
     }
+    let cause = match (kind, receipt.http_status) {
+        (Failure::Network, None | Some(200)) => "network",
+        // A proxy can return a complete error page rather than an SSE stream.
+        // A structured provider diagnostic (including quota, authentication
+        // and request errors) is not classified from its status code alone.
+        (Failure::HttpStatus, Some(502..=504 | 520..=524))
+            if receipt.event_count == 0 && receipt.http_diagnostic.as_ref()
+                .is_some_and(|d| d.body_complete && !d.json_observed) => "gateway_http",
+        _ => return Ok(false),
+    };
+    let digest = receipt_reference.strip_prefix("object:").ok_or_else(||failure("Expected exact failed receipt"))?;
     let untouched: bool = db.query_row(
-        "SELECT EXISTS(SELECT 1 FROM invocations WHERE id=?1 AND state='provider_failed' AND response IS NULL)
-         AND NOT EXISTS(SELECT 1 FROM versions WHERE invocation=?1)
-         AND NOT EXISTS(SELECT 1 FROM outbox WHERE invocation=?1)",
-        [invocation], |row| row.get(0),
+        "SELECT EXISTS(SELECT 1 FROM invocations WHERE id=?1 AND work=?2 AND actor=?3 AND receipt=?4 AND state='provider_failed' AND response IS NULL)
+          AND NOT EXISTS(SELECT 1 FROM versions WHERE invocation=?1)
+          AND NOT EXISTS(SELECT 1 FROM outbox WHERE invocation=?1)",
+        params![invocation,work,actor,digest], |row| row.get(0),
     )?;
-    if !untouched {
+    if !untouched || receipt.audit.invocation_id != invocation {
         return Err(failure("transport recovery requires a failed inference with no adopted state or effects"));
     }
     let previous: Option<String> = db.query_row(
@@ -75,7 +84,7 @@ pub fn schedule(
     store::event(db, work, "runtime", actor, "inference_recovery_scheduled", &json!({
         "failed_invocation":invocation,
         "failed_receipt":receipt_reference,
-        "cause":"network",
+        "cause":cause,"http_status":receipt.http_status,
         "consecutive_failures":failures,
         "delay_seconds":delay_seconds,
         "not_before_unix":not_before_unix,
@@ -84,7 +93,7 @@ pub fn schedule(
         "external_operations_replayed":false,
         "remote_stop_confirmed":receipt.remote_stop_confirmed,
         "remote_effects_and_charges_may_remain":receipt.remote_effects_and_charges_may_remain,
-        "meaning":"An HTTPS transport failure left no complete decision and adopted no state or operations. Fresh inference may be scheduled after this time using current state and selected context. All controls, explicit stops and current authority still apply. This does not establish remote termination or zero charges."
+        "meaning":"A transport or gateway failure left no complete decision and adopted no state or operations. Fresh inference may be scheduled after this time using current state and selected context. All controls, explicit stops and current authority still apply. This does not establish remote termination or zero charges."
     }), Some(invocation))?;
     Ok(true)
 }
