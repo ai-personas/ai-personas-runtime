@@ -64,7 +64,7 @@ impl Format {
             }
             (
                 "md" | "markdown" | "txt" | "json" | "csv" | "tsv" | "yaml" | "yml" | "xml" | "net"
-                | "gbr" | "drl",
+                | "gbr" | "drl" | "kicad_sch" | "kicad_pcb" | "cir" | "spice",
                 _,
             ) => Kind::Text,
             (_, mime) if mime.starts_with("text/") || mime == "application/json" => Kind::Text,
@@ -112,6 +112,7 @@ struct Job {
     page: u32,
     serial: u64,
     ctx: egui::Context,
+    member: Option<archive::Member>,
 }
 enum Content {
     Image(egui::ColorImage, Option<String>),
@@ -173,6 +174,8 @@ pub(super) struct Inline {
     pages: pdf::Pages,
     html_source: bool,
     view: View,
+    member: Option<archive::Member>,
+    directory: Option<archive::Listing>,
 }
 
 impl Drop for Inline {
@@ -187,10 +190,12 @@ impl Inline {
         self.reference.clear();
         self.pages = Default::default();
         self.view = View::Pending;
+        self.member = None;
+        self.directory = None;
     }
 
     pub fn detected_pdf(&self, reference: &str) -> bool {
-        self.reference == reference && self.pages.count.is_some()
+        self.reference == reference && self.member.is_none() && self.pages.count.is_some()
     }
 
     fn request(&mut self, ui: &Ui, root: &Path, file: &File) {
@@ -208,10 +213,11 @@ impl Inline {
                 let job = Job {
                     root: root.into(),
                     reference: file.reference.clone(),
-                    kind: file.format.kind,
+                    kind: self.member.as_ref().map_or(file.format.kind, |m| m.kind),
                     page: self.pages.page,
                     serial,
                     ctx: ui.ctx().clone(),
+                    member: self.member.clone(),
                 };
                 if worker.tx.send(job).is_ok() {
                     View::Pending
@@ -224,11 +230,29 @@ impl Inline {
 
     pub fn show(&mut self, ui: &mut Ui, root: &Path, file: &File) {
         if self.reference != file.reference {
+            self.clear();
             self.reference.clone_from(&file.reference);
-            self.pages = Default::default();
             self.html_source = false;
             self.request(ui, root, file);
         }
+        if self.member.is_some() && ui.link("← Archive contents").clicked() {
+            self.latest.fetch_add(1, Ordering::Relaxed);
+            self.member = None;
+            self.pages = Default::default();
+            self.html_source = false;
+            if let Some(listing) = self.directory.take() {
+                self.view = View::Archive(listing);
+            }
+        }
+        let member_key = self.member.as_ref().map(|m| m.key(&file.reference));
+        let reference = member_key.as_deref().unwrap_or(&file.reference);
+        let (path, kind) = match &self.member {
+            Some(m) => {
+                ui.add(egui::Label::new(RichText::new(&m.path).strong()).wrap());
+                (m.path.clone(), m.kind)
+            }
+            None => (file.path.clone(), file.format.kind),
+        };
         if let Some(worker) = &self.worker {
             for (serial, result) in worker.rx.try_iter() {
                 if serial != self.latest.load(Ordering::Relaxed) {
@@ -237,19 +261,19 @@ impl Inline {
                 self.view = match result {
                     Ok(Content::Image(pixels, note)) => View::Image(
                         ui.ctx().load_texture(
-                            format!("delivery-{}", file.reference),
+                            format!("delivery-{reference}"),
                             pixels,
                             egui::TextureOptions::LINEAR,
                         ),
                         note,
                     ),
                     Ok(Content::Pdf(pixels, pages)) => {
-                        if self.pages.count.is_none() && !matches!(file.format.kind, Kind::Pdf) {
+                        if self.pages.count.is_none() && !matches!(kind, Kind::Pdf) {
                             ui.ctx().request_repaint();
                         }
                         self.pages.count = Some(pages);
                         View::Pdf(ui.ctx().load_texture(
-                            format!("delivery-{}-page-{}", file.reference, self.pages.page),
+                            format!("delivery-{reference}-page-{}", self.pages.page),
                             pixels,
                             pdf::SAMPLING,
                         ))
@@ -272,11 +296,12 @@ impl Inline {
                 };
             }
         }
-        let document = matches!(file.format.kind, Kind::Pdf) || self.pages.count.is_some();
-        if document && self.pages.navigation(ui, &file.reference) {
+        let document = matches!(kind, Kind::Pdf) || self.pages.count.is_some();
+        if document && self.pages.navigation(ui, reference) {
             self.request(ui, root, file);
         }
         let p = theme::palette(ui);
+        let mut selected = None;
         match &mut self.view {
             View::Pending if document => self.pages.loading(ui),
             View::Pending => {
@@ -285,9 +310,9 @@ impl Inline {
                     ui.weak("Loading exact file…");
                 });
             }
-            View::Pdf(texture) => self.pages.show(ui, texture, &file.path, &file.reference),
-            View::Html(page) => page.show(ui, &file.reference, &mut self.html_source),
-            View::Archive(listing) => listing.show(ui),
+            View::Pdf(texture) => self.pages.show(ui, texture, &path, reference),
+            View::Html(page) => page.show(ui, reference, &mut self.html_source),
+            View::Archive(listing) => selected = listing.show(ui),
             View::Image(texture, note) => {
                 let available = ui.available_width();
                 let height = (available * 0.72)
@@ -304,7 +329,7 @@ impl Inline {
                     bounds,
                     egui::Image::new((texture.id(), resolution))
                         .fit_to_exact_size(bounds.size())
-                        .alt_text(format!("Preview of {}", file.path)),
+                        .alt_text(format!("Preview of {path}")),
                 );
                 ui.painter().rect_stroke(
                     rect,
@@ -348,6 +373,15 @@ impl Inline {
                 }
             }
         }
+        if let Some(member) = selected {
+            if let View::Archive(listing) = std::mem::take(&mut self.view) {
+                self.directory = Some(listing);
+            }
+            self.member = Some(member);
+            self.pages = Default::default();
+            self.html_source = false;
+            self.request(ui, root, file);
+        }
     }
 }
 
@@ -389,6 +423,10 @@ fn load(job: &Job, cancelled: impl Fn() -> bool) -> ai_personas::neural::Result<
     };
     let bytes = store::bytes(&db, digest)?;
     drop(db);
+    let bytes = match &job.member {
+        Some(member) => member.contents(&bytes)?,
+        None => bytes,
+    };
     let kind = if matches!(kind, Kind::Text | Kind::Html) && bytes.starts_with(b"%PDF-") {
         Kind::Pdf
     } else {
