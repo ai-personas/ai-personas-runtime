@@ -153,6 +153,13 @@ pub enum Command {
         #[serde(flatten)]
         query: super::activity_sources::Query,
     },
+    /// Inspect the opening brief, setup observation and events not linked to a persona decision.
+    IntakeHistory {
+        work: String,
+        #[command(flatten)]
+        #[serde(flatten)]
+        page: super::intake::Page,
+    },
     /// Respond to an exact request for human action. Only a reported completion closes it as completed.
     HumanRespond {
         request: String,
@@ -500,6 +507,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
             let (root, operator) = (root.to_owned(), operator.to_owned());
             tokio::task::spawn_blocking(move || super::connection::connect_codex(&root, &operator, route)).await?
         }
+        Command::IntakeHistory{work,page}=>super::intake::inspect(&store::open_inspection(root)?,&work,&page),
         Command::Agreements{work,query}=>super::agreements::inspect(&store::open_inspection(root)?,&work,&super::relationships::Contact::operator(operator),&query),
         Command::Restore{archive,sha256}=>super::archive::restore(root,&archive,sha256.as_deref(),operator),
         Command::Init {
@@ -554,6 +562,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
                 )
             };
             provider.validate()?;
+            let project_start = super::intake::project_at_setup(&working_directory);
             let config = Config {
                 working_directory,
                 auth_route,
@@ -561,6 +570,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
             };
             let store = Store::create(root, |db| {
                 store::write(db, "config", "runtime", 0, &config, None)?;
+                store::write(db, "project_start", "working-directory", 0, &project_start, None)?;
                 for seed in seeds.personas {
                     create_seed(db, seed, operator, &provider)?;
                 }

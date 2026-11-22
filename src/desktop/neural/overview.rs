@@ -127,6 +127,9 @@ impl App {
                         .on_hover_text("Run this activity and its requests. Keep listening for the events each persona chose while Studio is open.").clicked(){
                         self.follow_activity(ui.ctx());
                     }
+                    if ui.button("Intake record…").on_hover_text("Opening brief, setup observation and operator or host events").clicked() {
+                        self.intake = Some(intake::Window::open(ui.ctx(), &self.root, &self.work));
+                    }
                     if ui.button("Activity thread").clicked() {
                         self.requested_activities.open(
                             ui.ctx(),

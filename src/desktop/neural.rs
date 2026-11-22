@@ -45,6 +45,7 @@ mod package_reviews;
 mod requested_activities;
 mod inbox;
 mod input_files;
+mod intake;
 mod overview;
 mod live_board;
 mod live_composer;
@@ -162,6 +163,7 @@ pub struct App {
     live_composer: live_composer::Composer,
     message_receipt: message_receipt::Window,
     activity_sources: activity_sources::Window,
+    intake: Option<intake::Window>,
     activity_filter_text: String,
     dialog: Option<Dialog>,
     submitting_dialog: bool,
@@ -273,6 +275,7 @@ impl App {
             live_composer: Default::default(),
             message_receipt: Default::default(),
             activity_sources: Default::default(),
+            intake: None,
             activity_filter_text: String::new(),
             dialog: None,
             submitting_dialog: false,
@@ -791,6 +794,7 @@ impl eframe::App for App {
         self.command_bench = bench;
         self.dialogs(ctx);
         self.sources_window(ctx);
+        self.intake_window(ctx);
         self.message_receipt_window(ctx);
         self.export_window(ctx);
         self.workspace_find_window(ctx);
