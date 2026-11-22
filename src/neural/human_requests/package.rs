@@ -73,42 +73,56 @@ fn state_label(state: &str) -> &str {
     }
 }
 
+fn file_contents(db: &Connection, (path, reference): (String, String)) -> Result<(SheetFile, Vec<u8>)> {
+    let asset = store::exact(db, &reference)?.body;
+    let blob = asset["blob"].as_str().ok_or_else(|| failure(format!("Missing bytes for {path} ({reference})")))?;
+    let bytes = store::bytes(db, blob).map_err(|e| failure(format!("Cannot export {path} ({reference}): {e}")))?;
+    let entry = SheetFile {
+        path, reference, sha256: blob.to_owned(), bytes: bytes.len() as u64,
+        author: asset["last_content_author"].as_str().or_else(|| asset["owner"].as_str()).map(str::to_owned),
+        qualifications: asset.get("qualifications").filter(|v| !v.is_null())
+            .map(|v| serde_json::from_value(v.clone())).transpose()?.unwrap_or_default(),
+    };
+    Ok((entry, bytes))
+}
+
 fn package_files(db: &Connection, refs: &[String], writer: &mut File) -> Result<Vec<SheetFile>> {
     let mut zip = zip::ZipWriter::new(writer);
     let mut entries = Vec::new();
-    for (path, reference) in files(db, refs)? {
-        let asset = store::exact(db, &reference)?.body;
-        let blob = asset["blob"]
-            .as_str()
-            .ok_or_else(|| failure(format!("Missing bytes for {path} ({reference})")))?;
-        let bytes = store::bytes(db, blob)
-            .map_err(|e| failure(format!("Cannot export {path} ({reference}): {e}")))?;
-        zip.start_file(
-            &path,
-            zip::write::SimpleFileOptions::default()
-                .compression_method(zip::CompressionMethod::Deflated)
-                .large_file(bytes.len() as u64 >= u32::MAX as u64),
-        )?;
+    for member in files(db, refs)? {
+        let (entry, bytes) = file_contents(db, member)?;
+        zip.start_file(&entry.path, zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated).large_file(entry.bytes >= u32::MAX as u64))?;
         zip.write_all(&bytes)?;
-        entries.push(SheetFile {
-            path,
-            reference,
-            sha256: blob.to_owned(),
-            bytes: bytes.len() as u64,
-            author: asset["last_content_author"]
-                .as_str()
-                .or_else(|| asset["owner"].as_str())
-                .map(str::to_owned),
-            qualifications: asset
-                .get("qualifications")
-                .filter(|value| !value.is_null())
-                .map(|value| serde_json::from_value(value.clone()))
-                .transpose()?
-                .unwrap_or_default(),
-        });
+        entries.push(entry);
     }
     zip.finish()?;
     Ok(entries)
+}
+
+/// One-based slip number from an exact accepted issue. Never infer a recipient,
+/// flatten a directory tree, send to a network destination or change work state.
+pub fn export_dispatch(db: &Connection, reference: &str, number: usize, destination: &Path) -> Result<Value> {
+    let edition = crate::neural::activity_sources::delivery::edition(db, reference)?;
+    let package: SheetDelivery = serde_json::from_value(edition.issue.record.body)?;
+    let slip = number.checked_sub(1).and_then(|i| package.dispatches.get(i))
+        .ok_or_else(|| failure("No dispatch slip with that number in this edition"))?;
+    let parent = archive::parent(destination);
+    let mut temp = tempfile::NamedTempFile::new_in(parent)?;
+    let (format, entries) = if slip.artifacts.len() == 1 {
+        let member = files(db, &slip.artifacts)?.pop().ok_or_else(|| failure("Missing dispatch file"))?;
+        let (entry, bytes) = file_contents(db, member)?;
+        temp.write_all(&bytes)?;
+        ("original_file", vec![entry])
+    } else {
+        ("files_zip", package_files(db, &slip.artifacts, temp.as_file_mut())?)
+    };
+    temp.as_file().sync_all()?;
+    temp.persist_noclobber(destination)?;
+    #[cfg(unix)]
+    File::open(parent)?.sync_all()?;
+    Ok(json!({"delivery":reference,"dispatch":number,"recipient":slip.recipient,
+        "format":format,"file":destination,"artifacts":entries}))
 }
 
 pub fn export_package(db: &Connection, reference: &str, destination: &Path) -> Result<Value> {
@@ -162,7 +176,7 @@ fn request_sheet(
         ));
     }
     for delivery in &deliveries {
-        delivery_feedback::issued(db, &delivery.reference)?;
+        crate::neural::activity_sources::delivery::edition(db, &delivery.reference)?;
     }
     let name = store::head(db, "persona", &request.requester)?
         .and_then(|p| p.body["label"].as_str().map(str::to_owned));

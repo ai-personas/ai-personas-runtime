@@ -69,7 +69,26 @@ pub(super) fn listed_values(html: &mut String, list: &[String], empty: &'static 
     }
 }
 
-fn delivery(html: &mut String, package: &SheetDelivery) {
+pub(super) fn dispatch_slips(html: &mut String, package: &SheetDelivery, files: &[SheetFile]) {
+    if package.dispatches.is_empty() { return; }
+    html.push_str("<section><h2>Dispatch slips</h2><p>The issuer selected these files for each recipient. No transfer or acceptance is recorded by this sheet.</p><ol class=\"entries\">");
+    for slip in &package.dispatches {
+        html.push_str("<li><h3 class=\"delivery-title\" dir=\"auto\">");
+        append_text(html, &slip.recipient);
+        html.push_str("</h3><p class=\"verbatim\" dir=\"auto\">");
+        append_text(html, &slip.instructions);
+        html.push_str("</p><ul class=\"references\">");
+        for reference in &slip.artifacts {
+            html.push_str("<li dir=\"auto\">");
+            append_text(html, files.iter().find(|f| &f.reference == reference).map_or(reference, |f| &f.path));
+            html.push_str("</li>");
+        }
+        html.push_str("</ul></li>");
+    }
+    html.push_str("</ol></section>");
+}
+
+fn delivery(html: &mut String, package: &SheetDelivery, files: &[SheetFile]) {
     html.push_str("<li><h3 class=\"delivery-title\" dir=\"auto\">");
     append_text(html, &package.title);
     html.push_str("</h3><dl class=\"item-facts\">");
@@ -85,6 +104,7 @@ fn delivery(html: &mut String, package: &SheetDelivery) {
     html.push_str("</dd></div></dl><dl class=\"identifiers delivery-id\">");
     field(html, "Delivery revision", &package.reference);
     html.push_str("</dl>");
+    dispatch_slips(html, package, files);
     if !package.artifacts.is_empty() {
         html.push_str("<details class=\"membership\"><summary>Artifact revisions in this delivery</summary><ul class=\"references\">");
         for reference in &package.artifacts {
@@ -204,7 +224,7 @@ pub(super) fn render(request: &RequestSheet<'_>) -> String {
     if !request.deliveries.is_empty() {
         html.push_str("<section><h2>Included deliveries</h2><ul class=\"entries\">");
         for package in &request.deliveries {
-            delivery(&mut html, package);
+            delivery(&mut html, package, request.files);
         }
         html.push_str("</ul></section>");
     } else if !request.files.is_empty() {

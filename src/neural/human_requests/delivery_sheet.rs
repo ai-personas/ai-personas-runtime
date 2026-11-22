@@ -299,6 +299,7 @@ pub(super) fn render(
     html.push_str("<section><h2>Remaining work declared by the issuer</h2>");
     listed_values(&mut html, &package.remaining, "None listed");
     html.push_str("</section>");
+    super::sheet::dispatch_slips(&mut html, package, files);
     file_section(&mut html, "Package files", files);
     html.push_str("<section><h2>Activity brief at issue</h2><p class=\"verbatim\" dir=\"auto\">");
     append_text(&mut html, &brief.original_need);

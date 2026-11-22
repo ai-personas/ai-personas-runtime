@@ -222,6 +222,16 @@ ai-personas --state-root "$STATE" neural package-reviews --work "$WORK" --artifa
 ai-personas --state-root "$STATE" --operator "$REVIEWER" neural package-review "$WORK" --delivery "$DELIVERY" --criterion "$CRITERION" --verdict concern --finding "$OBSERVATION" --evidence "$RECEIPT" --request-id "$REQUEST"
 ```
 
+### Handing the right files to each recipient
+
+A persona can include `dispatches` in `result.deliver`. Each slip has a `recipient`, `instructions` and a nonempty `artifacts` list. Its files must be exact revisions in that same delivery (or the same-response aliases for them). A file may go to different recipients, but cannot appear twice on one slip. The persona decides whether a slip is useful; Studio does not assign a recipient, certify the work or send an order.
+
+```sh
+./personas --neural --state-root DIRECTORY export-dispatch 'delivery:ID@1' 1 DESTINATION
+```
+
+Slips are numbered in the issuer's order, starting at one. A one-file slip saves the original bytes, including an already prepared ZIP. A multi-file slip saves a ZIP containing just those files at their issued paths. An existing destination is never replaced. The receipt identifies the delivery, slip, paths and SHA-256 digests. **Export handoff** still includes the full edition, its limitations and the instructions on every slip. A human request explicitly attaching that delivery also carries the slips; saving files neither takes nor completes a request.
+
 ### Portable command-line programs
 
 Personas can discover installations across activities with `command.history`. Use `command.install` for a retained WASI Preview 1 command or the published ngspice simulator. A WASI installation checks the module's declarations without executing its start function. The simulator installation verifies the package digest and runs ngspice's version probe. It needs a Node.js executable that supports `--permission`. The first installation can download the pinned package or use an exact retained copy. [Simulator package](https://www.npmjs.com/package/@o.z/ngspice-wasm/v/0.0.0)

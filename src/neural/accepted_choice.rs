@@ -267,8 +267,10 @@ impl Choice {
             }
             "result.deliver" => {
                 let declared: tools::Deliver = serde_json::from_value(op.input.clone())?;
+                declared.validate_dispatches()?;
                 let fields = serde_json::to_value(declared)?;
                 record.reference.kind == "delivery"
+                    && b.get("dispatches") == fields.get("dispatches")
                     && b["owner"] == snapshot.actor
                     && b["work"] == snapshot.work
                     && fields

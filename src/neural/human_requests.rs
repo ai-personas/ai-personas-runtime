@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
 mod package;
-pub use package::{export_handoff, export_package, HandoffFormat};
+pub use package::{export_dispatch, export_handoff, export_package, HandoffFormat};
 mod correspondence;
 pub use correspondence::correspondence;
 mod field_report;
@@ -119,6 +119,8 @@ pub(super) struct SheetDelivery {
     pub owner: String,
     pub scope: String,
     pub supported_use: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dispatches: Vec<super::tools::Dispatch>,
     pub remaining: Vec<String>,
     pub artifacts: Vec<String>,
 }

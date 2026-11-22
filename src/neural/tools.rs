@@ -226,6 +226,9 @@ pub struct Deliver {
     /// Exact assets forming one coherent package. Logical paths must be relative
     /// and unambiguous; exported files preserve these paths within the delivery.
     pub artifacts: Vec<String>,
+    /// Optional recipient-specific slips. Choose which issued files to send unchanged and how the recipient should use them. This does not send files, request help or authorize an order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dispatches: Vec<Dispatch>,
     /// Additional exact inputs governing this release and its reviews, such as a material specification.
     #[serde(default,skip_serializing_if="Vec::is_empty")]
     pub review_inputs: Vec<String>,
@@ -243,6 +246,37 @@ pub struct Deliver {
 pub enum DeliveryScope {
     Partial,
     ClaimedComplete,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Dispatch {
+    /// Person, organization or receiving workflow; no fixed roles.
+    pub recipient: String,
+    /// Recipient-facing instructions, including any applicable conditions.
+    pub instructions: String,
+    /// Nonempty subset of the delivery's exact asset revisions. A single file is saved unchanged; several are saved together with their issued paths.
+    pub artifacts: Vec<String>,
+}
+
+impl Deliver {
+    pub(super) fn validate_dispatches(&self) -> super::Result<()> {
+        use std::collections::BTreeSet;
+        if self.dispatches.is_empty() { return Ok(()); }
+        let issued: BTreeSet<_> = self.artifacts.iter().collect();
+        for (index, slip) in self.dispatches.iter().enumerate() {
+            if slip.recipient.trim().is_empty() || slip.instructions.trim().is_empty() || slip.artifacts.is_empty() {
+                return Err(super::failure(format!("Dispatch {} needs a recipient, instructions and at least one issued file", index + 1)));
+            }
+            let mut seen = BTreeSet::new();
+            for file in &slip.artifacts {
+                if !issued.contains(file) || !seen.insert(file) {
+                    return Err(super::failure(format!("Dispatch {}: list {file} exactly once and include that revision in the delivery's artifacts", index + 1)));
+                }
+            }
+        }
+        Ok(())
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -382,7 +416,7 @@ pub const NAMES: &[(&str,&str)] = &[
     ("work.respond","Send a message, clarification or review from this originating activity to a participant in your separate request. Supply its exact founding work reference. To review a delivery read its record and cite its returned request_delivery exchange."),
     ("result.review","Publish your finding on a criterion for an exact issued delivery or proposed set of assets. Choose subject.delivery to assess that delivery under its original brief, or subject.artifacts to assess those files under this activity’s brief."),
     ("result.reviews","Compare published package reviews with subject.delivery or a proposed subject.artifacts set. See matching and changed files, actual brief, evidence and whether each review existed at delivery. Optionally select a particular review."),
-    ("result.deliver","Deliver exact retained artifacts with supported use, evidence and remaining gaps; claimed completion is separate from user acceptance."),
+    ("result.deliver","Issue exact artifacts with supported use, evidence and remaining gaps. Optional dispatches tell each recipient which issued files to take and what to do with them; nothing is sent or ordered. Claimed completion is separate from user acceptance."),
     ("human.request","Ask a human for an action or observation outside the workspace. Name the action and what you need back. You can attach exact files or issued deliveries with their files, supported use and remaining work. Human reports arrive as user_message. Taking or releasing the request without a report produces human_request_progress."),
     ("human.withdraw","Withdraw your own open request for human action by its exact current revision. A request already taken by a human must be discussed with that person."),
 ];

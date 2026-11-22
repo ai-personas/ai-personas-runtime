@@ -248,8 +248,12 @@ pub(super) fn return_to_parent(
 }
 
 pub(super) fn delivery_summary(reference: &str, body: &Value) -> Value {
-    json!({"delivery":reference,"title":body["title"],"scope":body["scope"],
-        "supported_use":body["supported_use"],"remaining":body["remaining"],"artifacts":body["artifacts"]})
+    let mut summary = json!({"delivery":reference,"title":body["title"],"scope":body["scope"],
+        "supported_use":body["supported_use"],"remaining":body["remaining"],"artifacts":body["artifacts"]});
+    if let Some(slips) = body.get("dispatches") {
+        summary["dispatches"] = slips.clone();
+    }
+    summary
 }
 fn returned_body(
     db: &Connection,
