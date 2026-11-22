@@ -84,6 +84,7 @@ impl Filter {
                             | "command.run"
                             | "command.local"
                             | "workspace.open"
+                            | "workspace.bundle"
                             | "web.fetch"
                             | "compute.run"
                             | "document.render_pdf"
@@ -121,7 +122,7 @@ impl Filter {
                     || event["body"]["recipient_kind"] == "operator"
             }
             Self::Files => {
-                file || event["tool_outcome"]["retrieved_object"].is_string()
+                file || event["tool_outcome"]["retrieved_object"].is_string() || event["tool_outcome"]["captured_zip"].is_string()
                     || human_file_count(event) > 0 || feedback_reference(event).is_some()
                     || matches!(
                         kind,
@@ -1426,6 +1427,15 @@ impl App {
                         }
                     });
                 }
+                if let (Some(zip), Some(manifest)) = (result["captured_zip"].as_str(), result["member_manifest"].as_str()) {
+                    ui.horizontal_wrapped(|ui| {
+                        if text_action(ui, "Inspect captured ZIP").clicked() {
+                            action = Some(EventAction::SourceFile { source: s(result, "result").into(), object: zip.into(), name: "Project.zip".into() });
+                        }
+                        if text_action(ui, "Member checksums").clicked() { action = Some(EventAction::Open(manifest.into())); }
+                        ui.small("Review copy · not an issued delivery");
+                    });
+                }
                 if let Some(url) = result["requested_url"].as_str() {
                     let final_url = result["final_url"].as_str().unwrap_or(url);
                     ui.add(egui::Label::new(RichText::new(final_url).small()).truncate())
@@ -1632,6 +1642,7 @@ impl App {
                     result["file_reference"].is_string(),
                     s(result, "label"),
                 ) {
+                    ("workspace.bundle", _, label) => format!("project capture · {label}"),
                     ("web.fetch", _, label) => format!("requested a source · {label}"),
                     ("document.render_pdf", _, label) if result["page_image"].is_string() => {
                         label.replacen("Rendered", "rendered", 1)

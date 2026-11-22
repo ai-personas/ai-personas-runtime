@@ -112,6 +112,7 @@ fn operation_name(tool: &str) -> &str {
         "asset.feedback" => "File feedback",
         "asset.feedback_history" => "File feedback history",
         "workspace.list" => "Directory listing",
+        "workspace.bundle" => "Project ZIP capture",
         "command.history" => "Command history",
         "command.install" => "Command installation",
         "command.run" | "host.command" => "Command run",

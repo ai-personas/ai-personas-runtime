@@ -456,6 +456,8 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
             format!("{status} · {format}")
         };
         (label, result["success"] != true)
+    } else if body["tool"] == "workspace.bundle" && result["reference"].is_string() {
+        (format!("Captured ZIP · {}", super::counted(result["members"].as_u64().unwrap_or(0), "file", "files")), false)
     } else if body["tool"] == "workspace.open" && result["view"].is_string() {
         let count = result["files"].as_array().map_or(0, Vec::len);
         (if count == 0 { "Closed working sources".into() } else {
@@ -525,6 +527,10 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
             projection["file_reference"] = json!(file.reference.handle());
             projection["file_path"] = file.body["path"].clone();
         }
+    }
+    if body["tool"]=="workspace.bundle" && result["reference"].is_string() {
+        projection["captured_zip"]=result["reference"].clone();
+        projection["member_manifest"]=result["manifest"].clone();
     }
     if body["tool"]=="workspace.open" && !problem {
         projection["project_view"]=result["view"].clone();

@@ -4,6 +4,7 @@ use rusqlite::Connection;
 use serde_json::{json, Value};
 
 pub(super) enum ReturnedFile {
+    ProjectZip(crate::neural::workspace::bundle::Capture),
     PageImage(Vec<u8>),
     Pdf(Vec<u8>),
     Web(web::Body),
@@ -12,6 +13,11 @@ pub(super) enum ReturnedFile {
 impl ReturnedFile {
     pub(super) fn retain(self, db: &Connection, result: &mut Value) -> Result<()> {
         let digest = match self {
+            Self::ProjectZip(capture) => {
+                let manifest = store::put(db, &capture.members)?;
+                result["manifest"] = json!(format!("object:{manifest}"));
+                store::put_bytes(db, "application/zip", &capture.bytes)?
+            }
             Self::Web(body) => store::put_bytes(db, body.media, &body.bytes)?,
             Self::Pdf(bytes) => store::put_bytes(db, "application/pdf", &bytes)?,
             Self::PageImage(bytes) => {

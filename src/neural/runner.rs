@@ -658,6 +658,26 @@ async fn external(
     }
 }
 
+async fn bundle_project(root: &Path, work: &str, actor: &str, call: &str, input: Value) -> Result<(Value, Option<ReturnedFile>)> {
+    let store = Store::open(root)?;
+    let source = source_snapshot(&store.db, call)?;
+    let directory = PathBuf::from(source.data["host_working_directory"].as_str()
+        .ok_or_else(|| failure("The admitted decision did not name a shared working directory"))?);
+    let selection = serde_json::from_value(input)?;
+    let (work, actor) = (work.to_owned(), actor.to_owned());
+    let capture = tokio::task::spawn_blocking(move || {
+        let mut polled = None::<std::time::Instant>;
+        super::workspace::bundle::capture(&directory, selection, || {
+            if polled.is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(100)) { return false; }
+            polled = Some(std::time::Instant::now());
+            control_observation(&store, &work, &actor).is_some()
+        })
+    }).await??;
+    let receipt = json!({"members":capture.members.len(), "bytes":capture.bytes.len(),
+        "format":"zip", "host_files_written":false, "issued":false});
+    Ok((receipt, Some(ReturnedFile::ProjectZip(capture))))
+}
+
 async fn fetch_source(root: &Path, work: &str, actor: &str, input: Value) -> Result<(Value, Option<ReturnedFile>)> {
     let controls = Store::open(root)?;
     let (receipt, body) = super::web::fetch(serde_json::from_value(input)?,
@@ -705,6 +725,7 @@ async fn effects(root: &Path, actor: &str, selected_work:&str) -> Result<()> {
         let result = match op.tool.as_str() {
             "document.print_html" | "document.render_pdf" => pdf::execute(root, &work, actor, op.clone()).await,
             "web.fetch" => fetch_source(root, &work, actor, op.input.clone()).await,
+            "workspace.bundle" => bundle_project(root, &work, actor, &invocation, op.input.clone()).await,
             _ => external(root, &work, actor, &invocation, &op).await.map(|value| (value, None)),
         };
         let (mut value, file) = match result {

@@ -1,5 +1,6 @@
 //! Files selected from the workspace and the runtime's portable computation interface.
 pub(crate) mod open;
+pub(crate) mod bundle;
 use super::{failure, store, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use rusqlite::Connection;
@@ -37,7 +38,11 @@ fn open_entry(directory: &Path, name: &str) -> Result<(PathBuf, File)> {
     } else {
         path
     };
-    let mut parent = File::open(directory)?;
+    Ok((directory.join(relative), open_relative(&File::open(directory)?, relative)?))
+}
+
+fn open_relative(root: &File, relative: &Path) -> Result<File> {
+    let mut parent = root.try_clone()?;
     let mut components = relative.components().peekable();
     while let Some(part) = components.next() {
         let name = match part {
@@ -56,7 +61,16 @@ fn open_entry(directory: &Path, name: &str) -> Result<(PathBuf, File)> {
         }
         parent = unsafe { File::from_raw_fd(next) };
     }
-    Ok((directory.join(relative), parent))
+    Ok(parent)
+}
+
+// Enumerate through the open directory rather than resolving its name again.
+fn directory_entries(opened: &File) -> std::io::Result<std::fs::ReadDir> {
+    #[cfg(target_os = "linux")]
+    let descriptors = Path::new("/proc/self/fd");
+    #[cfg(not(target_os = "linux"))]
+    let descriptors = Path::new("/dev/fd");
+    std::fs::read_dir(descriptors.join(opened.as_raw_fd().to_string()))
 }
 
 pub(super) fn list(
@@ -68,14 +82,8 @@ pub(super) fn list(
     if !opened.metadata()?.is_dir() {
         return Err(failure("Choose a directory to list"));
     }
-    // Reopen the anchored descriptor for enumeration, including if the original
-    // directory name changes while this observation is being made.
-    #[cfg(target_os = "linux")]
-    let descriptors = Path::new("/proc/self/fd");
-    #[cfg(not(target_os = "linux"))]
-    let descriptors = Path::new("/dev/fd");
     let mut entries = Vec::new();
-    for entry in std::fs::read_dir(descriptors.join(opened.as_raw_fd().to_string()))? {
+    for entry in directory_entries(&opened)? {
         let entry = entry?;
         let kind = entry.file_type()?;
         let name = entry.file_name();

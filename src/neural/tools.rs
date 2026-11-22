@@ -356,6 +356,7 @@ pub const NAMES: &[(&str,&str)] = &[
     ("command.run","Execute a workspace command, including Python scripts you write. Mount exact assets or byte objects under relative filenames, pass literal arguments (e.g. [\"build.py\"]), name outputs to capture. stdout, stderr and files are returned as exact byte references; read the streams for diagnostics or register a finished output for delivery."),
     ("command.local","Run a program with literal arguments. Use directory:\"workspace\" for continuing work: relative paths start in the shared project, edits stay there and peers can use them. Name files in outputs to capture their exact bytes, including existing sources for your next decision. Scratch (default) instead stages files from exact references in a fresh directory. return_text:[\"stdout\"] and/or \"stderr\" supplies complete UTF-8 streams; otherwise read the exact stream object for more. Register exact outputs with asset.register for delivery."),
     ("command.history","List installed portable commands and discover local and portable executions across activities by exact installation, receipt, source, log or output reference."),
+    ("workspace.bundle","Freeze your selected project-relative paths (files or named directory trees) into one reviewable ZIP. Optionally exclude exact paths/subtrees. Returns an immutable ZIP object and a separate manifest with member paths, sizes and SHA-256 hashes. Stages nothing on the host, publishes no asset and issues no delivery. Use the returned reference in asset.register or in a scratch command.local file map to check the exact archive."),
     ("workspace.list","List names and file types in one chosen shared-workspace directory. Import selected file contents separately."),
     ("web.fetch","Retrieve an HTTP(S) source and retain its exact response bytes. Reports final URL, status, declared media type and observed file header. Optionally expect a PDF, HTML, ZIP or image header. Even an error page or unexpected format has its own byte reference when fully received. Read or render the returned object to inspect its contents."),
     ("workspace.open","Keep the actual text of chosen shared project files in your decisions while you work. paths accepts filenames or {path,start,end} UTF-8 byte ranges. One successful call replaces your open set with exact frozen editions; no automatic refresh or reread. Use paths:[] to close it. Failed opens preserve the prior set. This does not publish assets."),
@@ -455,6 +456,7 @@ pub fn describe(name: &str) -> Result<Value> {
         "command.local" => schema::<super::commands::local::Run>()?,
         "web.fetch" => schema::<super::web::Fetch>()?,
         "workspace.open" => schema::<super::workspace::open::Open>()?,
+        "workspace.bundle" => schema::<super::workspace::bundle::Bundle>()?,
         "command.history" => schema::<super::commands::History>()?,
         "persona.patch" => schema::<protocol::PatchModel>()?,
         "persona.assess" => schema::<AssessModel>()?,
@@ -549,6 +551,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
         "command.local" => parse::<super::commands::local::Run>(value),
         "web.fetch" => serde_json::from_value::<super::web::Fetch>(value.clone())?.validate().map(|_| ()),
         "workspace.open" => parse::<super::workspace::open::Open>(value),
+        "workspace.bundle" => serde_json::from_value::<super::workspace::bundle::Bundle>(value.clone())?.validate(),
         "command.history" => parse::<super::commands::History>(value),
         "persona.patch" => parse::<protocol::PatchModel>(value),
         "persona.assess" => parse::<AssessModel>(value),
@@ -600,7 +603,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
 pub fn is_external(name: &str) -> bool {
     matches!(
         name,
-        "command.install" | "command.run" | "command.local" | "web.fetch" | "compute.inspect" | "compute.run" | "geometry.install" | "geometry.render" | "geometry.inspect_stl" | "geometry.profile_stl" | "workspace.list" | "workspace.open" | "asset.import" | "image.read" | "image.render_svg" | "document.print_html" | "document.render_pdf" | "persona.assess"
+        "command.install" | "command.run" | "command.local" | "web.fetch" | "compute.inspect" | "compute.run" | "geometry.install" | "geometry.render" | "geometry.inspect_stl" | "geometry.profile_stl" | "workspace.list" | "workspace.open" | "workspace.bundle" | "asset.import" | "image.read" | "image.render_svg" | "document.print_html" | "document.render_pdf" | "persona.assess"
     )
 }
 pub fn asset_mutation(name: &str) -> bool {
