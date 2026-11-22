@@ -19,6 +19,7 @@ struct Member {
     delivery: String,
     path: String,
     digest: String,
+    entry: Option<delivery_desk::ZipFile>,
 }
 
 fn basename(path: &str) -> &str {
@@ -27,11 +28,17 @@ fn basename(path: &str) -> &str {
 }
 
 fn save_new_file(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    save_new_file_with(path, |file| file.write_all(bytes).map_err(|e| e.to_string()))
+}
+
+fn save_new_file_with(
+    path: &std::path::Path,
+    write: impl FnOnce(&mut std::fs::File) -> Result<(), String>,
+) -> Result<(), String> {
     let mut file = tempfile::NamedTempFile::new_in(path.parent().unwrap())
         .map_err(|e| e.to_string())?;
-    file.write_all(bytes)
-        .and_then(|_| file.as_file().sync_all())
-        .map_err(|e| e.to_string())?;
+    write(file.as_file_mut())?;
+    file.as_file().sync_all().map_err(|e| e.to_string())?;
     file.persist_noclobber(path)
         .map_err(|e| format!("Cannot save {}: {e}", path.display()))?;
     Ok(())
@@ -134,15 +141,16 @@ impl App {
             name,
         ));
     }
-    pub(super) fn save_package_member(&mut self, delivery: &str, reference: &str, path: &str, digest: &str) {
+    pub(super) fn save_package_member(&mut self, delivery: &str, reference: &str, path: &str, digest: &str, entry: Option<delivery_desk::ZipFile>) {
         self.export_generation += 1;
+        let name = basename(entry.as_ref().map_or(path, |e| &e.path)).to_owned();
         self.export_dialog = Some(Dialog::new(
             self.export_generation,
             Contents::Artifact {
                 reference: reference.into(), source: None, metadata_view: false,
-                member: Some(Member { delivery: delivery.into(), path: path.into(), digest: digest.into() }),
+                member: Some(Member { delivery: delivery.into(), path: path.into(), digest: digest.into(), entry }),
             },
-            basename(path).into(),
+            name,
         ));
     }
     pub(super) fn export_deliveries(&mut self, _ctx: &egui::Context) {
@@ -160,6 +168,8 @@ impl App {
         let (heading, description, action) = match &dialog.contents {
             Contents::Artifact { metadata_view: true, .. } => (
                 "Save receipt metadata", "Save the public receipt view, including its audit and usage.", "Save file"),
+            Contents::Artifact { member: Some(member), .. } if member.entry.is_some() =>
+                ("Save file from issued ZIP", "Save the original bytes of this entry from the selected delivery.", "Save file"),
             Contents::Artifact { member: Some(_), .. } => ("Save package file", "Save this exact issued file to your computer.", "Save file"),
             Contents::Artifact { .. } => ("Save artifact", "Save the exact retained file to your computer.", "Save file"),
             Contents::Printed { .. } => ("Save print PDF", "Save the PDF generated for this preview.", "Save PDF"),
@@ -232,6 +242,9 @@ impl App {
             let file = !matches!(dialog.contents, Contents::Handoff { format: HandoffFormat::Folder, .. } | Contents::Deliveries(_));
             if let Contents::Artifact { reference, member: Some(member), .. } = &dialog.contents {
                 let edition = reference.rsplit_once('@').map(|(_, n)| n).unwrap_or(reference);
+                if let Some(entry) = &member.entry {
+                    ui.add(egui::Label::new(RichText::new(&entry.path).strong()).wrap());
+                }
                 ui.small(format!("{}  ·  Revision {edition}", member.path)).on_hover_text(reference);
             }
             if let Contents::Printed { source, document } = &dialog.contents {
@@ -340,6 +353,10 @@ impl App {
                                 || preview.metadata["view"] == "provider_receipt_metadata"
                                 || ai_personas::store::sha256_bytes(&bytes) != selected.digest {
                                 return Err("The retained file differs from the selected package member.".into());
+                            }
+                            if let Some(entry) = &selected.entry {
+                                save_new_file_with(&path, |temp| entry.copy_to(&bytes, temp).map_err(|e| e.to_string()))?;
+                                return Ok(format!("Saved {} from the issued ZIP to {}", entry.path, path.display()));
                             }
                         }
                         save_new_file(&path, &bytes)?;

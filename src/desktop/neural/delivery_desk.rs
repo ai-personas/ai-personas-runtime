@@ -6,6 +6,7 @@ mod origins;
 mod preview;
 mod requests;
 use preview::{Format, Inline};
+pub(super) use preview::ZipFile;
 
 #[derive(Default)]
 pub(super) struct Desk {
@@ -449,6 +450,7 @@ impl App {
             History,
             Print(egui::Id),
             Save,
+            SaveEntry(ZipFile),
         }
         let desk = &mut self.delivery_desk;
         let mut action = None;
@@ -500,8 +502,14 @@ impl App {
                 desk.inline.show(ui, &self.root, file);
                 ui.add_space(4.);
                 ui.horizontal_wrapped(|ui| {
+                    if let Some(entry) = desk.inline.selected_member() {
+                        if ui.add_enabled(file.digest.is_some(), egui::Link::new("Save selected file…"))
+                            .on_hover_text(format!("Save {} from the issued ZIP", entry.path)).clicked() {
+                            action = Some(Action::SaveEntry(entry.clone()));
+                        }
+                    }
                     if ui
-                        .link("Open full file ↗")
+                        .link(if desk.inline.selected_member().is_some() { "Open full ZIP ↗" } else { "Open full file ↗" })
                         .on_hover_text(format!("{}\n{}", file.path, file.reference))
                         .clicked()
                     {
@@ -537,7 +545,12 @@ impl App {
             ),
             Some(Action::Save) => {
                 if let Some(digest) = &file.digest {
-                    self.save_package_member(&p.reference, &file.reference, &file.path, digest);
+                    self.save_package_member(&p.reference, &file.reference, &file.path, digest, None);
+                }
+            }
+            Some(Action::SaveEntry(entry)) => {
+                if let Some(digest) = &file.digest {
+                    self.save_package_member(&p.reference, &file.reference, &file.path, digest, Some(entry));
                 }
             }
             None => {}

@@ -12,6 +12,7 @@ use std::{
 mod html;
 #[path = "archive.rs"]
 mod archive;
+pub(in crate::desktop::neural) use archive::Member as ZipFile;
 use super::super::pdf_pages as pdf;
 
 // These bounds apply to the inline preview only. The original revision stays
@@ -68,7 +69,8 @@ impl Format {
             }
             (
                 "md" | "markdown" | "txt" | "json" | "yaml" | "yml" | "xml" | "net"
-                | "gbr" | "drl" | "kicad_sch" | "kicad_pcb" | "cir" | "spice",
+                | "gbr" | "drl" | "kicad_sch" | "kicad_pcb" | "cir" | "spice"
+                | "py" | "rs" | "sh" | "js" | "ts" | "toml" | "sha256",
                 _,
             ) => Kind::Text,
             (_, mime) if mime.starts_with("text/") || mime == "application/json" => Kind::Text,
@@ -85,6 +87,7 @@ impl Format {
             (Kind::Text, "md" | "markdown") => "Markdown".into(),
             (Kind::Text, "gbr") => "Gerber source".into(),
             (Kind::Text, "drl") => "Drill source".into(),
+            (Kind::Text, "py") => "Python source".into(),
             (Kind::Text, "txt" | "") => "Text file".into(),
             (_, "") => {
                 if mime.is_empty() {
@@ -206,6 +209,10 @@ impl Inline {
         self.reference == reference && self.member.is_none() && self.pages.count.is_some()
     }
 
+    pub fn selected_member(&self) -> Option<&ZipFile> {
+        self.member.as_ref()
+    }
+
     fn request(&mut self, ui: &Ui, root: &Path, file: &File) {
         let serial = self.latest.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
         ui.ctx().request_repaint();
@@ -291,7 +298,9 @@ impl Inline {
                     Ok(Content::Table(rows)) => View::Table(rows, Default::default()),
                     Ok(Content::Text(body, truncated)) => View::Text(body, truncated),
                     Ok(Content::Other) => {
-                        View::Note("Use the full file viewer for this format.".into())
+                        View::Note(if self.member.is_some() {
+                            "No inline preview for this format. Save the file to open it locally."
+                        } else { "Use the full file viewer for this format." }.into())
                     }
                     Err(e) => {
                         if let Some(total) = e
@@ -403,6 +412,9 @@ impl Inline {
 }
 
 fn load(job: &Job, cancelled: impl Fn() -> bool) -> ai_personas::neural::Result<Content> {
+    if job.member.is_some() && matches!(job.kind, Kind::Archive | Kind::Other) {
+        return Ok(Content::Other);
+    }
     let db = data::open(&job.root)?;
     let asset = store::exact(&db, &job.reference)?;
     if asset.reference.kind != "asset" || asset.reference.handle() != job.reference {

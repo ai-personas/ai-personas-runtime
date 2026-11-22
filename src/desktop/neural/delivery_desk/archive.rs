@@ -1,15 +1,15 @@
 //! The ZIP is itself an issued file. Read its directory without unpacking or
 //! silently rebuilding the upload a recipient will save.
 use super::*;
-use std::io::{Cursor, Read};
+use std::io::{self, Cursor, Read, Write};
 
 #[derive(Clone)]
-pub(super) struct Member {
+pub(in crate::desktop::neural) struct Member {
     index: usize,
     pub path: String,
     bytes: u64,
     crc: u32,
-    pub kind: Kind,
+    pub(super) kind: Kind,
 }
 
 impl Member {
@@ -18,8 +18,20 @@ impl Member {
     }
 
     pub fn contents(&self, bytes: &[u8]) -> ai_personas::neural::Result<Vec<u8>> {
+        if self.bytes > SOURCE_LIMIT {
+            return Err(ai_personas::neural::failure(
+                "This member is too large for an inline preview.",
+            ));
+        }
+        let mut result = Vec::new();
+        self.copy_to(bytes, &mut result)?;
+        Ok(result)
+    }
+
+    /// Export streams to an unpublished file, independent of preview limits.
+    pub fn copy_to(&self, bytes: &[u8], output: &mut impl Write) -> ai_personas::neural::Result<()> {
         let mut zip = zip::ZipArchive::new(Cursor::new(bytes))?;
-        let entry = zip.by_index(self.index)?;
+        let mut entry = zip.by_index(self.index)?;
         if entry.name() != self.path
             || entry.size() != self.bytes
             || entry.crc32() != self.crc
@@ -29,20 +41,14 @@ impl Member {
                 "The ZIP entry differs from the selected member.",
             ));
         }
-        if self.bytes > SOURCE_LIMIT {
-            return Err(ai_personas::neural::failure(
-                "This member is too large for an inline preview.",
-            ));
-        }
-        let mut result = Vec::new();
-        // Complete the read, including the decoder's CRC check, before rendering.
-        entry.take(self.bytes + 1).read_to_end(&mut result)?;
-        if result.len() as u64 != self.bytes {
+        let copied = io::copy(&mut (&mut entry).take(self.bytes), output)?;
+        // Reading once past the expected end also runs the ZIP CRC check.
+        if copied != self.bytes || entry.read(&mut [0])? != 0 {
             return Err(ai_personas::neural::failure(
                 "The ZIP member size does not match its directory entry.",
             ));
         }
-        Ok(result)
+        Ok(())
     }
 }
 
@@ -113,16 +119,10 @@ impl Listing {
                         ui.push_id(member.index, |ui| {
                             ui.horizontal_wrapped(|ui| {
                                 let text = RichText::new(path).monospace().small();
-                                if !matches!(member.kind, Kind::Archive | Kind::Other) {
-                                    if ui
-                                        .link(text)
-                                        .on_hover_text("Preview this member in the issued ZIP")
-                                        .clicked()
-                                    {
-                                        selected = Some(member.clone());
-                                    }
-                                } else {
-                                    ui.add(egui::Label::new(text).wrap());
+                                if ui.link(text)
+                                    .on_hover_text("Inspect or save this file from the issued ZIP")
+                                    .clicked() {
+                                    selected = Some(member.clone());
                                 }
                                 ui.weak(RichText::new(size(bytes)).small())
                                     .on_hover_text(format!(
