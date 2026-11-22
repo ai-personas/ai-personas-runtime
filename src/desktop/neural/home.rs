@@ -1,7 +1,9 @@
 use super::*;
+mod loom;
 
 #[derive(Default)]
 pub(super) struct Home {
+    pub(super) loom: loom::Loom,
     query: String,
     kind: ActivityFilter,
     activity_page: usize,
@@ -186,30 +188,23 @@ impl App {
             .inner_margin(16)
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
-                let recent = self
-                    .home_index
-                    .activities
-                    .first()
-                    .is_some_and(|activity| activity.latest_utc.is_some());
-                if ui.available_width() >= 740. && recent {
-                    ui.columns(2, |columns| {
-                        self.home_identity(&mut columns[0]);
-                        let activity = &self.home_index.activities[0];
-                        let ui = &mut columns[1];
-                        eyebrow(ui, "Latest activity");
-                        if title_link(ui, &activity.title, &activity.id).clicked() {
-                            open = Some(activity.id.clone());
-                        }
-                        if let Some(time) = &activity.latest_utc {
-                            ui.small(time);
-                        }
+                let activity = !self.home_index.activities.is_empty();
+                if ui.available_width() >= 840. && activity {
+                    let width = ui.available_width();
+                    let left = (width * 0.37).min(450.);
+                    ui.horizontal_top(|ui| {
+                        ui.vertical(|ui| { ui.set_width(left); self.home_identity(ui); });
+                        ui.vertical(|ui| { ui.set_width(ui.available_width()); open = self.activity_loom(ui); });
                     });
                 } else {
                     self.home_identity(ui);
+                    if activity { ui.collapsing("Activity loom", |ui| open = self.activity_loom(ui)); }
                 }
             });
-        if let Some(work) = open {
-            self.open_home_activity(&work);
+        match open {
+            Some((work, Some(seq))) => self.open_home_event(&work, seq),
+            Some((work, None)) => self.open_home_activity(&work),
+            None => {}
         }
     }
 
@@ -237,14 +232,31 @@ impl App {
             name
         }
         .to_owned();
-        if title != "Workspace overview" {
-            eyebrow(ui, "Workspace overview");
-        }
+        ui.horizontal_wrapped(|ui| {
+            theme::glyph(ui, Icon::People, theme::palette(ui).ink(TEAL));
+            eyebrow(ui, "Persona Studio  /  Society desk");
+        });
         ui.add(egui::Label::new(RichText::new(&title).size(28.).strong()).wrap())
             .on_hover_text(self.root.display().to_string());
         if !self.snapshot.status.is_null() {
+            let field = theme::palette(ui);
             ui.add_space(4.);
-            ui.horizontal_wrapped(|ui| self.workspace_run_controls(ui));
+            ui.horizontal_wrapped(|ui| {
+                for (label, count, ink) in [
+                    ("People", self.records("personas").len(), field.accent),
+                    ("Issued", self.home_index.deliveries.len(), TEAL),
+                    ("Needs you", self.home_index.requests.len(), theme::ACCENT),
+                ] {
+                    egui::Frame::new().fill(field.canvas).corner_radius(4).inner_margin(6).show(ui, |ui| {
+                        ui.horizontal(|ui| { ui.colored_label(field.ink(ink), RichText::new(count.to_string()).monospace().strong()); ui.small(label); });
+                    });
+                }
+            });
+            ui.add_space(6.);
+            ui.horizontal_wrapped(|ui| {
+                if ui.button("New brief…").clicked() { self.dialog = Some(Dialog::activity(false)); }
+                self.workspace_run_controls(ui);
+            });
         }
     }
 

@@ -1,6 +1,7 @@
 //! The issued package, its exact file revisions and the operator's review.
 use super::*;
 
+mod dispatch;
 mod origins;
 mod preview;
 mod requests;
@@ -14,6 +15,7 @@ pub(super) struct Desk {
     selected: usize,
     inline: Inline,
     focus_preview: bool,
+    slip: usize,
     show_references: bool,
     file_page: usize,
     request_page: usize,
@@ -218,6 +220,7 @@ impl App {
                 desk.selected = model.as_ref().map_or(0, |p| p.default_file());
                 desk.file_page = 0;
                 desk.request_page = 0;
+                desk.slip = 0;
                 desk.origins = None;
                 desk.file_search.clear();
                 desk.focus_preview = false;
@@ -286,6 +289,7 @@ impl App {
                 if compact {
                     self.delivery_breadcrumb(ui, Some(&p), true);
                 }
+                self.dispatch_slips(ui, &p);
                 self.package_human_requests(ui, &p);
                 ui.add_space(12.);
                 if ui.available_width() >= 820. && !p.files.is_empty() {
@@ -353,7 +357,8 @@ impl App {
                 ui.set_width(ui.available_width());
                 if !compact {
                     ui.horizontal_wrapped(|ui| {
-                        eyebrow(ui, "Delivery package");
+                        theme::glyph(ui, Icon::Files, colors.ink(persona_color(s(b, "owner"))));
+                        eyebrow(ui, "Persona Studio  /  Issued edition");
                         theme::badge(ui, scope, tint);
                     });
                 }

@@ -10,6 +10,7 @@ enum Contents {
     Printed { source: print_preview::Source, document: print_preview::Document },
     Deliveries(String),
     Package(String),
+    Dispatch { delivery: String, number: usize, recipient: String, files: usize },
     Handoff { reference: String, files: usize, format: HandoffFormat },
 }
 
@@ -90,6 +91,13 @@ impl App {
         let name = title_stem(title, "Delivery");
         self.export_dialog = Some(Dialog::new(self.export_generation, Contents::Package(reference.into()), format!("{name}.zip")));
     }
+    pub(super) fn save_dispatch(&mut self, delivery: &str, number: usize, recipient: &str, files: usize, original: Option<&str>) {
+        self.export_generation += 1;
+        let name = original.map(basename).map(str::to_owned).unwrap_or_else(|| format!("{:02}-{}.zip", number, title_stem(recipient, "Dispatch")));
+        self.export_dialog = Some(Dialog::new(self.export_generation, Contents::Dispatch {
+            delivery: delivery.into(), number, recipient: recipient.into(), files,
+        }, name));
+    }
     pub(super) fn save_request_handoff(&mut self, reference: &str, title: &str, files: usize) {
         self.save_handoff(reference, title, files, "Request");
     }
@@ -156,6 +164,8 @@ impl App {
             Contents::Artifact { .. } => ("Save artifact", "Save the exact retained file to your computer.", "Save file"),
             Contents::Printed { .. } => ("Save print PDF", "Save the PDF generated for this preview.", "Save PDF"),
             Contents::Deliveries(_) => ("Export deliveries", "Export this task's delivered files with their delivery records.", "Export deliveries"),
+            Contents::Dispatch { files: 1, .. } => ("Save dispatch file", "This is the original file, not a new ZIP around it.", "Save original"),
+            Contents::Dispatch { .. } => ("Save dispatch files", "Only the files on this slip are included, at their issued paths.", "Save ZIP"),
             Contents::Package(_) => ("Save file package", "The ZIP contains the selected file revisions with their original names and folders.", "Save file"),
             Contents::Handoff { reference, .. } if reference.starts_with("delivery:") =>
                 ("Save delivery handoff", "The recipient gets the issuer’s instructions and the exact files in this edition.", "Save handoff"),
@@ -211,6 +221,11 @@ impl App {
                         dialog.name.push_str(".zip");
                     }
                 }
+            } else if let Contents::Dispatch { delivery, number, recipient, files } = &dialog.contents {
+                eyebrow(ui, &format!("Persona Studio  /  Dispatch {number:02}"));
+                ui.add(egui::Label::new(RichText::new(recipient).size(21.).strong()).wrap());
+                ui.label(description);
+                ui.small(format!("{} · Local copy only", counted(*files as u64, "file", "files"))).on_hover_text(delivery);
             } else {
                 ui.label(description);
             }
@@ -296,6 +311,11 @@ impl App {
                     Contents::Printed { document, .. } => {
                         save_new_file(&path, &document.pdf)?;
                         return Ok(format!("Saved print PDF to {}", path.display()));
+                    }
+                    Contents::Dispatch { delivery, number, .. } => {
+                        let db = data::open(&root).map_err(|e| e.to_string())?;
+                        ai_personas::neural::human_requests::export_dispatch(&db, &delivery, number, &path).map_err(|e| e.to_string())?;
+                        return Ok(format!("Saved dispatch {number} to {}", path.display()));
                     }
                     Contents::Package(reference) => {
                         let db = data::open(&root).map_err(|e|e.to_string())?;
