@@ -36,8 +36,9 @@ pub struct Protection {
 pub struct Trial {
     /// Your own accepted experience:call-ID@1, not another person's interpretation.
     pub decision: String,
-    /// An observed experience:event-N@1: an operation result, a linked response,
-    /// or a later incoming observation in that activity. Sequence is not causation.
+    /// An observed experience:event-N@1: a direct result, linked response, later tool
+    /// observation of yours or incoming event in that activity. See the earlier choice's
+    /// outcome_sources_now. Sequence is not causation.
     pub outcome: String,
     pub question: String,
     /// Your interpretation of what happened, not an externally assigned lesson.
@@ -198,12 +199,20 @@ pub(super) fn create(
     } else if let Some(relation) = link.as_ref().and_then(|r| r["relation"].as_str()) {
         relation
     } else if event["work"] == work
+        && event["actor"] == snapshot.actor
+        && event["target"] == snapshot.actor
+        && event["kind"] == "tool_result"
+    {
+        // An owner can discover a consequence by checking later. Not a direct result
+        // of the earlier choice; subsequent_event checked its chronological boundary.
+        "later_tool_observation"
+    } else if event["work"] == work
         && (event["actor"] != snapshot.actor || event["invocation"].is_null())
         && (event["target"] == snapshot.actor || event["target"] == "*")
     {
         "later_received_in_activity"
     } else {
-        return Err(failure("Choose a result of that decision, a linked response or a later observation received in its activity"));
+        return Err(failure("Read the earlier decision's outcome_sources_now and linked_responses_now. Choose its actual tool result, a linked response, or a later tool or incoming observation from its activity—not the receipt for looking it up here"));
     };
     let protection = if let Some(guard) = &trial.protect {
         let case = if guard.decision == trial.decision {

@@ -4,6 +4,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
+mod outcome_sources;
+
 const EVENTS: &str = "SELECT 'event-' || e.seq AS id, e.work,e.actor,e.target,e.kind,e.digest,
                       e.invocation,e.created FROM events e";
 pub(super) const VISIBLE: &str = "((e.actor=?1 AND e.invocation IS NOT NULL) OR e.target=?1 OR (e.target='*' AND EXISTS
@@ -272,6 +274,9 @@ pub(super) fn read(db: &Connection, actor: Option<&str>, reference: &str) -> Res
             .collect::<rusqlite::Result<Vec<_>>>()?);
         result["linked_responses_now"] =
             json!(responses_to_call(db, &item.actor, &item.work, &item.id)?);
+        if let Some(index) = outcome_sources::index(db, &item)? {
+            result["outcome_sources_now"] = index;
+        }
     }
     result["record"] = event;
     Ok(result)

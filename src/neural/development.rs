@@ -188,7 +188,7 @@ fn observed_experience(db: &Connection, snapshot: &Snapshot, reference: &str) ->
         && previous["invocation"].as_str().is_some_and(|id| reference == format!("experience:{id}@1"));
     if !choice_on_desk && !observed(snapshot, reference) {
         return Err(failure(format!(
-            "Read the exact experience {reference} before interpreting it"
+            "Read the exact experience {reference} before interpreting it. To compare several records, select them together in next_context.references so their bodies reach the same decision."
         )));
     }
     Ok(())
@@ -424,29 +424,34 @@ pub(super) fn update(db: &Connection, snapshot: &Snapshot, update: Update) -> Re
             || store::exact(db, origin)?.reference.id != key
             || review.reason.trim().is_empty()
             || review.scope.trim().is_empty()
-            || !super::character::saw_record(snapshot, &review.candidate, "candidate")
         {
             return Err(failure(
                 "Review the observed candidate for this question and give the scope and reason",
             ));
         }
+        // An immutable case already seen under this generation need not be re-read
+        // just to write a negative finding. Use the same receipt boundary as adoption.
+        let candidate_input = super::character::observed_input(db, snapshot, &review.candidate, "candidate")?
+            .ok_or_else(|| failure("Read the exact candidate before reviewing it; a search or an unseen pointer is not a candidate observation"))?;
+        let mut assessment_input = None;
         if let Some(reference) = &review.assessment {
             let assessment = store::exact(db, reference)?;
             if assessment.reference.kind != "assessment"
                 || assessment.body["candidate"] != review.candidate
                 || assessment.body["completed"] != true
-                || !super::character::saw_record(snapshot, reference, "assessment")
             {
                 return Err(failure(
                     "Read the completed comparison for this exact candidate",
                 ));
             }
+            assessment_input = super::character::observed_input(db, snapshot, reference, "assessment")?;
+            if assessment_input.is_none() { return Err(failure("Read the completed comparison for this exact candidate")); }
             super::assessment::verify(db,&assessment)?;
         }
         if !body["candidate_reviews"].is_array() {
             body["candidate_reviews"] = json!([]);
         }
-        body["candidate_reviews"].as_array_mut().unwrap().push(json!({"review":review,"decision":snapshot.invocation,"disposition":update.disposition,"scope_of_evidence":"candidate comparison"}));
+        body["candidate_reviews"].as_array_mut().unwrap().push(json!({"review":review,"decision":snapshot.invocation,"disposition":update.disposition,"scope_of_evidence":"candidate comparison","candidate_input":candidate_input,"assessment_input":assessment_input}));
     } else if matches!(
         update.disposition,
         Disposition::Rejected | Disposition::Assessed
@@ -565,7 +570,7 @@ fn subsequent_event(
         .ok_or_else(|| failure("Point to the observed outcome event"))?;
     if sequence <= after && !(event["invocation"] == call && event["kind"] == "tool_result") {
         return Err(failure(
-            "The cited outcome must be a result of the decision or arrive after that decision",
+            "The cited outcome must be a result of the decision or arrive after that decision. Read the earlier choice and inspect its outcome_sources_now and linked_responses_now, not just the evidence it used before acting.",
         ));
     }
     Ok((event, boundary.reference.handle()))
