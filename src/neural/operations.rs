@@ -1066,7 +1066,8 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         }
         maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"result.review"|"asset.feedback"|"image.read"|"image.render_svg"|"document.print_html"|"document.render_pdf"|"command.run"|"command.local"|"geometry.render"|"geometry.inspect_stl"|"geometry.profile_stl"|"work.outcome"|"result.deliver"),false)
             .map_err(|e|failure(format!("asset_maintenance: {e}")))?;
-        super::development::record_applications(db,snapshot,&decision.examining)?;
+        super::development::practice::consider(db,snapshot,decision,part.accepted && !part.declined)?;
+        super::development::record_applications(db,snapshot,decision)?;
         super::development::consider(db,snapshot,decision)?;
         let mut ids=BTreeSet::new();
         for op in &decision.operations {
@@ -1163,7 +1164,7 @@ pub(super) fn check_observed_reply(
     let supplied_address = snapshot.data["reply_targets"].as_array().is_some_and(|targets| {
         targets.iter().any(|target| target["experience"] == parent && target["recipient_for_reply"] == to)
     });
-    if !supplied_address && !super::development::observed(snapshot, parent) {
+    if !supplied_address && !super::development::observed(snapshot, parent) && super::development::deliberation::observed(snapshot,parent).is_none() {
         return Err(failure(
             "For reply_to, use the experience:event-N@1 in reply_targets or a received exchange in this input. For an older exchange, read its experience handle with asset.read first. An unthreaded reply can omit reply_to.",
         ));

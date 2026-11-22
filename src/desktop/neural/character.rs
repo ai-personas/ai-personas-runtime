@@ -760,7 +760,7 @@ impl App {
         });
         ui.add_space(12.);
         ui.horizontal_wrapped(|ui| {
-            for (index, label) in ["All choices", "No change", "Declared change", "Deferred", "Personal trials"].iter().enumerate() {
+            for (index, label) in ["All choices", "No change", "Declared change", "Deferred", "Personal trials", "Behavior after a result"].iter().enumerate() {
                 if ui.selectable_value(&mut self.development_filter, index, *label).changed() {
                     self.development_anchor.clear();
                 }
@@ -771,6 +771,7 @@ impl App {
             2 => d["maintenance"]["kind"] == "change",
             3 => d["maintenance"]["kind"] == "defer",
             4 => d["maintenance"]["kind"] == "trial",
+            5 => d["behavior"].is_object(),
             _ => true,
         }).collect();
         const PAGE: usize = 25;
@@ -809,6 +810,20 @@ impl App {
                             ui.add_space(7.);
                             let reason = s(maintenance, "reason");
                             ui.add(egui::Label::new(if reason.is_empty() { "No reason is present in this retained field; inspect the exact decision." } else { reason }).wrap());
+                            let behavior=&decision["behavior"];
+                            if let Some(scope)=behavior["kind"].as_str() {
+                                ui.strong(match scope {"local"=>"Kept this result local", "undecided"=>"Reserved judgment", "next_time"=>"Experiment for a later occasion", "practice"=>"Tried an approach in this decision", _=>"Behavioral choice"});
+                                if let Some(reason)=behavior["reason"].as_str(){ui.label(reason);}
+                                let plan=&behavior["plan"];
+                                if plan.is_object(){
+                                    for (label,key) in [("When","when"),("Approach","approach"),("Alternative","alternative"),("Prediction","watch_for"),("Worth preserving","preserve")] {
+                                        if let Some(text)=plan[key].as_str(){ui.label(format!("{label}: {text}"));}
+                                    }
+                                    if let Some(r)=plan["outcome"].as_str(){if ui.small_button("Observed consequence →").on_hover_text(r).clicked(){self.open_resource(ui.ctx(),r.into());}}
+                                    if behavior["action"].is_object(){ui.label(format!("Action tried: {}",behavior["action"]));}
+                                    ui.weak("A forecast, not a finding. Look for a later observation and the author’s interpretation.");
+                                }
+                            }
                             if maintenance["kind"] == "trial" {
                                 ui.strong(s(maintenance, "question"));
                                 for (label, key) in [("Prediction", "prediction"), ("Worth preserving", "preserve"), ("Other possible cause", "alternative_explanation")] {

@@ -318,7 +318,7 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
             "invocation":invocation,"actor":actor,"work":work,"accepted":accepted,"accepted_utc":accepted_utc,"order":order,
             "response":format!("object:{response}"),"request":format!("object:{request}"),
             "judgment":decision["work"],"continuation":decision["continuation"],
-            "maintenance":decision["persona_maintenance"],"next_model":decision["next_model"],
+            "maintenance":decision["persona_maintenance"],"behavior":decision["behavior"],"next_model":decision["next_model"],
             "next_appraisal":decision["next_context"]["appraisal"],
             "operations":operations,
         }));

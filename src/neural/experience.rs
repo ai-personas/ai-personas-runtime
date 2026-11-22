@@ -4,6 +4,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
+pub(super) mod action;
 mod outcome_sources;
 pub(super) mod recall;
 

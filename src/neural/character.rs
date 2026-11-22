@@ -126,6 +126,18 @@ pub(super) fn select_appraisal(
             }
             return Ok(None);
         }
+        Some(AppraisalChoice::BeforeAction { appraisal, reason, alternatives }) => {
+            if snapshot.development_version<8 || snapshot.model.is_none() || !snapshot.data["context_recovery"].is_null() || !decision.operations.is_empty() || !decision.examining.is_empty() || decision.reply.is_some()
+                || !matches!(decision.next_model,NextModel::Preserve) || !matches!(&decision.persona_maintenance, super::protocol::PersonalMaintenance::Ordinary(super::protocol::Maintenance::NoChange{..}))
+                || !matches!(&decision.continuation,super::protocol::Continuation::Ready{..}) || reason.trim().is_empty() || alternatives.iter().any(|s|s.trim().is_empty()) || alternatives[0].trim()==alternatives[1].trim() {
+                return Err(failure("Before acting, appraise two distinct alternatives on an ordinary input, keep the model, choose ready and hold the actual operations and reply for the fresh decision. Use evaluate if acting independently now."));
+            }
+            super::development::deliberation::evidence(snapshot,appraisal)?;
+            let result=super::operations::evaluate_appraisal(db,snapshot,persona,part,appraisal)?;
+            let digest=store::put(db,&result)?;
+            store::event(db,&snapshot.work,&snapshot.actor,&snapshot.actor,"appraisal_selected",&json!({"method":"before_action","result":format!("object:{digest}"),"reason":reason}),Some(&snapshot.invocation))?;
+            reason.clone()
+        }
         Some(AppraisalChoice::Evaluate { appraisal, reason }) => {
             if reason.trim().is_empty() || snapshot.model.is_none()
                 || !matches!(decision.next_model, NextModel::Preserve) {
@@ -155,7 +167,7 @@ pub(super) fn select_appraisal(
         }
         None if evaluated => "New appraisal for the following decision".into(),
         None if snapshot.model.is_some() && snapshot.development_version >= 4 => {
-            return Err(failure("Choose next_context.appraisal explicitly: {kind:baseline,reason}, {kind:evaluate,appraisal,reason}, or {kind:reuse,evaluation,reason}"));
+            return Err(failure("Choose next_context.appraisal explicitly: {kind:baseline,reason}, {kind:evaluate,appraisal,reason}, {kind:before_action,appraisal,alternatives,reason} or {kind:reuse,evaluation,reason}"));
         }
         None => return Ok(None),
     };

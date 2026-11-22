@@ -258,7 +258,7 @@ pub(in crate::neural) fn search(
     )
 }
 
-fn previous_observation(input: &Snapshot, event: &str) -> Option<Value> {
+pub(in crate::neural) fn previous_observation(input: &Snapshot, event: &str) -> Option<Value> {
     let events = || input.data["new_events"].as_array().into_iter().flatten();
     if let Some(e) = events().find(|e| e["experience"] == event) {
         return Some(
@@ -298,11 +298,12 @@ fn previous_observation(input: &Snapshot, event: &str) -> Option<Value> {
         .find(|v| authentic_selection(input, v) && v["considered"] == event)
         .and_then(|v| v.get("observation_then"))
         .cloned()
+        .or_else(|| crate::neural::development::deliberation::observed(input, event).cloned())
 }
 
 /// A pointer in a cue, arbitrary JSON in an asset, or a recovery card is not a
 /// supplied pair. A historical working choice is not its whole input either.
-fn authentic_selection(input: &Snapshot, item: &Value) -> bool {
+pub(in crate::neural) fn authentic_selection(input: &Snapshot, item: &Value) -> bool {
     input.development_version >= 7
         && input.data["context_recovery"].is_null()
         && item["view"] == "own_considered_experience"
@@ -324,8 +325,14 @@ pub(in crate::neural) fn supplied(input: &Snapshot, reference: &str) -> bool {
         .into_iter()
         .flatten()
         .any(|item| {
-            (item["reference"] == reference || item["considered"] == reference)
-                && authentic_selection(input, item)
+            authentic_selection(input, item)
+                && (item["reference"] == reference
+                    || item["considered"] == reference
+                    || (input.development_version >= 8
+                        && item["action_before_observation"]["owner"] == input.actor
+                        && item["action_before_observation"]["decision"] == reference
+                        && item["action_before_observation"]["outcome"] == item["considered"]
+                        && item["action_before_observation"]["performed"].is_object()))
         })
 }
 
@@ -435,12 +442,26 @@ fn material(
     } else {
         ("baseline", &s.data["baseline_character"])
     };
-    Ok(
-        json!({"reference":decision,"considered":event,"owner":owner,"work":s.work,"view":"own_considered_experience",
+    let mut view = json!({"reference":decision,"considered":event,"owner":owner,"work":s.work,"view":"own_considered_experience",
         "source_response":choice["source"],"response_binding":accepted.binding,
         "observation_then":observation,"choice_then":{"judgment":r["work"],"operations":operations,
         "continuation":r["continuation"],"maintenance":r["persona_maintenance"],"package":s.model,"epoch":s.epoch,
         "basis":basis,"evaluation":evaluation["reference"]},
-        "scope":"The earlier observation as supplied in JSON and your choice, not a current result or its later consequence. Referenced images and files are not attached by recall. Read the decision separately for later outcome addresses."}),
-    )
+        "scope":"The earlier observation as supplied in JSON and your choice, not a current result or its later consequence. Referenced images and files are not attached by recall. Read the decision separately for later outcome addresses."});
+    if verify_prompt {
+        // Only on deliberate retrieval: do not automatically replay earlier prose in other work.
+        match super::action::origin(
+            db,
+            owner,
+            original["work"]
+                .as_str()
+                .ok_or_else(|| failure("Missing event work"))?,
+            event,
+        ) {
+            Ok(Some(action)) => view["action_before_observation"] = action,
+            Ok(None) => {}
+            Err(_) => view["action_origin_status"] = json!("unavailable"),
+        }
+    }
+    Ok(view)
 }

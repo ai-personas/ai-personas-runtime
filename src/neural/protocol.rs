@@ -15,6 +15,9 @@ pub struct DecisionV4 {
     pub invocation: String,
     pub work: WorkJudgment,
     pub persona_maintenance: PersonalMaintenance,
+    /// Independent of numerical maintenance. When development.behavior_after_result is present, choose local, undecided, next_time or practice. A before_action pause can leave this for the actual choice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub behavior: Option<super::development::practice::Choice>,
     /// For every active-character decision, list the exact observed experiences
     /// considered for character maintenance. An explicit empty list is valid.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -185,6 +188,8 @@ pub enum AppraisalChoice {
     /// the situation lacks evidence, nor a request to invent feature values.
     Baseline { #[serde(default)] #[schemars(required)] reason: String },
     Evaluate { appraisal: Appraisal, reason: String },
+    /// Pause before choosing between real alternatives. Carry your observed event evidence through the evaluation into your next decision. No work action or reply in this first response.
+    BeforeAction { appraisal: Appraisal, alternatives: [String; 2], reason: String },
     Reuse { evaluation: String, reason: String },
 }
 

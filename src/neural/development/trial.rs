@@ -1,7 +1,7 @@
 //! A persona may propose a literal edit while the choice and its consequence
 //! are still on its desk. Nothing here picks a trait, fits a weight, activates a
 //! model, runs an assessment or compares the persona with another owner.
-use super::{observed_experience, subsequent_event, Update};
+use super::{consequence, observed_experience, Update};
 use crate::neural::{
     context::{self, Snapshot},
     experience, failure, operations,
@@ -179,42 +179,7 @@ pub(in crate::neural) fn material(
         return Err(failure("This trial changes no numerical parameter; keep the current model or propose a literal difference"));
     }
     let trigger = replay(db, snapshot, &trial.decision, before, &after, &contract)?;
-    let source = experience::metadata(db, Some(&snapshot.actor), &trial.decision)?;
-    let call = source["invocation"]
-        .as_str()
-        .ok_or_else(|| failure("Missing source decision"))?;
-    let work = source["work"]
-        .as_str()
-        .ok_or_else(|| failure("Missing source activity"))?;
-    let (event, boundary) = subsequent_event(db, snapshot, call, &trial.outcome)?;
-    let link = experience::responses_to_call(db, &snapshot.actor, work, call)?
-        .into_iter()
-        .find(|r| r["experience"] == trial.outcome);
-    let relation = if event["work"] == work
-        && event["actor"] == snapshot.actor
-        && event["target"] == snapshot.actor
-        && event["kind"] == "tool_result"
-        && event["invocation"] == call
-    {
-        "operation_result"
-    } else if let Some(relation) = link.as_ref().and_then(|r| r["relation"].as_str()) {
-        relation
-    } else if event["work"] == work
-        && event["actor"] == snapshot.actor
-        && event["target"] == snapshot.actor
-        && event["kind"] == "tool_result"
-    {
-        // An owner can discover a consequence by checking later. Not a direct result
-        // of the earlier choice; subsequent_event checked its chronological boundary.
-        "later_tool_observation"
-    } else if event["work"] == work
-        && (event["actor"] != snapshot.actor || event["invocation"].is_null())
-        && (event["target"] == snapshot.actor || event["target"] == "*")
-    {
-        "later_received_in_activity"
-    } else {
-        return Err(failure("Read the earlier decision's outcome_sources_now and linked_responses_now. Choose its actual tool result, a linked response, or a later tool or incoming observation from its activity—not the receipt for looking it up here"));
-    };
+    let (relation, boundary) = consequence(db, snapshot, &trial.decision, &trial.outcome)?;
     let protection = if let Some(guard) = &trial.protect {
         let case = if guard.decision == trial.decision {
             trigger.clone()
