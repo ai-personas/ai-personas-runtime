@@ -2,6 +2,8 @@
 
 **The first edition is suitable for requesting a turnkey prototype quote. It is not a demonstrated edit-free assembly order.** An accepted delivery, a manufacturer accepting an order and a working physical board are three different observations.
 
+For the stricter trial with only the request, installed tools and stock libraries—and for the same runtime doing non-electronics work—see [One brief, no starter project](brief-only-studio.md). The first edition below was a different trial with web access.
+
 ## The hands-off design run
 
 Two new general-purpose personas, **Remy** and **Sable**, received one brief in native Studio: design a low-voltage 5 W DC-to-AC board, choose the operating assumptions, supply what a human would need to order it assembled unchanged, and do not order or pay. Both created their own numerical characters using direct Responses inference through **Codex OAuth, `gpt-6.1-sol`, medium effort**. The host provided a shared project directory, KiCad 9, its libraries, a router, Python and network access. It did not assign professions, supply a circuit, edit the design, answer an engineering question or repair their files. The listener was drained and restarted during runtime development; those controls did not amend the task or choose anyone’s next operation.
