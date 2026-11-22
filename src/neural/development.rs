@@ -175,7 +175,7 @@ fn revisit_condition(db: &Connection, actor: &str, revisit: &Revisit) -> Result<
     Ok(())
 }
 
-fn observed_experience(db: &Connection, snapshot: &Snapshot, reference: &str) -> Result<()> {
+pub(super) fn observed_experience(db: &Connection, snapshot: &Snapshot, reference: &str) -> Result<()> {
     if !reference.starts_with("experience:") {
         return Err(failure(format!("Expected an experience:event-N@1 or experience:call-ID@1 observation, received {reference}. Cite the character-use receipt in follow_up.character_use.")));
     }
@@ -186,7 +186,7 @@ fn observed_experience(db: &Connection, snapshot: &Snapshot, reference: &str) ->
     let choice_on_desk = snapshot.development_version >= 6 && snapshot.model.is_some()
         && snapshot.data["context_recovery"].is_null() && previous["experience"] == reference
         && previous["invocation"].as_str().is_some_and(|id| reference == format!("experience:{id}@1"));
-    if !choice_on_desk && !observed(snapshot, reference) {
+    if !choice_on_desk && !observed(snapshot, reference) && !experience::recall::supplied(snapshot, reference) {
         return Err(failure(format!(
             "Read the exact experience {reference} before interpreting it. To compare several records, select them together in next_context.references so their bodies reach the same decision."
         )));

@@ -64,6 +64,11 @@ pub(super) fn evaluate_appraisal(
             if feature.evidence.is_empty() || feature.evidence.iter().any(|r| !snapshot.supplied_references.contains(r)) {
                 return Err(failure("Ground each known appraisal value in an exact reference supplied to this decision, such as work.reference or a received experience"));
             }
+            if snapshot.development_version >= 7 {
+                for event in feature.evidence.iter().filter(|r| r.starts_with("experience:")) {
+                    super::development::observed_experience(db, snapshot, event)?;
+                }
+            }
         }
     }
     let evaluation = context::model(db, persona)?
@@ -1091,9 +1096,17 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         part.appraisal_use = super::character::select_appraisal(db, snapshot, &persona, &mut part, decision)?;
         switch_model(db,snapshot,&mut persona,&mut part,&decision.next_model)?;
         let mut refs=serde_json::to_value(&decision.next_context.references)?;resolve(&mut refs,&aliases)?;part.context=decode(&refs)?;
-        for selection in &part.context{
-            let (start,end)=selection.range();
-            context::read_for(db,Some(&snapshot.actor),selection.reference(),start,end)?;
+        for selection in &mut part.context {
+            if let ContextResource::Considered { reference, considered } = selection {
+                if snapshot.development_version < 7 || snapshot.model.is_none() {
+                    return Err(failure("Recalling a considered experience requires an ordinary decision"));
+                }
+                if reference == "this_decision" || reference == &format!("experience:{call}@1") {
+                    *reference=super::experience::recall::current(snapshot,decision.considered_experience.as_deref().unwrap_or(&[]),considered)?;
+                    continue;
+                }
+            }
+            context::read_selection(db,&snapshot.actor,selection)?;
         }
         for name in &decision.next_context.tools{tools::describe(name)?;}
         part.tools=decision.next_context.tools.clone();

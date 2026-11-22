@@ -160,7 +160,8 @@ pub struct ContextChoice {
     pub appraisal: Option<AppraisalChoice>,
     /// Complete explicit resource selection for the next decision. Newly read
     /// observations are supplied once; retain their exact references or a saved
-    /// working note if their information is still needed. Empty clears selection.
+    /// working note if their information is still needed. Copy a considered_before pair
+    /// to recall an observation with your choice then. Empty clears selection.
     pub references: Vec<ContextResource>,
     /// Complete selection of helpful tool schemas, not a permission list.
     pub tools: Vec<String>,
@@ -202,6 +203,8 @@ pub struct AppraisalUse {
 #[serde(untagged, deny_unknown_fields)]
 pub enum ContextResource {
     Full(String),
+    /// Your exact earlier decision (or this_decision) and an event you explicitly considered there.
+    Considered { reference: String, considered: String },
     Excerpt {
         reference: String,
         start: usize,
@@ -211,12 +214,12 @@ pub enum ContextResource {
 impl ContextResource {
     pub fn reference(&self) -> &str {
         match self {
-            Self::Full(reference) | Self::Excerpt { reference, .. } => reference,
+            Self::Full(reference) | Self::Considered { reference, .. } | Self::Excerpt { reference, .. } => reference,
         }
     }
     pub fn range(&self) -> (Option<usize>, Option<usize>) {
         match self {
-            Self::Full(_) => (None, None),
+            Self::Full(_) | Self::Considered { .. } => (None, None),
             Self::Excerpt { start, end, .. } => (Some(*start), Some(*end)),
         }
     }

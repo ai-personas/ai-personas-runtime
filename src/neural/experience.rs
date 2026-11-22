@@ -5,6 +5,7 @@ use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
 mod outcome_sources;
+pub(super) mod recall;
 
 const EVENTS: &str = "SELECT 'event-' || e.seq AS id, e.work,e.actor,e.target,e.kind,e.digest,
                       e.invocation,e.created FROM events e";
@@ -50,6 +51,7 @@ impl Experience {
 }
 
 pub(super) fn search(db: &Connection, actor: &str, query: &ExperienceQuery) -> Result<Value> {
+    if query.considered { return recall::search(db, actor, query); }
     let sql = format!("SELECT * FROM ({EVENTS} WHERE {VISIBLE} UNION ALL {DECISIONS} AND i.actor=?1)
         WHERE (?2 IS NULL OR work=?2) AND (?3 IS NULL OR actor=?3) AND (?4 IS NULL OR kind=?4)
         ORDER BY 8 DESC,1");

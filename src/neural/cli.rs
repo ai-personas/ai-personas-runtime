@@ -313,6 +313,8 @@ pub enum Command {
         #[serde(flatten)]
         search: super::tools::ExperienceQuery,
     },
+    /// Inspect one event as this persona considered it and their choice then, without inference.
+    RecallChoice { persona: String, decision: String, event: String },
     /// Check a completed comparison against its original provider calls, offline.
     VerifyAssessment { reference:String },
     /// Trace supplied reminders, full records, explicit applications and revisions through accepted decisions.
@@ -513,6 +515,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
             let (root, operator) = (root.to_owned(), operator.to_owned());
             tokio::task::spawn_blocking(move || super::connection::connect_codex(&root, &operator, route)).await?
         }
+        Command::RecallChoice{persona,decision,event}=>super::experience::recall::read(&store::open_inspection(root)?,&persona,&decision,&event),
         Command::IntakeHistory{work,page}=>super::intake::inspect(&store::open_inspection(root)?,&work,&page),
         Command::Agreements{work,query}=>super::agreements::inspect(&store::open_inspection(root)?,&work,&super::relationships::Contact::operator(operator),&query),
         Command::Restore{archive,sha256}=>super::archive::restore(root,&archive,sha256.as_deref(),operator),
