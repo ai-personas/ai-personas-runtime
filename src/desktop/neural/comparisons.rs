@@ -170,6 +170,21 @@ fn before_choice(ui: &mut Ui, report: &Value, matched: Option<&str>, inspect: &m
             record_link(ui, "Open exchange ↗", e["experience"].as_str(), inspect);
         });
     }
+    for result in scenario["local_command_results"].as_array().into_iter().flatten() {
+        ui.push_id(&result["experience"].as_str(), |ui| {
+            ui.collapsing(format!("Observed command · {} · exit {}", s(result,"argv0"), result["exit_code"]), |ui| {
+                for name in ["stdout", "stderr"] {
+                    let stream = &result[name];
+                    if let Some(text) = stream["text"].as_str().or(stream["excerpt"].as_str()) {
+                        let scope = if stream["text"].is_string() || stream["excerpt_complete"] == true { "complete" } else { "excerpt" };
+                        ui.small(format!("{name} · {scope}"));
+                        if !text.is_empty() { ui.add(egui::Label::new(text).wrap()); }
+                    } else if stream["bytes"].is_number() { ui.small(format!("{name} · {} bytes, no text supplied", stream["bytes"])); }
+                }
+                record_link(ui, "Original command result ↗", result["experience"].as_str(), inspect);
+            });
+        });
+    }
     let note = &scenario["prior_working_note"];
     attributed_text(
         ui,
@@ -343,7 +358,8 @@ impl App {
                                         if let Some(decision) = case["origin"]["decision"].as_str()
                                         {
                                             ui.horizontal_wrapped(|ui| {
-                                                theme::badge(ui, "Prior encounter", theme::ACCENT);
+                                                let label = if case["origin"]["kind"] == "prior_encounter_reappraised" { "Prior encounter · retrospective appraisal" } else { "Prior encounter" };
+                                                theme::badge(ui, label, theme::ACCENT);
                                                 if ui
                                                     .small_button("View encounter & feedback")
                                                     .clicked()

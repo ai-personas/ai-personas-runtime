@@ -72,7 +72,7 @@ fn replay(
         .as_str()
         .filter(|_| meta["kind"] == "accepted_decision")
         .ok_or_else(|| failure("Choose an observed ordinary decision of your own"))?;
-    let source = provider_evidence::accepted(db, &snapshot.actor, call, true)?.snapshot;
+    let source = provider_evidence::accepted(db, &snapshot.actor, call, false)?.snapshot;
     let digest = source
         .model
         .as_deref()
@@ -85,12 +85,13 @@ fn replay(
         ("baseline", &source.data["baseline_character"])
     };
     let usage = store::exact(db, &format!("character_use:{call}@1"))?;
-    if usage.body["owner"] != snapshot.actor
-        || usage.body["package"] != digest
-        || usage.body["epoch"] != source.epoch
-        || usage.body["work"] != source.work
-        || usage.body["baseline"] != source.data["baseline_character"]
-        || usage.body["contextual"] != *contextual
+    let (receipt, response): (String, String) = db.query_row(
+        "SELECT receipt,response FROM invocations WHERE id=?1",
+        [call],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    if crate::neural::character::verified_supply(db, call, &receipt, &response)?.as_ref()
+        != Some(&usage.body)
     {
         return Err(failure(
             "The source character use differs from the accepted input",

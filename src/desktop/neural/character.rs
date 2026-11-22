@@ -821,6 +821,13 @@ impl App {
                                         }
                                     }
                                 });
+                                ui.horizontal_wrapped(|ui| {
+                                    for (label, key) in [("Candidate as proposed", "candidate"), ("Personal question", "development"), ("Before & after on recorded inputs", "result")] {
+                                        if let Some(r) = decision["trial"][key].as_str() {
+                                            if ui.small_button(label).on_hover_text(r).clicked() { self.open_resource(ui.ctx(), r.into()); }
+                                        }
+                                    }
+                                });
                                 ui.weak("Proposed numerical experiment. Comparison, adoption and benefit are separate observations.");
                             }
                             for version in decision["deferred_questions"].as_array().into_iter().flatten() {
@@ -841,6 +848,7 @@ impl App {
                                     "persona.initialize" => "Initial parameters",
                                     "persona.evaluate" => "Contextual appraisal",
                                     "persona.paths" => "Recorded numerical paths",
+                                    "persona.replay_input" => "Preview of a prior encounter",
                                     "persona.patch" => "Parameter candidate",
                                     "persona.assess" => "Candidate comparison",
                                     other => other,

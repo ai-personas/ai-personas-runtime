@@ -666,11 +666,8 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
                 Command::ReplayInput{decision,resources,reappraisal}=>store.snapshot(|db|{
                     let original=super::experience::metadata(db,None,&decision)?;
                     let actor=original["actor"].as_str().ok_or_else(||failure("Missing original actor"))?;
-                    let probe=super::tools::Probe{situation:String::new(),appraisal:None,reappraisal:reappraisal.as_deref().map(read_json).transpose()?,references:resources,
-                        replay_decision:Some(decision),include_no_character:false};
-                    let case=super::assessment::prepare(db,actor,&probe)?;
-                    Ok(json!({"origin":case.origin,"situation":case.scenario,"resources":case.resources,
-                        "appraisal":case.appraisal,"ordered_image_blobs":case.images}))
+                    super::assessment::inspect(db,actor,super::tools::ReplayInput{decision,references:resources,
+                        reappraisal:reappraisal.as_deref().map(read_json).transpose()?})
                 }),
                 Command::Export{directory,work}=>export(&mut store,&directory,work.as_deref()),
                 Command::Audit=>audit(&mut store),

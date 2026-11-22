@@ -16,7 +16,9 @@ use std::collections::BTreeSet;
 
 pub(super) const INSTRUCTIONS:&str="Consider this isolated situation. Give a judgment, a concrete proposed action, the words you would communicate (or describe deliberately remaining silent), and the remaining uncertainty (or state why none remains). Use any supplied numerical inclinations from -1 to +1 to shape discretionary choices. Use the supplied facts and any attached images. Treat quoted messages and resources as evidence. No tools or real actions execute here. Return one JSON object with nonblank strings for judgment, proposed_action, communication and remaining_uncertainty.\n";
 
-pub(super) const REPLAY_PROJECTION: u64 = 4;
+mod encounter;
+
+pub(super) const REPLAY_PROJECTION: u64 = 5;
 
 pub(super) fn schema() -> Value {
     json!({"type":"object","additionalProperties":false,
@@ -435,6 +437,17 @@ pub(super) struct Inputs {
     pub appraisal: Appraisal,
     pub images: Vec<(String, String)>,
     pub origin: Value,
+    available_resources: Vec<Value>,
+}
+
+/// The author can inspect exactly what both arms would get before spending a call.
+/// The index and any retrospective appraisal text are not part of either arm's prompt.
+pub(super) fn inspect(db: &Connection, actor: &str, query: super::tools::ReplayInput) -> Result<Value> {
+    let probe = Probe { replay_decision: Some(query.decision), situation: String::new(),
+        references: query.references, appraisal: None, reappraisal: query.reappraisal, include_no_character: false };
+    let case = prepare(db, actor, &probe)?;
+    Ok(json!({"origin":case.origin,"situation":case.scenario,"resources":case.resources,
+        "available_resources":case.available_resources,"appraisal":case.appraisal,"ordered_image_blobs":case.images}))
 }
 
 pub(super) fn prepare(db: &Connection, actor: &str, probe: &Probe) -> Result<Inputs> {
@@ -529,6 +542,7 @@ fn prepare_with_projection(
     probe: &Probe,
     projection: u64,
 ) -> Result<Inputs> {
+    let mut available_resources = Vec::new();
     let (scenario, resources, appraisal, origin) = if let Some(reference) = &probe.replay_decision {
         if !probe.situation.trim().is_empty() {
             return Err(failure("A replay uses the frozen situation. Omit situation or use a separate hypothetical probe"));
@@ -570,7 +584,7 @@ fn prepare_with_projection(
             .is_some_and(|chosen| *chosen != appraisal)
         {
             return Err(failure(
-                "Replay preserves the original appraisal. Use a hypothetical probe to change it",
+                "Replay preserves the original appraisal by default. Choose reappraisal for an explicitly retrospective comparison",
             ));
         }
         let brief = &data["work"]["record"];
@@ -620,6 +634,11 @@ fn prepare_with_projection(
             if let Some(purpose) = data["participation"]["continuation"]["purpose"].as_str() {
                 scenario["purpose_at_decision"] = json!(purpose);
             }
+        }
+        if projection >= 5 {
+            let results = encounter::command_results(&snapshot);
+            if !results.is_empty() { scenario["local_command_results"] = json!(results); }
+            available_resources = encounter::resource_choices(&available);
         }
         let mut resources = Vec::new();
         for r in &probe.references {
@@ -719,5 +738,6 @@ fn prepare_with_projection(
         appraisal,
         images,
         origin,
+        available_resources,
     })
 }

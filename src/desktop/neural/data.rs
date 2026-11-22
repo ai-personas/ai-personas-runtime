@@ -4,7 +4,7 @@ use ai_personas::{
     neural::{self, store},
     persona_model::{Appraisal, Evaluation, FeatureContract, ModelPackage},
 };
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde_json::{json, Value};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -304,13 +304,17 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
         if known_decisions.contains(&invocation) { continue; }
         let decision: Value = store::object(&db, &response)?;
         let operations: Vec<Value> = decision["operations"].as_array().into_iter().flatten()
-            .filter(|op| matches!(op["tool"].as_str(), Some("development.update" | "development.close" | "persona.initialize" | "persona.evaluate" | "persona.paths" | "persona.patch" | "persona.assess")))
+            .filter(|op| matches!(op["tool"].as_str(), Some("development.update" | "development.close" | "persona.initialize" | "persona.evaluate" | "persona.paths" | "persona.replay_input" | "persona.patch" | "persona.assess")))
             .map(|op| json!({"id":op["id"],"tool":op["tool"]})).collect();
         let character_use = store::head(&db,"character_use",&invocation)?.map(|r|r.reference.handle());
         let deferred_questions = if decision["persona_maintenance"]["kind"] == "defer" {
             neural::development::deferred_revisions(&db,&invocation)?
         } else { Vec::new() };
-        character_decisions.push(json!({"character_use":character_use,"deferred_questions":deferred_questions,
+        let trial: Option<Value> = if decision["persona_maintenance"]["kind"] == "trial" {
+            let digest: Option<String> = db.query_row("SELECT digest FROM events WHERE invocation=?1 AND work=?2 AND actor=?3 AND target=actor AND kind='personal_trial_proposed'", rusqlite::params![invocation,work,actor], |r| r.get(0)).optional()?;
+            digest.map(|d| store::object(&db,&d)).transpose()?
+        } else { None };
+        character_decisions.push(json!({"character_use":character_use,"deferred_questions":deferred_questions,"trial":trial,
             "invocation":invocation,"actor":actor,"work":work,"accepted":accepted,"accepted_utc":accepted_utc,"order":order,
             "response":format!("object:{response}"),"request":format!("object:{request}"),
             "judgment":decision["work"],"continuation":decision["continuation"],

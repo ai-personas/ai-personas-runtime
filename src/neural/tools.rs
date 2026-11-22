@@ -336,6 +336,18 @@ pub struct Probe {
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct ReplayInput {
+    /// Exact accepted experience:call-ID@1 of your own. No inference or original effects run.
+    pub decision: String,
+    /// Select additional resource bodies which were actually supplied then.
+    #[serde(default)]
+    pub references: Vec<String>,
+    /// Optional retrospective interpretation of sources available at that encounter.
+    #[serde(default)]
+    pub reappraisal: Option<crate::persona_model::Appraisal>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct AssessModel {
     /// Choose an exact inactive candidate to compare with its active predecessor.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -373,6 +385,7 @@ pub const NAMES: &[(&str,&str)] = &[
     ("persona.revision_uses","Inspect the decisions and linked responses for one actual character activation or rollback. A candidate query instead compares its proposed values on actual inputs that used its predecessor. Page counts describe numerical differences."),
     ("persona.paths","Trace an accepted choice of your own to the actual appraisal, output weights and active or inactive hidden paths. Optionally compare a retained package on that exact input, offline."),
     ("persona.patch","Directly replace literal parameters against an exact predecessor and return forward-only before/after probes. Does not activate."),
+    ("persona.replay_input","Inspect the exact frozen situation, observed local command outputs, selected resources and available source handles for replaying one of your own choices. No model call or tool re-execution."),
     ("persona.assess","Compare your exact active_model with its numerical inclinations omitted, or a candidate with its active predecessor. Use matched, tool-free provider calls on prior encounters or hypothetical choices."),
     ("relationship.contacts","Discover named peers and human operators from your own exchanges, plus addresses of your own relationship notes. Counts describe recorded contact."),
     ("relationship.history","Find exact direct exchanges, witnessed contributions and earlier revisions of your own note on a named persona or operator. Returns addresses; read selected experiences with asset.read."),
@@ -464,6 +477,7 @@ pub fn describe(name: &str) -> Result<Value> {
         "workspace.bundle" => schema::<super::workspace::bundle::Bundle>()?,
         "command.history" => schema::<super::commands::History>()?,
         "persona.patch" => schema::<protocol::PatchModel>()?,
+        "persona.replay_input" => schema::<ReplayInput>()?,
         "persona.assess" => schema::<AssessModel>()?,
         "persona.create" => schema::<CreatePersona>()?,
         "asset.save" => schema::<Save>()?,
@@ -559,6 +573,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
         "workspace.bundle" => serde_json::from_value::<super::workspace::bundle::Bundle>(value.clone())?.validate(),
         "command.history" => parse::<super::commands::History>(value),
         "persona.patch" => parse::<protocol::PatchModel>(value),
+        "persona.replay_input" => parse::<ReplayInput>(value),
         "persona.assess" => parse::<AssessModel>(value),
         "persona.create" => parse::<CreatePersona>(value),
         "asset.save" => parse::<Save>(value),
