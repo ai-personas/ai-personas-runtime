@@ -888,7 +888,7 @@ async fn drive(root:&Path,watch:bool,work:Option<&str>,actor:Option<&str>,from_a
                 |r| r.get(0),
             )?;
             let mut ready = !draining
-                && match &part.continuation {
+                && (part.pending_resume.is_some() || match &part.continuation {
                     Continuation::Ready { .. } => true,
                     Continuation::Stop { .. } => false,
                     Continuation::Wait { wake_at_unix, on_events, .. } => {
@@ -898,7 +898,7 @@ async fn drive(root:&Path,watch:bool,work:Option<&str>,actor:Option<&str>,from_a
                         wake_at_unix.is_some_and(|t| t <= now())
                             || store::has_arrival(&store.db,&part.work,&part.persona,part.cursor,on_events)?
                     }
-                };
+                });
             if ready {
                 if let Some(recovery) = recovery::pending(&store.db, &part.persona)? {
                     let not_before = recovery["not_before_unix"].as_i64()

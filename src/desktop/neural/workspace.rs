@@ -485,7 +485,6 @@ impl App {
             (dialogs::Action::Message, "Write message"),
             (dialogs::Action::Amend, "Amend brief"),
             (dialogs::Action::Invite, "Invite a persona"),
-            (dialogs::Action::Resume, "Resume participant"),
         ] {
             if ui
                 .add_enabled(
@@ -497,6 +496,10 @@ impl App {
                 self.dialog = Some(self.participation_dialog(action));
                 ui.close_kind(egui::UiKind::Menu);
             }
+        }
+        if ui.add_enabled(!ended, egui::Button::new("Resume participant")).clicked() {
+            self.dialog = Some(self.resume_dialog());
+            ui.close_kind(egui::UiKind::Menu);
         }
     }
 
@@ -928,8 +931,9 @@ impl App {
             return "Running a tool on another activity".into();
         }
         let Some(p) = participation else { return "No task participation".into(); };
-        if p["accepted"]!=true{return "Invited".into();}
-        if !matches!(s(&p["continuation"], "kind"), "stop" | "stopped") {
+        let resuming = p["pending_resume"].is_object();
+        if !resuming && p["accepted"]!=true{return "Invited".into();}
+        if resuming || !matches!(s(&p["continuation"], "kind"), "stop" | "stopped") {
             if let Some(control) = self.records("controls").iter().find(|c| {
                 let scope = s(c, "scope");
                 c["state"] != "running" && (matches!(scope, "global" | "admission")
@@ -945,6 +949,7 @@ impl App {
                     else { "Inference recovery eligible".into() };
             }
         }
+        if resuming { return "Resume requested".into(); }
         match s(&p["continuation"], "kind") {
             "ready" => "Ready to continue",
             "wait" | "waiting" => "Chose to wait",

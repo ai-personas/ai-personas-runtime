@@ -57,6 +57,9 @@ fn membership_state(part: &Value, ended: bool) -> &'static str {
     if part["declined"] == true {
         return "Invitation declined";
     }
+    if part["pending_resume"].is_object() {
+        return "Resume requested";
+    }
     if part["accepted"] != true {
         return "Invited";
     }
@@ -516,11 +519,10 @@ impl App {
             Some(&self.membership_summary(part)),
             action,
         );
-        // A ready purpose may come from an operator's explicit resume. Keep
-        // both the wording and the source of the participation record intact.
         let (label, field) = match self.home_membership_state(part) {
             "Ready to continue" => ("Recorded purpose", "purpose"),
             "Waiting" | "Stopped" => ("Recorded reason", "reason"),
+            "Resume requested" => ("Previous choice", "reason"),
             _ => return,
         };
         let note = s(&part["continuation"], field).trim();
@@ -571,7 +573,7 @@ impl App {
         let mut text = state.to_owned();
         if matches!(
             state,
-            "Waiting" | "Ready to continue" | "Invited" | "Participating"
+            "Waiting" | "Ready to continue" | "Resume requested" | "Invited" | "Participating"
         ) {
             if let Some(control) = control {
                 text.push_str(&format!("  ·  Scheduling {}", s(control, "state")));

@@ -817,13 +817,14 @@ pub fn invite(
         member.declined=false;
         member.last_evaluation=None;
         member.appraisal_use=None;
+        member.pending_resume=None;
         member.continuation=Continuation::Ready{purpose:"Consider the new invitation".into()};
         (member,existing.reference.revision,Some(existing.reference.handle()),departure,closure)
     } else {
         let cursor=db.query_row("SELECT COALESCE(MAX(seq),0) FROM events",[],|r|r.get(0))?;
         let member=Participation {persona:actor.into(),work:work.into(),accepted:false,declined:false,departure:None,closed_by_activity:None,
             continuation:Continuation::Ready{purpose:"Consider the invitation and initialize my character if needed".into()},
-            cursor,turn:0,context:vec![],tools:vec![],last_judgment:None,last_evaluation:None,appraisal_use:None};
+            pending_resume:None,cursor,turn:0,context:vec![],tools:vec![],last_judgment:None,last_evaluation:None,appraisal_use:None};
         (member,0,None,None,None)
     };
     store::write(db,"participation",&key,expected,&part,invocation)?;
@@ -1113,6 +1114,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         }
         part.cursor=snapshot.cursor;part.turn=part.turn.checked_add(1).ok_or_else(||failure("turn overflow"))?;
         part.continuation=decision.continuation.clone();part.last_judgment=Some(decision.work.clone());
+        part.pending_resume=None;
         if snapshot.model.is_none()&&persona.model.is_some(){
             part.context.clear();part.tools.clear();
             if matches!(part.continuation,Continuation::Ready{..}){part.continuation=Continuation::Ready{purpose:"Consider my actual invitation under my active character model".into()};}

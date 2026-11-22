@@ -270,6 +270,13 @@ pub struct Persona {
     pub lifecycle: String,
     pub provider: crate::provider::DirectSettings,
 }
+/// Scheduling authority from an operator, not a new choice by the persona.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PendingResume {
+    pub requested_by: String,
+    pub event: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Participation {
     pub persona: String,
@@ -281,6 +288,8 @@ pub struct Participation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub closed_by_activity: Option<String>,
     pub continuation: Continuation,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_resume: Option<PendingResume>,
     pub cursor: i64,
     pub turn: u64,
     pub context: Vec<ContextResource>,

@@ -2,6 +2,7 @@ use super::*;
 use ai_personas::neural::input_files::{CapturedFile, InputFiles};
 mod invitation;
 mod connection;
+mod resume;
 
 #[derive(Default)]
 pub(super) struct SourceFiles {
@@ -14,7 +15,6 @@ pub(super) enum Action {
     Message,
     Amend,
     Invite,
-    Resume,
 }
 
 impl Action {
@@ -23,12 +23,12 @@ impl Action {
             Self::Message => "Write a message",
             Self::Amend => "Amend the brief",
             Self::Invite => "Invite a persona",
-            Self::Resume => "Resume a participant",
         }
     }
 }
 
 pub(super) enum Dialog {
+    Resume(resume::Form),
     Agreement(agreements::Form),
     ActivityState { work: String, expected: String, reopen: bool, reason: String },
     Activity {
@@ -91,6 +91,7 @@ impl Dialog {
             Self::Activity { social: true, .. } => "New conversation",
             Self::Activity { .. } => "New task",
             Self::Participation { action, .. } => action.title(),
+            Self::Resume(_) => "Resume a participant",
             Self::Persona { .. } => "New persona",
             Self::Review { .. } => "Review delivery",
             Self::Reasoning { .. } => "Change reasoning settings",
@@ -122,6 +123,10 @@ fn dialog_contents(ui: &mut Ui, scroll: bool, show: impl FnOnce(&mut Ui)) {
 }
 
 impl App {
+    pub(super) fn resume_dialog(&self) -> Dialog {
+        Dialog::Resume(resume::Form::new(self))
+    }
+
     pub(super) fn participation_dialog(&self, action: Action) -> Dialog {
         Dialog::Participation {
             work: self.work.clone(),
@@ -185,7 +190,7 @@ impl App {
         let mut command = None;
         let mut start_workspace = false;
         let invitation = matches!(draft, Dialog::Activity { .. });
-        let scroll = matches!(&draft, Dialog::Participation { .. } | Dialog::Agreement(_) | Dialog::Settings(_))
+        let scroll = matches!(&draft, Dialog::Participation { .. } | Dialog::Resume(_) | Dialog::Agreement(_) | Dialog::Settings(_))
             || (invitation && ctx.content_rect().height() < 370.);
         let width=(ctx.content_rect().width()-24.).max(1.);
         let mut window=egui::Window::new(draft.title());
@@ -307,13 +312,6 @@ impl App {
                                 });
                                 match action {
                                     Action::Invite => member.is_none_or(|r|r["body"]["declined"]==true || r["body"]["departure"].is_string() || r["body"]["closed_by_activity"].is_string()),
-                                    Action::Resume => member.is_some_and(|r| {
-                                        r["body"]["declined"] != true && !r["body"]["departure"].is_string() && !r["body"]["closed_by_activity"].is_string()
-                                            && matches!(
-                                                r["body"]["continuation"]["kind"].as_str(),
-                                                Some("wait" | "stop")
-                                            )
-                                    }),
                                     _ => member.is_some(),
                                 }
                             });
@@ -327,10 +325,6 @@ impl App {
                             Action::Invite => (
                                 "What would you like to invite them to consider?",
                                 "Send invitation",
-                            ),
-                            Action::Resume => (
-                                "Why should this participation resume?",
-                                "Resume participant",
                             ),
                         };
                         multiline(ui, text, hint);
@@ -356,11 +350,6 @@ impl App {
                                     files: InputFiles::from(sources.files.clone()),
                                 },
                                 Action::Invite => Command::Invite {
-                                    work: work.clone(),
-                                    persona: person.clone(),
-                                    reason: text.clone(),
-                                },
-                                Action::Resume => Command::Resume {
                                     work: work.clone(),
                                     persona: person.clone(),
                                     reason: text.clone(),
@@ -409,6 +398,7 @@ impl App {
                                 effort: Some(effort.trim().into()), expected: Some(expected.clone()), reason: reason.clone() });
                         }
                     }
+                    Dialog::Resume(form) => command = form.show(ui,self),
                     Dialog::Agreement(form) => command = form.show(ui,self),
                     Dialog::Settings(form) => command = self.workspace_settings(ui, ctx, form),
                     Dialog::Render(form) => command=form.show(ui,self),

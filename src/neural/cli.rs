@@ -323,11 +323,14 @@ pub enum Command {
         state: String,
         reason: String,
     },
-    /// Explicit user action that resumes a stopped/waiting participation.
+    /// Request another decision on an exact wait or stop. Does not change the persona's judgment.
     Resume {
         work: String,
         persona: String,
         reason: String,
+        /// Exact participation reference inspected in Studio or neural status.
+        #[arg(long)]
+        expected: String,
     },
     /// Deliver user input to an existing participation; stopping remains explicit.
     Message {
@@ -731,16 +734,7 @@ fn operator_action(root: &Path, db: &rusqlite::Connection, operator: &str, comma
             }
             let record=super::controls::change(db,&scope,&state,&reason,super::controls::Origin::Operator(operator),None)?;Ok(json!({"scope":scope,"state":state,"reason":reason,"record":record.handle(),"stopped_participations_resumed":false}))
         },
-        Command::Resume{work,persona,reason}=>{
-            store::open_activity(db,&work)?;
-            if reason.trim().is_empty(){return Err(failure("resume needs an attributed reason"));}
-            let record=store::required(db,"participation",&format!("{work}/{persona}"))?;let mut part:Participation=serde_json::from_value(record.body)?;
-            if part.declined || part.departure.is_some() || part.closed_by_activity.is_some(){return Err(failure("Send a fresh invitation after a decline, departure or dissolution. The persona decides whether to rejoin"));}
-            part.continuation=Continuation::Ready{purpose:reason.clone()};
-            store::write(db,"participation",&record.reference.id,record.reference.revision,&part,None)?;
-            store::event(db,&work,operator,&persona,"explicit_resume",&json!({"reason":reason}),None)?;
-            Ok(json!({"resumed":persona,"work":work,"scheduling_controls":super::controls::relevant(db,&work,&persona)?}))
-        },
+        Command::Resume{work,persona,reason,expected} => super::membership::request_resume(db,&work,&persona,operator,&reason,&expected),
         Command::Message{work,persona,text,reply_to,delivery,files}=>{
             if text.trim().is_empty() && files.is_empty(){return Err(failure("Write a message or attach a file before sending"));}
             store::required(db,"participation",&format!("{work}/{persona}"))?;

@@ -115,7 +115,7 @@ impl Board {
                 ui.horizontal_wrapped(|ui| {
                     for member in members {
                         let actor = s(member, "actor");
-                        let status = s(member, "state");
+                        let status = if member["pending_resume"].is_object() { "resume requested" } else { s(member, "state") };
                         let button =
                             ui.small_button(format!("{} · {}", person(members, actor), status));
                         if button.on_hover_text("Inspect this participation").clicked() {

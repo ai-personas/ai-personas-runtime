@@ -615,6 +615,8 @@ impl App {
                     Some("Left this activity")
                 } else if body["declined"] == true {
                     Some("Invitation declined")
+                } else if body["pending_resume"].is_object() {
+                    Some("Resume requested")
                 } else if matches!(s(&body["continuation"], "kind"), "stop" | "stopped") {
                     Some("Stopped on this activity")
                 } else {

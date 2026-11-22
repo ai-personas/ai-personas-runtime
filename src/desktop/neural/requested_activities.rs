@@ -133,7 +133,8 @@ impl Window {
                                         theme::glyph(ui,Icon::Task,TEAL);
                                         if ui.link(excerpt(s(node,"need"),70)).on_hover_text(s(node,"need")).clicked(){action=Some(Action::OpenWork(s(node,"work").into()));}
                                         for p in node["participants"].as_array().into_iter().flatten(){
-                                            ui.weak(format!("{} · {}",person(status,s(p,"persona")),s(&p["continuation"],"kind")));
+                                            let state=if p["pending_resume"].is_object(){"resume requested"}else{s(&p["continuation"],"kind")};
+                                            ui.weak(format!("{} · {}",person(status,s(p,"persona")),state));
                                         }
                                     });
                                 });
