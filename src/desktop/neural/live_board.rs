@@ -1427,6 +1427,20 @@ impl App {
                         }
                     });
                 }
+                if let Some(inputs) = result["project_inputs"].as_object() {
+                    egui::CollapsingHeader::new(format!("Project inputs · {}", inputs.len())).id_salt(("staged-inputs", seq)).show(ui, |ui| {
+                        ui.weak("Observed before launch. Later edits in the shared directory do not change these input bytes.");
+                        for (name, input) in inputs {
+                            let Some(object) = input["object"].as_str() else { continue; };
+                            ui.horizontal_wrapped(|ui| {
+                                if ui.link(name).on_hover_text(s(input, "reference")).clicked() {
+                                    action = Some(EventAction::SourceFile { source: s(result,"receipt").into(), object: object.into(), name: name.clone() });
+                                }
+                                ui.small(match s(input,"staging") { "created" => "Created", "present_identical" => "Already present · identical", _ => "Recorded input" });
+                            });
+                        }
+                    });
+                }
                 if let (Some(zip), Some(manifest)) = (result["captured_zip"].as_str(), result["member_manifest"].as_str()) {
                     ui.horizontal_wrapped(|ui| {
                         if text_action(ui, "Inspect captured ZIP").clicked() {

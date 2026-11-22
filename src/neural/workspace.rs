@@ -1,6 +1,7 @@
 //! Files selected from the workspace and the runtime's portable computation interface.
 pub(crate) mod open;
 pub(crate) mod bundle;
+pub(crate) mod stage;
 use super::{failure, store, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use rusqlite::Connection;
@@ -65,12 +66,16 @@ fn open_relative(root: &File, relative: &Path) -> Result<File> {
 }
 
 // Enumerate through the open directory rather than resolving its name again.
-fn directory_entries(opened: &File) -> std::io::Result<std::fs::ReadDir> {
+fn descriptor_path(opened: &File) -> PathBuf {
     #[cfg(target_os = "linux")]
     let descriptors = Path::new("/proc/self/fd");
     #[cfg(not(target_os = "linux"))]
     let descriptors = Path::new("/dev/fd");
-    std::fs::read_dir(descriptors.join(opened.as_raw_fd().to_string()))
+    descriptors.join(opened.as_raw_fd().to_string())
+}
+
+fn directory_entries(opened: &File) -> std::io::Result<std::fs::ReadDir> {
+    std::fs::read_dir(descriptor_path(opened))
 }
 
 pub(super) fn list(

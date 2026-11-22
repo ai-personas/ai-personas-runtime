@@ -1,4 +1,4 @@
-//! Run local production tools against a fresh tree of exact project files.
+//! Run local production tools in a scratch tree or a continuing shared project.
 //! The accepted outbox operation owns dispatch. Receipts keep output bytes
 //! separate from their later registration, qualification and delivery.
 use super::{check_run_paths, content, store_output_bytes, Origin};
@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs::{self, File},
+    fs::File,
     io::{Read, Seek, Write},
     os::unix::{
         fs::PermissionsExt,
@@ -32,7 +32,7 @@ pub struct Run {
     pub directory: Directory,
     #[serde(default)]
     pub arguments: Vec<String>,
-    /// Relative filenames in the new project directory mapped to exact asset revisions or byte objects.
+    /// Relative filenames mapped to exact asset revisions or byte objects. In workspace mode publish missing inputs or reuse byte-identical regular files; never overwrite differing content. Each completed input remains if a later one fails; no program starts on a staging error.
     #[serde(default)]
     pub files: BTreeMap<String, String>,
     /// Relative regular files to capture after exit, even after a nonzero exit.
@@ -86,9 +86,6 @@ impl Run {
             ));
         }
         check_run_paths(&self.arguments, &self.files, &self.outputs)?;
-        if self.directory == Directory::Workspace && !self.files.is_empty() {
-            return Err(failure("Workspace mode operates on existing project files. Use scratch to stage a file map, or omit files to work in the shared directory."));
-        }
         for reference in self.files.values().chain(&self.stdin) {
             workspace::byte_digest(db, reference)?;
         }
@@ -211,20 +208,6 @@ pub(crate) fn run(
         .as_ref()
         .map_or(shared_directory, tempfile::TempDir::path);
     let mut files = BTreeMap::new();
-    for (path, reference) in &input.files {
-        let (digest, bytes) = content(&workspace.db, reference)?;
-        let destination = project.join(path);
-        fs::create_dir_all(
-            destination
-                .parent()
-                .ok_or_else(|| failure("Missing project directory"))?,
-        )?;
-        File::create_new(destination)?.write_all(&bytes)?;
-        files.insert(
-            path,
-            json!({"reference":reference,"object":format!("object:{digest}"),"bytes":bytes.len()}),
-        );
-    }
     let mut stdin = tempfile::tempfile()?;
     let stdin_source = if let Some(reference) = &input.stdin {
         let (digest, bytes) = content(&workspace.db, reference)?;
@@ -249,6 +232,16 @@ pub(crate) fn run(
                 "Working directory is unavailable: {}",
                 project.display()
             )));
+        }
+        if !input.files.is_empty() {
+            let project_root = File::open(project)?;
+            for (path, reference) in &input.files {
+                if stop() { cancelled = true; return Err(failure("Stopped before staging all inputs")); }
+                let (digest, bytes) = content(&workspace.db, reference)?;
+                let state = workspace::stage::input(&project_root, path, &digest, &bytes)
+                    .map_err(|e| failure(format!("Cannot stage {path:?}: {e}")))?;
+                files.insert(path, json!({"reference":reference,"object":format!("object:{digest}"),"bytes":bytes.len(),"staging":state}));
+            }
         }
         let path = executable(&input.program, project)?;
         // Keep the invoked name (a multicall executable can inspect argv[0]).
