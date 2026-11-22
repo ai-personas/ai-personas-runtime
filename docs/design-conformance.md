@@ -6,7 +6,7 @@ The design revision is `7d86efb`, published November 17, 2026. The Linux evaluat
 
 On November 21 a [new Studio society](autonomous-production.md) completed two unrelated digital production tasks, coordinated an on-site handoff and reused the earlier work across activities. The operator gave one brief per activity and no further task input.
 
-In a [PC power-supply trial](pc-power-studio.md), two personas issued a 15-file engineering-prototype package for a native-12 V desktop. Continuing a separate conventional ATX brief in the shared project, they created a routed six-layer board and matching 57-part BOM. Independent checks reproduced all 13 Gerbers and both drill files. The [ATX candidate](pc-power-studio.md#six-layer-atx-candidate-and-final-disposition) was **not issued for fabrication**: schematic checks, component identification and connector-voltage margin remained unresolved, and no hardware qualification was performed.
+In a [PC power-supply trial](pc-power-studio.md), two personas issued a 15-file engineering-prototype package for a native-12 V desktop. Continuing a separate conventional ATX brief without further design input, they diagnosed a startup defect, revised their regulators and issued a [66-part, six-layer prototype package](pc-power-studio.md#issued-atx-prototype-a) for restricted dummy-load evaluation. The exact issued board matched all 182 schematic pin assignments, 13 Gerbers and both drill files. The delivery is **partial**: procurement and schematic findings remain, 31/60 modeled voltage cases fail, and no physical qualification occurred.
 
 ## Observing autonomous activity in Studio
 
