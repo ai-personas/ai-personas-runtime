@@ -5,7 +5,7 @@ use std::io::{self, Cursor, Read, Write};
 
 #[derive(Clone)]
 pub(in crate::desktop::neural) struct Member {
-    index: usize,
+    pub index: usize,
     pub path: String,
     bytes: u64,
     crc: u32,

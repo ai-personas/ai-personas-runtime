@@ -1,7 +1,7 @@
 //! Shared visual language for the desktop editors and their controls.
 use eframe::egui::{self, Color32, FontId, Pos2, Rect, RichText, Stroke, Ui};
 
-pub const ACCENT: Color32 = Color32::from_rgb(229, 163, 89);
+pub const ACCENT: Color32 = Color32::from_rgb(225, 139, 94);
 pub const BLUE: Color32 = Color32::from_rgb(46, 94, 163);
 pub const GREEN: Color32 = Color32::from_rgb(120, 191, 153);
 pub const BODY_TEXT: f32 = 16.0;
@@ -27,29 +27,29 @@ impl Palette {
     pub fn new(dark: bool) -> Self {
         if dark {
             Self {
-                canvas: Color32::from_rgb(18, 23, 29),
-                panel: Color32::from_rgb(26, 33, 41),
-                header: Color32::from_rgb(33, 43, 54),
-                field: Color32::from_rgb(14, 19, 25),
-                border: Color32::from_rgb(56, 69, 83),
-                text: Color32::from_rgb(232, 238, 244),
-                muted: Color32::from_rgb(164, 178, 192),
-                hover: Color32::from_rgb(43, 58, 73),
-                selection: Color32::from_rgb(43, 70, 102),
-                accent: Color32::from_rgb(148, 192, 251),
+                canvas: Color32::from_rgb(28, 30, 33),
+                panel: Color32::from_rgb(39, 42, 45),
+                header: Color32::from_rgb(49, 52, 55),
+                field: Color32::from_rgb(31, 33, 36),
+                border: Color32::from_rgb(65, 69, 74),
+                text: Color32::from_rgb(240, 239, 230),
+                muted: Color32::from_rgb(181, 186, 190),
+                hover: Color32::from_rgb(57, 61, 65),
+                selection: Color32::from_rgb(77, 60, 51),
+                accent: Color32::from_rgb(244, 174, 139),
             }
         } else {
             Self {
-                canvas: Color32::from_rgb(240, 244, 248),
-                panel: Color32::from_rgb(253, 254, 255),
-                header: Color32::from_rgb(232, 238, 244),
-                field: Color32::from_rgb(247, 249, 252),
-                border: Color32::from_rgb(188, 201, 213),
-                text: Color32::from_rgb(26, 41, 57),
-                muted: Color32::from_rgb(73, 94, 114),
-                hover: Color32::from_rgb(217, 228, 239),
-                selection: Color32::from_rgb(204, 224, 246),
-                accent: Color32::from_rgb(33, 82, 150),
+                canvas: Color32::from_rgb(246, 245, 240),
+                panel: Color32::from_rgb(255, 254, 250),
+                header: Color32::from_rgb(239, 237, 229),
+                field: Color32::from_rgb(248, 247, 243),
+                border: Color32::from_rgb(214, 213, 203),
+                text: Color32::from_rgb(40, 43, 38),
+                muted: Color32::from_rgb(92, 96, 86),
+                hover: Color32::from_rgb(231, 230, 221),
+                selection: Color32::from_rgb(241, 220, 205),
+                accent: Color32::from_rgb(144, 63, 41),
             }
         }
     }
@@ -100,6 +100,11 @@ pub fn install_fonts(ctx: &egui::Context) {
             .or_default()
             .insert(0, name.into());
     }
+    let display = "Instrument Serif";
+    fonts.font_data.insert(display.into(), egui::FontData::from_static(include_bytes!("fonts/InstrumentSerif-Regular.ttf")).into());
+    let mut faces = fonts.families[&egui::FontFamily::Proportional].clone();
+    faces.insert(0, display.into());
+    fonts.families.insert(egui::FontFamily::Name("Studio display".into()), faces);
     ctx.set_fonts(fonts);
 }
 pub fn apply(ctx: &egui::Context, dark: bool, zoom: f32) {
@@ -111,7 +116,7 @@ pub fn apply(ctx: &egui::Context, dark: bool, zoom: f32) {
         egui::Visuals::light()
     };
     style.spacing.item_spacing = egui::vec2(7.0, 5.0);
-    style.spacing.button_padding = egui::vec2(9.0, 5.0);
+    style.spacing.button_padding = egui::vec2(10.0, 5.0);
     style.spacing.interact_size = egui::vec2(28.0, 28.0);
     style.spacing.window_margin = egui::Margin::same(14);
     style.spacing.indent = 16.0;
@@ -120,10 +125,11 @@ pub fn apply(ctx: &egui::Context, dark: bool, zoom: f32) {
         (egui::TextStyle::Body, BODY_TEXT),
         (egui::TextStyle::Button, 15.0),
         (egui::TextStyle::Small, SMALL_TEXT),
-        (egui::TextStyle::Heading, 24.0),
+        (egui::TextStyle::Heading, 25.0),
     ] {
         style.text_styles.insert(text, FontId::proportional(size));
     }
+    style.text_styles.insert(egui::TextStyle::Heading, FontId::new(28., egui::FontFamily::Name("Studio display".into())));
     style
         .text_styles
         .insert(egui::TextStyle::Monospace, FontId::monospace(MONO_TEXT));
@@ -161,9 +167,9 @@ pub fn apply(ctx: &egui::Context, dark: bool, zoom: f32) {
     v.widgets.active.bg_fill = p.selection;
     v.widgets.active.bg_stroke = Stroke::new(1.0_f32, p.accent);
     let strong = if dark {
-        Color32::from_rgb(250, 252, 255)
+        Color32::from_rgb(250, 249, 243)
     } else {
-        Color32::from_rgb(9, 26, 44)
+        Color32::from_rgb(36, 36, 31)
     };
     v.widgets.active.fg_stroke = Stroke::new(1.0_f32, strong);
     for widget in [
@@ -179,7 +185,7 @@ pub fn apply(ctx: &egui::Context, dark: bool, zoom: f32) {
     v.widgets.open.bg_fill = p.selection;
     v.widgets.open.bg_stroke = Stroke::new(1.0_f32, p.accent);
     v.widgets.open.fg_stroke = Stroke::new(1.0_f32, p.text);
-    v.collapsing_header_frame = true;
+    v.collapsing_header_frame = false;
     v.indent_has_left_vline = true;
     ctx.set_style(style);
     ctx.set_zoom_factor(if zoom.is_finite() { zoom.clamp(MIN_ZOOM, MAX_ZOOM) } else { 1.0 });
@@ -221,8 +227,9 @@ pub fn badge(ui: &mut Ui, text: &str, color: Color32) {
         });
 }
 pub fn primary(label: &str) -> egui::Button<'_> {
-    egui::Button::new(RichText::new(label).color(Color32::WHITE))
-        .fill(BLUE)
+    egui::Button::new(RichText::new(label).color(Color32::from_rgb(35, 29, 26)).strong())
+        .fill(Color32::from_rgb(235, 155, 111))
+        .stroke(Stroke::NONE)
         .wrap_mode(egui::TextWrapMode::Extend)
 }
 pub fn property(ui: &mut Ui, label: &str, value: &str) {
@@ -238,6 +245,7 @@ pub fn property(ui: &mut Ui, label: &str, value: &str) {
 #[derive(Clone, Copy)]
 pub enum Icon {
     Search,
+    Map,
     Workspaces,
     Folder,
     Task,
@@ -277,6 +285,11 @@ pub fn paint_icon(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color3
         );
     };
     match icon {
+        Icon::Map => {
+            line(&[(0.08,0.22), (0.35,0.12), (0.65,0.26), (0.92,0.15), (0.92,0.8), (0.65,0.91), (0.35,0.77), (0.08,0.88), (0.08,0.22)]);
+            line(&[(0.35,0.12), (0.35,0.77)]);
+            line(&[(0.65,0.26), (0.65,0.91)]);
+        }
         Icon::Search => {
             painter.circle_stroke(at(0.43, 0.42), rect.width() * 0.28, stroke);
             line(&[(0.63, 0.63), (0.91, 0.91)]);

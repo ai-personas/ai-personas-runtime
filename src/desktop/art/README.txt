@@ -1,0 +1,12 @@
+Persona Studio cover artwork
+
+The built-in ImageGen tool produced the Paper cover. The Graphite cover used the Paper image as its visual reference. Both JPEGs are embedded by the native desktop.
+
+studio-glass.jpg
+Use case: stylized-concept. Asset for the wide cover of Persona Studio, a native desktop workspace for AI personas. Art-directed analogue fine-art studio photograph of a single free-standing sculptural assembly: exactly three separate thick translucent head profiles in side silhouette looking right, staggered in depth like a layered cast of different people. One rich vermilion/coral polished resin, one translucent smoked honey amber and one deep blue-grey ribbed optical glass. Physically convincing refraction, polished front edges, edge highlights, subtle caustics and a real hard shadow. A little structural plinth. The whole arrangement occupies the right half of a wide composition, strong angular sidelight from upper right. Warm parchment cyclorama, very light warm off-white cream almost uniform background all across left half fading into soft apricot on right. The left 45% must remain entirely empty paper for later typographic overlay. Design magazine product photography, architectural craft, beautifully physical, spare. 3:1 panoramic landscape. No lettering, numbers, symbols, labels, graphic borders or watermark.
+
+studio-glass-graphite.jpg
+Create the dark-mode companion for this exact Persona Studio cover photograph. Preserve the same wide 3:1 panoramic framing, the right-facing profiles of three staggered solid optical glass sculptures on the right, large empty left half, and premium editorial product photography. Change the environment to a low-key graphite studio with a dark charcoal seamless background and slate plinth. Luminous polished edges catch a soft studio rim light: rich copper vermilion front head, warm amber glass middle, ribbed petrol-blue glass back. Give each face a clearly legible profile through refraction and deft soft highlights, dimensional and beautiful in a dark desktop app. Ground plane graphite with a very subtle warm caustic below the sculpture. The left 45 percent is uniformly dark slate around #26292c for pale interface text, no strong light or pattern there. Real materials, refined contrast and subtle texture, absolutely no lettering or graphics. The object must read clearly even at 220px high.
+
+studio-mark.png
+Desktop window icon rasterized from packaging/personas.svg.

@@ -142,10 +142,15 @@ fn render_markdown(ui: &mut Ui, text: &str, base: Option<&std::path::Path>, pres
                     }
                 }
                 Event::End(TagEnd::Table) => {
+                    let columns = rows.iter().map(Vec::len).max().unwrap_or(1).max(1);
+                    let width = ((ui.available_width() - 16. * (columns-1) as f32) / columns as f32).clamp(82., 300.);
+                    let id = ui.next_auto_id();
                     egui::ScrollArea::horizontal()
-                        .id_salt(("markdown-table", rows.clone()))
+                        .id_salt(("markdown-table", id))
                         .show(ui, |ui| {
-                            egui::Grid::new(("md-grid", rows.clone()))
+                            egui::Grid::new(("md-grid", id))
+                                .min_col_width(width.min(110.))
+                                .max_col_width(width)
                                 .striped(true)
                                 .spacing([16.0, 6.0])
                                 .show(ui, |ui| {

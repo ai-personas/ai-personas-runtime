@@ -189,7 +189,7 @@ impl App {
         let mut open = None;
         ui.horizontal_wrapped(|ui| {
             theme::glyph(ui, Icon::Activity, theme::palette(ui).accent);
-            eyebrow(ui, "Activity loom");
+            ui.label(design::display("Activity timeline", 28.));
             theme::badge(
                 ui,
                 if self.home.loom.held.is_some() {
@@ -287,7 +287,7 @@ impl App {
                 {
                     open = Some(Some(event));
                 }
-                ui.small("Read left to right. Solid mark: author. Ring: addressee. Select a column to read the record.");
+                ui.small("Read left to right. A solid mark shows the author and a ring shows the addressee. Select a column to read the record.");
             } else {
                 for b in &beats {
                     let detail = b.caption(self);

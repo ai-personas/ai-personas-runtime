@@ -1,6 +1,8 @@
-# Personas Desktop
+# Persona Studio
 
-Personas Desktop is a native Rust workspace for Linux and macOS. Open a saved folder or create a society from general character profiles. You can use a saved OpenAI key file, a configured direct provider or a supported Codex account connection.
+Persona Studio is a native Rust workspace for Linux and macOS. Open a saved folder or create a society from general character profiles. You can use a saved OpenAI key file, a configured direct provider or a supported Codex account connection.
+
+The workspace library shows the people in each saved persona workspace. Search by workspace or persona name. Graphite is the default appearance. Choose **Paper** from the library’s **Appearance** menu or from **Workspace settings** in an open workspace. [Workspace library](assets/studio-ui/library.jpg) · [Search by persona](assets/studio-ui/persona-search.jpg) · [Create an ensemble](assets/studio-ui/new-workspace.jpg)
 
 New workspaces open on **Overview**. **Run workspace** listens across existing activities and picks up new invitations. You can also open Studio while a terminal or another window owns the run. The Overview identifies its scope and shows which personas are actually working. **Finish run** lets already admitted work settle and releases that run. A workspace can keep listening while its personas wait for their chosen events or times.
 
@@ -10,11 +12,11 @@ The terminal equivalent is `ai-personas --state-root "$workspace" neural connect
 
 In **+ New → Task** or **Social conversation**, describe the result or topic, attach any source files and select invitees by name. **Invite & run workspace** records the invitation and starts a workspace listener. **Save without starting** records it for later. A listening workspace offers **Send invitations**. When scheduling is paused, **Queue invitations** preserves the pause. A persona can continue on other work while a physical request awaits a response. [The invitation desk](assets/studio-fieldwork-invitation.png)
 
-On **Overview**, the **Society desk** shows the people, issued editions and requests that need you. Beside it, the **Activity loom** lets you read a conversation or handoff left to right. Each column is one recorded event, not elapsed time or a progress score. A solid mark identifies the author; a ring identifies the addressee. Select a column to read that exact event. Use **Messages** or **Files & handoffs** to narrow the display, **Older** or **Hold** to keep your place, and **Follow latest** to return. With several activities you can choose one to follow. On a small window, expand **Activity loom** below the desk. [Remy and Sable’s live message lanes](assets/studio-activity-loom.jpg)
+On **Overview**, the **Persona ensemble** puts each person’s identity, participation and message controls together. Choose a portrait tab to focus on that person or **All people** to watch the full roster. The **Activity timeline** shows actual exchanges in the selected activity. Read the chart from left to right. Each column represents one recorded event. A solid mark identifies the author and a ring identifies the addressee. Select a column to read the event. **Older** and **Hold** keep your place. **Follow latest** returns to the newest records. [Workspace overview](assets/studio-ui/ensemble.jpg) · [Persona profile](assets/studio-ui/profile.jpg) · [Compact workspace](assets/studio-ui/compact.jpg) · [Paper appearance](assets/studio-ui/ensemble-paper.jpg)
 
 Use **Find…** from any workspace view, or press **Ctrl+K** on Linux and **⌘K** on macOS. Search by person, activity title, filename or exact reference. A delivery can also match the name of a file it contains. Use the type filters to narrow the list, then click a result or press the arrow keys and **Enter**. File results identify the revision that will open. **Esc** returns to what you were doing. [Finding an issued package](assets/studio-workspace-find.png)
 
-**People & live work** groups calls and tools by persona and activity. **Message** addresses the composer at the bottom of Overview. You can keep watching other personas, attach a file, and open the saved message receipt. The activity title above the composer opens its full timeline. **Close message** keeps your draft for that recipient and activity. On wide windows, live work and handoffs sit side by side. An active card’s **Last tool** opens its latest recorded result in that activity. The **Jump to** links take you directly to **People** or **Workspace activity** and keep an open composer in view. Choose a persona or human under **All authors** to see their contributions. **Pause feed** or **Older** holds your place and counts new arrivals. **Latest** returns to the newest entries and follows new activity. Open a file revision, issued package or request thread directly, or select a message or event to read it in its activity timeline. **Recent deliveries** opens the exact issued package, its files, declared scope, remaining work and review. **Human requests** opens the action and return instructions from the persona who asked. [Writing to Inez while Rowan works](assets/studio-overview-message.png)
+**Persona ensemble** groups calls and tools by persona and activity. **Message** addresses the composer at the bottom of Overview. You can keep watching other personas, attach a file, and open the saved message receipt. The activity title above the composer opens its full timeline. **Close message** keeps your draft for that recipient and activity. On wide windows, the ensemble and handoffs share a column beside the timeline. An active card’s **Last tool** opens its latest recorded result in that activity. The links below the workspace name jump to personas, activities, deliveries, human requests and the timeline. Choose a persona or human under **All authors** to see their contributions. **Pause feed** or **Older** holds your place and counts new arrivals. **Latest** returns to the newest entries and follows new activity. Open a file revision, issued package or request thread directly, or select a message or event to read it in its activity timeline. **Recent deliveries** opens the exact issued package, its files, declared scope, remaining work and review. **Human requests** opens the action and return instructions from the persona who asked. [Writing to Inez while Rowan works](assets/studio-overview-message.png)
 
 Open a delivery title to see what its author produced. The page shows the selected file, the author’s supported use, and every remaining item. The file list includes exact revisions, contributors and qualifications. **Open full file** opens the selected revision. You can also open a file directly from **Recent deliveries**. **Back to delivery** returns to its package with that file selected. On small screens the folder button opens the workspace browser over the current page. [Recorded prototype delivery](assets/studio-booklight-live.gif)
 
@@ -22,7 +24,7 @@ Open a delivery title to see what its author produced. The page shows the select
 
 When the issuer prepares **Dispatch slips**, each recipient has their own instructions and file selection. Choose a recipient and click a filename to preview its exact edition. **Copy instructions** copies the issuer’s wording; **Before forwarding** shows the open items they recorded for the edition. Long selections have pages, but saving includes the entire slip, not just the visible page. **Save original file…** copies a single file byte for byte, including a ZIP meant for direct upload. **Save selected files ZIP…** keeps the listed files at their issued paths, without adding the rest of the delivery. Both actions save locally; neither sends anything, places an order nor answers a request. The slips also appear on the printable handoff sheet.
 
-When a persona includes a ZIP intended for direct upload, select it in **File preview**. **Inside this archive** lists its members and uncompressed sizes. Filter or page through the list. Select a PDF, drawing, image or text file to inspect it directly inside the exact issued ZIP. **← Archive contents** returns to the same filter and page. **Save this ZIP unchanged…** saves the original archive, even while a member is open. [Linden’s board-shop ZIP](assets/studio-fieldwork-archive.png)
+When a persona includes a ZIP intended for direct upload, select it in **File preview**. **Inside this archive** lists its members and uncompressed sizes. Filter or page through the list. Select a member to inspect its contents directly inside the exact issued ZIP. Media, workbooks, models and unfamiliar binaries use Studio’s file renderers. **Inspect selected file** opens the member in the full viewer. **← Archive contents** returns to the same filter and page. **Save this ZIP unchanged…** saves the original archive, even while a member is open. [Linden’s board-shop ZIP](assets/studio-fieldwork-archive.png) · [An issued MIDI file rendered on its delivery page](assets/studio-ui/files/inline-delivery.jpg)
 
 To take just one entry, select it and choose **Save selected file…**. The save dialog names both the entry and its enclosing issued ZIP. It suggests the entry’s filename and saves its complete original bytes, including for formats without an inline preview. Python and other common source files open as text; inspecting or saving a script does not run it.
 
@@ -352,6 +354,25 @@ These views use the current runtime's saved inspection records. The new
 `personas-session --state-root PATH --operator ID conversation WORK` command
 provides the same communication and responsibility snapshot without inference.
 
+## Opening and inspecting files
+
+Open **File viewer** in the library or workspace, drop files onto Studio, or press **Ctrl+O** on Linux or **⌘O** on macOS. **Open by path…** accepts a local filename. You can also launch a group directly with `./personas --gui file.pdf notes.md` or repeat `--open-file FILE`. The separate viewer window keeps your workspace and selection available while you switch between files on its shelf. [File viewer screenshots](assets/studio-ui/file-views.jpg) · [Full-size format examples](assets/studio-ui/files)
+
+The viewer checks recognizable signatures and Office container contents along with filenames. It can recognize a PDF without its suffix, read UTF-8 and byte-order-marked UTF-16, and inspect archive members in place. **Actions → Inspect bytes** shows exact offsets, hex and ASCII. Unrecognized binaries open here automatically. You can move directly between pages, even for a large file.
+
+| File | What opens in Studio |
+| --- | --- |
+| XLS, XLSX, XLSM, XLSB, ODS | Workbook sheets, stored cell values, filtering and numeric plots. |
+| SQLite | Read-only ordinary tables with named columns and paged rows. |
+| HTML | Print layout using the bundled document printer and Poppler, or a text and source view when page rendering is unavailable. |
+| DOCX, ODT, PPTX, ODP | LibreOffice page layout when available, otherwise a reading view with paragraphs or slide selection. |
+| MIDI | Piano roll with pitches, tracks and event timing. |
+| WAV and other audio | A waveform. PCM WAV uses the built-in reader. Other supported audio codecs use FFmpeg. |
+| Video | Selectable decoded frames. **Play in media player** opens actual playback with FFplay or the desktop file association. |
+| GIF, animated WebP, APNG | Timed playback, pause and frame selection. Large animations can use a first-frame preview. |
+| TTF, OTF, TTC, WOFF, WOFF2 | A type specimen from the selected font with Python and Pillow. Web fonts also use fontTools. |
+| ZIP, TAR and other archive families | Browse entries and open an individual member. Compressed TAR uses Python. Additional containers, including 7z and RAR, depend on system libarchive and its codec support. |
+
 ## Previewing produced files
 
 Workspace files are shared across the runtime's tasks. They are current disk
@@ -372,12 +393,12 @@ includes dotfiles, `__pycache__`, and `node_modules`. The browser reports unread
 entries. Decoding happens on a worker; a late result cannot replace
 the preview of a newer selection or another workspace.
 
-- PNG, JPEG, WebP, BMP, TIFF, ICO, GIF (first frame), and SVG render with fit,
+- PNG, JPEG, WebP, BMP, TIFF, ICO, GIF, SVG and common scientific raster images render with fit,
   zoom, pan, and a light or dark background.
 - Markdown renders headings, emphasis, lists, quotes, tables, task lists, links,
   and highlighted code blocks. Workspace Markdown can display local image
   references relative to its folder; remote images remain explicit links.
-  HTML remains visible text. Source view remains
+  Inline HTML in Markdown remains visible text. Source view remains
   available. Source files use language-aware syntax highlighting and selectable text.
 - JSON opens as an expandable parameter tree with original values and units;
   the exact source remains available. Arrays of records, arrays of rows, and
@@ -398,10 +419,9 @@ the preview of a newer selection or another workspace.
   animation, CAD constraints, or engineering validation. GLB is convenient for
   self-contained models inside packages. Local glTF can load adjacent buffers;
   remote buffers are not fetched.
-- STEP uses a same-name STL, OBJ, or GLB companion when available. The viewer
-  explicitly identifies that companion; it does not decode STEP geometry.
+- STEP uses Open CASCADE when available. If conversion fails, Studio can show a same-name STL, OBJ or GLB companion and identifies its filename.
 - ZIP packages list their contents. Select an entry to preview it without
-  extracting the whole package; **Back to package** returns to the listing.
+  extracting the whole package; **Back to archive** returns to the listing.
 
 ### Additional engineering and scientific formats
 
@@ -431,11 +451,11 @@ control remains available. Native drawing pages use a longest raster edge of
 | Formats | Compatible renderer | In-UI representation and limits |
 | --- | --- | --- |
 | PDF | `pdfinfo` and `pdftoppm` (Poppler) | Selectable pages, rasterized on demand. No interactive forms or embedded program execution. |
-| DOC/DOCX/ODT/RTF, PPT/PPTX/ODP, XLS/XLSX/ODS | `soffice` or `libreoffice`, plus Poppler | Document pages, slide pages, and spreadsheet print layout. Layout depends on installed fonts. This does not expose every spreadsheet cell, formula, or workbook interaction. |
+| DOC/DOCX/ODT/RTF, PPT/PPTX/ODP, XLS/XLSX/ODS | `soffice` or `libreoffice`, plus Poppler | Document and slide pages. Layout depends on installed fonts. Workbook formats use the built-in sheet view first. |
 | KiCad `.kicad_pcb` | `kicad-cli` 9+ | Front or mirrored back copper/silkscreen/outline, or outline alone, rendered as SVG. Inner copper, 3D component models, DRC, and fabrication validation are not included. |
 | KiCad `.kicad_sch` | `kicad-cli` 9+ | Available exported SVG sheets. Only the selected source is staged, so separate hierarchical sheets, libraries, and linked assets may be unavailable. |
-| MP4/MOV/WebM/AVI/MKV/M4V | `ffprobe` and `ffmpeg` | Eight timestamp samples across the duration, decoded on demand. This is frame inspection, without playback, audio, or every intervening frame. |
-| WAV/MP3/OGG/FLAC/M4A/AAC | `ffmpeg` | Whole-file channel waveforms. No audio playback, transcription, or inferred quality assessment. |
+| MP4/MOV/WebM/AVI/MKV/M4V | `ffprobe` and `ffmpeg` | Eight timestamp samples across the duration, decoded on demand. The playback control opens the original media in a player. |
+| WAV/MP3/OGG/FLAC/M4A/AAC | `ffmpeg` | Whole-file waveform. The playback control opens the original audio in a player. |
 
 Renderer preparation and decoding run on the existing preview worker. Page images
 are created on demand and cached for the selected document; only the active page
@@ -457,22 +477,10 @@ remain inspectable; a program on PATH alone does not establish version or format
 compatibility. No tools are automatically installed. Extend the registry and its
 preparation/page renderer in `native_preview.rs` together when adding a format.
 
-Files, text, tables, archives, and meshes have no application count or byte quota;
-decoding still depends on available memory and graphics resources. Large raster
-images are resized for display. Universal format support is not provided.
-Other PCB formats, native Blender/FreeCAD project features beyond stored geometry, DWG versions/entities unsupported by LibreDWG, and other specialist formats without a registered renderer remain unsupported in the window. Missing compatible renderers are identified by name. **Actions →
-Open in external application** or **Open with…** is an optional fallback, not
-embedded rendering. This also works for recorded deliveries and archive entries: their exact
-bytes are materialized in a temporary folder retained while the window is open.
-Opening failures are reported. An external viewer's launch does not establish
-that it successfully rendered the format. No generated program is executed by
-merely selecting it for preview.
+File rendering depends on the format, its contents and the installed decoders. Very large plain text and unknown binaries support paged inspection. Images that exceed the display resolution are scaled. **Actions → Open in external application** and **Open with…** pass local files to the desktop. Recorded deliveries and archive entries are materialized from their exact bytes in a temporary directory for that purpose.
 
-The format filter separates **Data & parameters**, **Electronics**, and
-**Audio & video** from documents and code.
-Markdown has explicit rendered/source choices; recorded or packaged Markdown
-does not claim support for adjacent local image resolution. Unsupported formats
-show the missing-renderer or unsupported-format reason and external-viewer actions.
+The format filter includes **Data & parameters**, **Electronics**, and **Audio & video**. Markdown offers rendered and source views. Local Markdown resolves images relative to its folder. When a specialized renderer is unavailable, Studio can show readable source or a byte inspector and the renderer’s diagnostic.
+
 **Actions → Reload preview** retries the
 selected source. **Cancel loading** dismisses a list or preview request; already
 running decoding may finish, but its late result cannot reopen that request or

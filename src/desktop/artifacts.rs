@@ -1,5 +1,5 @@
 //! Produced-file browser, with decoding isolated from the foreground UI.
-use super::{data_view, document, mesh, theme};
+use super::{data_view, design, document, mesh, theme};
 use eframe::{egui, glow};
 use std::{
     collections::BTreeSet,
@@ -9,6 +9,20 @@ use std::{
 
 #[path = "artifact_load.rs"]
 mod loader;
+#[path = "artifact_input.rs"]
+mod input;
+#[path = "byte_view.rs"]
+mod byte_view;
+#[path = "file_formats.rs"]
+mod formats;
+#[path = "office_view.rs"]
+mod office;
+#[path = "sound_view.rs"]
+mod sound;
+#[path = "image_sequence.rs"]
+mod sequence;
+#[path = "sqlite_view.rs"]
+mod database;
 #[path = "native_preview.rs"]
 mod native_preview;
 pub(super) use loader::read_file;
@@ -40,7 +54,7 @@ struct Catalog {
     note: String,
 }
 #[derive(Clone, Copy)]
-enum ArchiveFormat { Zip, Tar }
+enum ArchiveFormat { Zip, Tar, System }
 #[derive(serde::Deserialize)]
 struct ArchiveEntry {
     index: usize,
@@ -50,14 +64,20 @@ struct ArchiveEntry {
 }
 enum Body {
     Image(egui::ColorImage, String),
+    Animation(sequence::Sequence),
     Text(String, bool),
+    Html(super::html_view::Document),
     Parameters(serde_json::Value, String, Vec<data_view::Dataset>),
     Table(Vec<Vec<String>>, String),
     Mesh(Arc<mesh::Mesh>),
     Archive(ArchiveFormat, Vec<ArchiveEntry>),
     Native(Arc<native_preview::Document>),
     Wasm(ai_personas::computation::ModuleInterface, usize),
-    Unsupported(String),
+    Bytes(byte_view::Page),
+    Book(office::Book),
+    Database(database::Page),
+    Wave(sound::Wave),
+    Score(sound::Score),
 }
 struct Decoded {
     body: Body,
@@ -67,13 +87,18 @@ enum Request {
     Scan(u64, PathBuf, bool),
     Recorded(u64, super::helpers::ResultFiles),
     Load(u64, Source, Arc<native_preview::Cancellation>),
+    Bytes(u64, Source, Arc<native_preview::Cancellation>),
+    BytePage(u64, Arc<std::fs::File>, u64),
+    Database(u64, Arc<database::Database>, usize, usize),
     NativePage(u64, Arc<native_preview::Document>, usize, Arc<native_preview::Cancellation>),
 }
 enum Response {
     Catalog(u64, Result<Catalog, String>),
     Preview(u64, Result<Decoded, String>),
     NativePage(u64, Result<Decoded, String>),
+    BytePage(u64, Result<byte_view::Page, String>),
 }
+enum OpenWith { Default, Choose, Player }
 enum ExternalEvent {
     Opened(u64, Result<Option<tempfile::TempDir>, String>),
     Failed(u64, String),
@@ -103,6 +128,7 @@ pub struct Viewer {
     decoded: Option<Decoded>,
     native_document: Option<Arc<native_preview::Document>>,
     texture: Option<egui::TextureHandle>,
+    animation: sequence::Player,
     image_zoom: f32,
     image_pan: egui::Vec2,
     white_paper: bool,
@@ -143,6 +169,10 @@ impl Viewer {
                     }
                     Request::Recorded(id, source) => Response::Catalog(id, loader::recorded(source)),
                     Request::Load(id, source, cancel) => Response::Preview(id, loader::decode(&source, &cancel)),
+                    Request::Bytes(id, source, cancel) => Response::Preview(id, loader::raw(&source, &cancel)),
+                    Request::Database(id, db, table, page) => Response::Preview(id, database::Page::read(db, table, page)
+                        .map(|page| Decoded { body: Body::Database(page), note: String::new() })),
+                    Request::BytePage(id, file, page) => Response::BytePage(id, byte_view::Page::read(file, page)),
                     Request::NativePage(id, document, page, cancel) => Response::NativePage(id, native_preview::page(&document, page, &cancel)),
                 };
                 if responses.send(response).is_err() {
@@ -178,6 +208,7 @@ impl Viewer {
             decoded: None,
             native_document: None,
             texture: None,
+            animation: Default::default(),
             image_zoom: 1.0,
             image_pan: egui::Vec2::ZERO,
             white_paper: true,
@@ -207,10 +238,19 @@ impl Viewer {
     /// Open an exact retained artifact supplied by the indexed workspace's
     /// read worker. The existing decoder and native renderers stay off the UI
     /// thread; Snapshot checks the retained digest again before rendering.
-    pub fn open_snapshot(&mut self, directory: Arc<tempfile::TempDir>, path: PathBuf, sha256: String) {
+    pub fn open_snapshot(&mut self, directory: Arc<tempfile::TempDir>, path: PathBuf, sha256: String, member: Option<(usize, String)>) {
         self.trail.clear();
         self.details = None;
-        self.load(Source::Snapshot { path, sha256, _directory: directory });
+        let source = Source::Snapshot { path, sha256, _directory: directory };
+        if let Some((index, name)) = member {
+            self.trail.push(source.clone());
+            self.load(Source::Member { container: Arc::new(source), format: ArchiveFormat::Zip, index, name });
+        } else { self.load(source); }
+    }
+    pub fn open_file(&mut self, path: PathBuf) {
+        self.trail.clear();
+        self.details = None;
+        self.load(Source::File(path));
     }
     pub fn clear_selection(&mut self) {
         self.serial += 1;
@@ -221,7 +261,11 @@ impl Viewer {
     }
     pub fn preview_ui(&mut self, ui: &mut egui::Ui) {
         self.poll(ui.ctx());
-        self.preview(ui);
+        self.preview(ui, true);
+    }
+    pub fn embedded_ui(&mut self, ui: &mut egui::Ui) {
+        self.poll(ui.ctx());
+        self.preview(ui, false);
     }
     pub fn workspace_mode(&mut self) {
         if self.recorded {
@@ -263,6 +307,7 @@ impl Viewer {
         self.native_document = None;
         self.texture = None;
         self.error = None;
+        self.animation = Default::default();
         self.image_zoom = 1.0;
         self.image_pan = egui::Vec2::ZERO;
         self.source_text = false;
@@ -282,6 +327,15 @@ impl Viewer {
         if self.tx.send(Request::Load(self.serial, source, self.cancel.clone())).is_err() {
             self.loading = false;
             self.error = Some("The preview worker is unavailable. Reopen the desktop to retry.".into());
+        }
+    }
+    fn open_bytes(&mut self, source: Source) {
+        self.reset_preview();
+        self.serial += 1;
+        self.loading = true;
+        if self.tx.send(Request::Bytes(self.serial, source, self.cancel.clone())).is_err() {
+            self.loading = false;
+            self.error = Some("The file reader is unavailable.".into());
         }
     }
     fn native_document(&self) -> Option<Arc<native_preview::Document>> {
@@ -368,6 +422,10 @@ impl Viewer {
                             if let Body::Parameters(_, _, datasets) = &decoded.body {
                                 self.table = data_view::TableView::with_header(datasets.first().and_then(|d| d.header));
                             }
+                            if let Body::Bytes(page) = &decoded.body { self.source_text = page.prefer_text; }
+                            if matches!(&decoded.body, Body::Database(_)) {
+                                self.table = data_view::TableView::with_header(Some(true));
+                            }
                             if let Body::Image(image, _) = &decoded.body {
                                 self.texture = Some(ctx.load_texture("artifact-preview", image.clone(), egui::TextureOptions::LINEAR));
                             }
@@ -379,6 +437,14 @@ impl Viewer {
                             }
                         }
                         Err(e) => self.error = Some(e),
+                    }
+                }
+                Response::BytePage(id, result) if id == self.serial => {
+                    self.loading = false;
+                    match (result, &mut self.decoded) {
+                        (Ok(page), Some(view)) => view.body = Body::Bytes(page),
+                        (Err(reason), _) => self.error = Some(reason),
+                        _ => {}
                     }
                 }
                 Response::NativePage(id, result) if id == self.serial => {
@@ -426,9 +492,11 @@ impl Viewer {
             self.initialized = false;
         }
         ui.horizontal_wrapped(|ui| {
+            if ui.button("Open local file…").clicked() { super::file_desk::request(ui.ctx(), true); }
             ui.menu_button("Viewer support", |ui| {
-                ui.label("Built-in viewers include images and SVG, Markdown and code, JSON and CSV, 3D models, WebAssembly interfaces and ZIP packages.");
-                ui.label("TAR, TAR.GZ/TGZ, TAR.BZ2 and TAR.XZ packages: Python 3 standard library.");
+                ui.label("Built-in views include images and animation, documents and code, workbook sheets, JSON, CSV, SQLite tables, 3D geometry, WAV, MIDI and ZIP.");
+                ui.label("Any readable file can be inspected in pages of hexadecimal bytes or text.");
+                ui.label("TAR packages use Python 3. Additional archive formats use the system libarchive library.");
                 ui.separator();
                 for route in native_preview::ROUTES {
                     ui.strong(route.label);
@@ -438,7 +506,7 @@ impl Viewer {
                         Err(reason) => { ui.label(reason); }
                     }
                 }
-                ui.weak("Unlisted formats have no registered native renderer. No universal format support is implied.");
+                ui.weak("Every regular file can be inspected as paged bytes. Use Actions to open the original in another application.");
             });
             let changed = ui
                 .selectable_value(&mut self.recorded, false, "Workspace files")
@@ -546,47 +614,101 @@ impl Viewer {
                     .inner_margin(8)
                     .fill(theme::palette(ui).canvas),
             )
-            .show_inside(ui, |ui| self.preview(ui));
+            .show_inside(ui, |ui| self.preview(ui, true));
     }
-    fn preview(&mut self, ui: &mut egui::Ui) {
+    fn preview_kind(&self) -> &str {
+        if let Some(doc) = &self.native_document {
+            return doc.kind;
+        }
+        match self.decoded.as_ref().map(|d| &d.body) {
+            Some(Body::Animation(_)) => "Animated image",
+            Some(Body::Image(..)) => "Image",
+            Some(Body::Text(_, true)) => "Markdown document",
+            Some(Body::Html(_)) => "HTML document",
+            Some(Body::Text(..)) => "Source text",
+            Some(Body::Parameters(..)) => "Structured data",
+            Some(Body::Table(..)) => "Data table",
+            Some(Body::Mesh(_)) => "3D model",
+            Some(Body::Archive(..)) => "Archive",
+            Some(Body::Wasm(..)) => "WebAssembly interface",
+            Some(Body::Database(_)) => "SQLite database",
+            Some(Body::Bytes(_)) => "Byte inspector",
+            Some(Body::Book(book)) => book.kind,
+            Some(Body::Wave(_)) => "Audio waveform",
+            Some(Body::Score(_)) => "MIDI piano roll",
+            _ => "File preview",
+        }
+    }
+
+    fn preview(&mut self, ui: &mut egui::Ui, show_header: bool) {
         let mut back = false;
         let mut external = None;
         let mut reload = false;
-        ui.horizontal_wrapped(|ui| {
-            if !self.trail.is_empty() && ui.button("Back to package").clicked() {
-                back = true;
-            }
-            if let Some(source) = &self.source {
-                ui.add(egui::Label::new(egui::RichText::new(source.name()).strong()).truncate())
-                    .on_hover_text(source.label());
-                ui.menu_button("Actions", |ui| {
-                    if ui.button("Reload preview").clicked() {
-                        reload = true;
-                        ui.close();
-                    }
-                    if ui.button("Copy file location").clicked() {
-                        ui.ctx().copy_text(source.label());
-                        ui.close();
-                    }
-                    if ui.add_enabled(self.external_pending.is_none(), egui::Button::new("Open in external application")).clicked() {
-                        external = Some((source.clone(), false));
-                        ui.close();
-                    }
-                    if ui.add_enabled(self.external_pending.is_none(), egui::Button::new("Open with…")).clicked() {
-                        external = Some((source.clone(), true));
-                        ui.close();
-                    }
-                    if let Source::File(path) = source {
-                        if ui.add_enabled(self.external_pending.is_none(), egui::Button::new("Open containing folder")).clicked() {
-                            if let Some(parent) = path.parent() {
-                                external = Some((Source::File(parent.into()), false));
-                            }
+        let mut bytes = false;
+        if !self.trail.is_empty() {
+            back = ui.button("←  Back to archive").clicked();
+            ui.add_space(4.);
+        }
+        if show_header {
+            ui.horizontal(|ui| {
+                if let Some(source) = &self.source {
+                    let p = theme::palette(ui);
+                    let name = source.name();
+                    let (stamp, _) = ui.allocate_exact_size(egui::vec2(39., 43.), egui::Sense::hover());
+                    design::file_stamp(ui, stamp, &extension(Path::new(&name)));
+                    let available = (ui.available_width()-82.).max(18.);
+                    ui.allocate_ui_with_layout(egui::vec2(available, 43.), egui::Layout::top_down(egui::Align::Min), |ui| {
+                        ui.set_min_width(available);
+                        ui.spacing_mut().item_spacing.y = 0.;
+                        ui.label(design::caption(self.preview_kind(), p.muted));
+                        ui.add(egui::Label::new(design::display(&name, 27.)).truncate()).on_hover_text(source.label());
+                    });
+                    ui.menu_button("Actions", |ui| {
+                        if ui.button("Reload preview").clicked() {
+                            reload = true;
                             ui.close();
                         }
-                    }
-                });
+                        if ui.button("Inspect bytes").clicked() {
+                            bytes = true;
+                            ui.close();
+                        }
+                        if ui.button("Copy file location").clicked() {
+                            ui.ctx().copy_text(source.label());
+                            ui.close();
+                        }
+                        if ui.add_enabled(self.external_pending.is_none(), egui::Button::new("Open in external application")).clicked() {
+                            external = Some((source.clone(), false));
+                            ui.close();
+                        }
+                        if ui.add_enabled(self.external_pending.is_none(), egui::Button::new("Open with…")).clicked() {
+                            external = Some((source.clone(), true));
+                            ui.close();
+                        }
+                        if let Source::File(path) = source {
+                            if ui.add_enabled(self.external_pending.is_none(), egui::Button::new("Open containing folder")).clicked() {
+                                if let Some(parent) = path.parent() {
+                                    external = Some((Source::File(parent.into()), false));
+                                }
+                                ui.close();
+                            }
+                        }
+                    });
+                }
+            });
+            if self.source.is_some() { ui.add_space(6.); }
+        }
+        if self.source.as_ref().is_some_and(|s| category(Path::new(&s.name())) == 8)
+            || self.native_document.as_ref().is_some_and(|d| d.media) || matches!(self.decoded.as_ref().map(|d|&d.body), Some(Body::Wave(_))) {
+            if ui.add_enabled(self.external_pending.is_none(), egui::Button::new("Play in media player")).clicked() {
+                if let Some(source) = self.source.clone() {
+                    let how = if matches!(self.decoded.as_ref().map(|d| &d.body), Some(Body::Score(_))) { OpenWith::Default } else { OpenWith::Player };
+                    self.open_in(ui.ctx(), source, how);
+                }
             }
-        });
+        }
+        if bytes {
+            if let Some(source) = self.source.clone() { self.open_bytes(source); }
+        }
         if reload {
             if let Some(source) = self.source.clone() {
                 self.load(source);
@@ -628,24 +750,30 @@ impl Viewer {
         if let Some(document) = self.native_document() {
             let mut page = self.native_page;
             ui.horizontal_wrapped(|ui| {
-                if ui.add_enabled(page > 0, egui::Button::new("Previous")).clicked() { page -= 1; }
-                egui::ComboBox::from_id_salt("native-preview-page")
-                    .selected_text(&document.labels[page])
-                    .show_ui(ui, |ui| {
-                        for (index, label) in document.labels.iter().enumerate() {
-                            ui.selectable_value(&mut page, index, label);
-                        }
-                    });
-                if ui.add_enabled(page + 1 < document.labels.len(), egui::Button::new("Next")).clicked() { page += 1; }
-                ui.weak(format!("{} / {}", page + 1, document.labels.len()));
-            });
-            ui.add(egui::Label::new(egui::RichText::new(&document.summary).small().weak()).wrap());
-            ui.collapsing("Renderer diagnostics", |ui| {
-                if !document.diagnostics.trim().is_empty() {
-                    egui::ScrollArea::vertical().max_height(130.0).show(ui, |ui| {
-                        ui.add(egui::Label::new(egui::RichText::new(&document.diagnostics).monospace()).wrap().selectable(true));
-                    });
+                if document.labels.len() > 1 {
+                    if ui.add_enabled(page > 0, egui::Button::new("Previous")).clicked() { page -= 1; }
+                    egui::ComboBox::from_id_salt("native-preview-page")
+                        .selected_text(&document.labels[page])
+                        .show_ui(ui, |ui| {
+                            for (index, label) in document.labels.iter().enumerate() {
+                                ui.selectable_value(&mut page, index, label);
+                            }
+                        });
+                    if ui.add_enabled(page + 1 < document.labels.len(), egui::Button::new("Next")).clicked() { page += 1; }
+                    ui.weak(format!("{} / {}", page + 1, document.labels.len()));
+                } else {
+                    ui.weak(&document.labels[0]);
                 }
+                ui.menu_button("Rendering details", |ui| {
+                    ui.set_max_width(440.);
+                    ui.add(egui::Label::new(&document.summary).wrap());
+                    if !document.diagnostics.trim().is_empty() {
+                        ui.separator();
+                        egui::ScrollArea::vertical().max_height(150.).show(ui, |ui| {
+                            ui.add(egui::Label::new(egui::RichText::new(&document.diagnostics).monospace()).wrap().selectable(true));
+                        });
+                    }
+                });
             });
             if page != self.native_page { self.load_native_page(document, page); }
         }
@@ -676,6 +804,10 @@ impl Viewer {
             } else {
                 ui.label("Preview request cancelled.");
             }
+            if self.source.is_some() && ui.button("Inspect bytes").clicked() {
+                self.open_bytes(self.source.clone().unwrap());
+                return;
+            }
             if ui.button("Retry").clicked() {
                 if let Some(document) = self.native_document() {
                     self.load_native_page(document, self.native_page);
@@ -694,7 +826,7 @@ impl Viewer {
             ui.weak("Images · documents · data · 3D · electronics · media · packages. Viewer support lists optional renderers.");
             return;
         };
-        if !decoded.note.is_empty() {
+        if self.native_document.is_none() && !decoded.note.is_empty() {
             ui.add(
                 egui::Label::new(
                     egui::RichText::new(&decoded.note)
@@ -707,6 +839,7 @@ impl Viewer {
         ui.separator();
         let mut archive_entry = None;
         match &decoded.body {
+            Body::Animation(sequence) => sequence.ui(ui, &mut self.animation, &mut self.texture, &mut self.image_zoom, &mut self.image_pan, &mut self.white_paper),
             Body::Image(_, info) => image_preview(ui, self.texture.as_ref(), &mut self.image_zoom, &mut self.image_pan, &mut self.white_paper, info),
             Body::Native(_) => image_preview(ui, self.texture.as_ref(), &mut self.image_zoom, &mut self.image_pan, &mut self.white_paper, &self.native_info),
             Body::Mesh(mesh) => self.model.ui(ui, mesh),
@@ -727,6 +860,7 @@ impl Viewer {
                     }
                 });
             }
+            Body::Html(document) => document.show(ui, &mut self.source_text, &mut self.text_page),
             Body::Text(text, markdown) => {
                 let paged = text.len() > 64 * 1024;
                 ui.horizontal_wrapped(|ui| {
@@ -862,23 +996,24 @@ impl Viewer {
                         }
                     });
             }
-            Body::Unsupported(message) => {
-                ui.heading("No embedded preview for this format");
-                ui.label(message);
-                if let Some(source) = self.source.clone() {
-                    ui.horizontal_wrapped(|ui| {
-                        if ui.add_enabled(self.external_pending.is_none(), egui::Button::new("Open in external application")).clicked() {
-                            external = Some((source.clone(), false));
-                        }
-                        if ui.add_enabled(self.external_pending.is_none(), egui::Button::new("Open with…")).clicked() {
-                            external = Some((source, true));
-                        }
-                    });
+            Body::Database(page) => {
+                if let Some((table, index)) = page.ui(ui, &mut self.table) {
+                    self.serial += 1;
+                    self.table = data_view::TableView::with_header(Some(true));
+                    self.loading = self.tx.send(Request::Database(self.serial,page.db.clone(),table,index)).is_ok();
+                    if !self.loading { self.error = Some("The database reader is unavailable.".into()); }
                 }
             }
-        }
-        if let Some((source, choose)) = external {
-            self.open_external(ui.ctx(), source, choose);
+            Body::Book(book) => book.ui(ui, &mut self.dataset, &mut self.table),
+            Body::Wave(wave) => wave.ui(ui),
+            Body::Score(score) => score.ui(ui),
+            Body::Bytes(page) => {
+                if let Some(index) = page.ui(ui, &mut self.source_text) {
+                    self.serial += 1;
+                    self.loading = self.tx.send(Request::BytePage(self.serial, page.file.clone(), index)).is_ok();
+                    if !self.loading { self.error = Some("The file reader is unavailable.".into()); }
+                }
+            }
         }
         if let Some((format, index, name)) = archive_entry {
             if let Some(source) = self.source.clone() {
@@ -893,6 +1028,9 @@ impl Viewer {
         }
     }
     fn open_external(&mut self, ctx: &egui::Context, source: Source, choose: bool) {
+        self.open_in(ctx, source, if choose { OpenWith::Choose } else { OpenWith::Default });
+    }
+    fn open_in(&mut self, ctx: &egui::Context, source: Source, how: OpenWith) {
         if self.external_pending.is_some() {
             return;
         }
@@ -904,7 +1042,7 @@ impl Viewer {
         let ctx = ctx.clone();
         std::thread::spawn(move || {
             let result = (|| -> Result<Option<tempfile::TempDir>, String> {
-                let application = if choose {
+                let application = if matches!(how, OpenWith::Choose) {
                     let Some(path) = rfd::FileDialog::new()
                         .set_title("Choose an application to open this file")
                         .pick_file()
@@ -926,7 +1064,8 @@ impl Viewer {
                             .filter(|n| !n.is_empty())
                             .unwrap_or(std::ffi::OsStr::new("artifact"));
                         let path = dir.path().join(name);
-                        std::fs::write(&path, source.bytes(&native_preview::Cancellation::default())?).map_err(|e| e.to_string())?;
+                        let cancel = native_preview::Cancellation::default();
+                        input::copy(&mut source.open_input(&cancel)?, &mut std::fs::File::create(&path).map_err(|e|e.to_string())?, &cancel)?;
                         temporary = Some(dir);
                         path
                     }
@@ -938,8 +1077,13 @@ impl Viewer {
                         "xdg-open".into()
                     }
                 });
-                let mut child = std::process::Command::new(command)
-                    .arg(&path)
+                let player = matches!(how,OpenWith::Player).then(||native_preview::executable("ffplay")).flatten();
+                let mut playback = if let Some(player) = player {
+                    let mut command = std::process::Command::new(player);
+                    command.args(["-autoexit","-loglevel","error","-protocol_whitelist","file,pipe","-window_title","Persona Studio · Playback","-i"]);
+                    command
+                } else { std::process::Command::new(command) };
+                let mut child = playback.arg(&path)
                     .spawn()
                     .map_err(|e| format!("Could not open {}: {e}", path.display()))?;
                 let errors = tx.clone();
@@ -969,16 +1113,22 @@ fn image_preview(ui: &mut egui::Ui, texture: Option<&egui::TextureHandle>, zoom:
     });
     let (rect, response) = ui.allocate_exact_size(ui.available_size().max(egui::vec2(40.0, 40.0)), egui::Sense::click_and_drag());
     let painter = ui.painter().with_clip_rect(rect);
-    painter.rect_filled(rect, 0, egui::Color32::from_gray(if *white { 248 } else { 46 }));
+    let p = theme::palette(ui);
+    let surface = if *white { egui::Color32::from_rgb(229, 228, 220) } else { egui::Color32::from_rgb(46, 48, 46) };
+    painter.rect_filled(rect, 8, surface);
     if response.dragged() { *pan += ui.input(|i| i.pointer.delta()); }
     if response.hovered() { *zoom = (*zoom * (ui.input(|i| i.smooth_scroll_delta.y) * 0.003).exp()).clamp(0.2, 8.0); }
     if response.double_clicked() { *zoom = 1.0; *pan = egui::Vec2::ZERO; }
     if let Some(texture) = texture {
         let size = texture.size_vec2();
-        let factor = (rect.width() / size.x).min(rect.height() / size.y) * *zoom;
+        let pad = (rect.width().min(rect.height()) * 0.035).min(18.);
+        let stage = rect.shrink(pad);
+        let factor = (stage.width() / size.x).min(stage.height() / size.y) * *zoom;
         let target = egui::Rect::from_center_size(rect.center() + *pan, size * factor);
+        if *white { painter.rect_filled(target, 0, egui::Color32::WHITE); }
         painter.image(texture.id(), target, egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
     }
+    painter.rect_stroke(rect, 8, egui::Stroke::new(1.,p.border),egui::StrokeKind::Inside);
 }
 impl Drop for Viewer {
     fn drop(&mut self) { self.cancel.cancel(); }
@@ -992,18 +1142,18 @@ fn extension(path: &Path) -> String {
 fn category(path: &Path) -> usize {
     if ArchiveFormat::for_name(&path.to_string_lossy()).is_some() { return 5; }
     match extension(path).as_str() {
-        "png" | "jpg" | "jpeg" | "webp" | "gif" | "svg" | "bmp" | "tiff" | "tif" | "ico" | "dxf" => 1,
+        "png" | "jpg" | "jpeg" | "webp" | "gif" | "svg" | "bmp" | "tiff" | "tif" | "ico" | "dxf" | "qoi" | "tga" | "hdr" | "dds" | "avif" | "heic" | "exr" | "jxl" | "psd" | "jp2" | "pcx" | "ppm" | "pgm" => 1,
         "stl" | "obj" | "glb" | "gltf" | "step" | "stp" | "iges" | "igs" | "blend" | "fcstd" => 2,
-        "csv" | "tsv" | "json" | "h5" | "hdf5" | "hdf" => 4,
+        "csv" | "tsv" | "json" | "h5" | "hdf5" | "hdf" | "sqlite" | "sqlite3" | "db" | "xlsx" | "xls" | "xlsm" | "xlsb" | "ods" => 4,
         "kicad_pcb" | "kicad_sch" | "brd" | "sch" | "gbr" | "ger" | "gerber" | "gtl" | "gbl" | "gts" | "gbs" | "gto" | "gbo" | "gko" | "gml" | "gm1" | "drl" | "xln" => 7,
-        "mp3" | "wav" | "ogg" | "flac" | "m4a" | "aac" | "mp4" | "mov" | "webm" | "avi" | "mkv" | "m4v" => 8,
+        "mp3" | "wav" | "ogg" | "flac" | "m4a" | "aac" | "mp4" | "mov" | "webm" | "avi" | "mkv" | "m4v" | "mid" | "midi" | "opus" | "aif" | "aiff" | "mpg" | "mpeg" | "ogv" | "wmv" | "flv" => 8,
         "bin" | "dwg" | "wasm" => 6,
         _ => 3,
     }
 }
 // Each boundary depends only on its page number. Nearby line endings give
 // readable excerpts, including when the source contains a single long line.
-fn source_page<'a>(ui: &mut egui::Ui, text: &'a str, page: &mut usize) -> &'a str {
+pub(super) fn source_page<'a>(ui: &mut egui::Ui, text: &'a str, page: &mut usize) -> &'a str {
     const CHUNK: usize = 12 * 1024;
     let pages = text.len().div_ceil(CHUNK);
     *page = (*page).min(pages - 1);

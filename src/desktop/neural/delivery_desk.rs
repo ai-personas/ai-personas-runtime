@@ -34,6 +34,11 @@ pub(super) struct ReturnTo {
 }
 
 impl Desk {
+    pub(super) fn new(gl: Option<&Arc<eframe::glow::Context>>) -> Self {
+        Self { inline: Inline::new(gl), ..Self::default() }
+    }
+    pub(super) fn release(&mut self) { self.inline.release(); }
+
     pub(super) fn selected_file(&self) -> Option<&str> {
         self.model.as_ref()?.files.get(self.selected).map(|f| f.reference.as_str())
     }
@@ -451,6 +456,7 @@ impl App {
             Print(egui::Id),
             Save,
             SaveEntry(ZipFile),
+            InspectEntry(ZipFile),
         }
         let desk = &mut self.delivery_desk;
         let mut action = None;
@@ -503,6 +509,9 @@ impl App {
                 ui.add_space(4.);
                 ui.horizontal_wrapped(|ui| {
                     if let Some(entry) = desk.inline.selected_member() {
+                        if ui.link("Inspect selected file ↗").clicked() {
+                            action = Some(Action::InspectEntry(entry.clone()));
+                        }
                         if ui.add_enabled(file.digest.is_some(), egui::Link::new("Save selected file…"))
                             .on_hover_text(format!("Save {} from the issued ZIP", entry.path)).clicked() {
                             action = Some(Action::SaveEntry(entry.clone()));
@@ -538,6 +547,10 @@ impl App {
         }
         let file = &p.files[desk.selected];
         match action {
+            Some(Action::InspectEntry(entry)) => {
+                self.open_resource(ui.ctx(), file.reference.clone());
+                self.preview_zip_member = Some((entry.index,entry.path));
+            }
             Some(Action::Open) => self.open_resource(ui.ctx(), file.reference.clone()),
             Some(Action::History) => self.open_file_history(ui.ctx(), &file.reference),
             Some(Action::Print(id)) => self.open_print_preview(
@@ -637,8 +650,7 @@ impl App {
                         } else {
                             ui.small("·  Content author unrecorded");
                         }
-                        if (file.format.inline()
-                            || self.delivery_desk.inline.detected_pdf(&file.reference))
+                        if file.bytes.is_some_and(|n| n <= preview::SOURCE_LIMIT)
                             && ui.small_button("Preview here").clicked()
                         {
                             self.delivery_desk.selected = index;

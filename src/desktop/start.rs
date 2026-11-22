@@ -1,5 +1,6 @@
 //! New desktop workspaces use the same initialization and task interface as the CLI.
-use super::{helpers, journal, neural, theme};
+use super::{design, file_desk, helpers, journal, neural, theme};
+mod library;
 use ai_personas::{
     auth,
     neural::{cli, store::Store},
@@ -37,7 +38,8 @@ pub struct App {
     working_directory: String,
     existing_root: String,
     operator: String,
-    saved: Vec<PathBuf>,
+    saved: Vec<SavedWorkspace>,
+    library_read: Option<mpsc::Receiver<Vec<SavedWorkspace>>>,
     codex: journal::CodexPaths,
     models: Value,
     model: String,
@@ -47,6 +49,9 @@ pub struct App {
     platform_key: String,
     personas: Vec<PersonaDraft>,
     create_mode: bool,
+    library_dark: bool,
+    open_path: bool,
+    library_filter: String,
 }
 
 fn base_directory(variable: &str, fallback: &str) -> PathBuf {
@@ -82,25 +87,60 @@ fn remember_workspace(root: &std::path::Path) -> std::io::Result<()> {
     Ok(())
 }
 
-fn saved_workspaces() -> Vec<PathBuf> {
+struct SavedWorkspace {
+    path: PathBuf,
+    opened: Option<std::time::SystemTime>,
+    editable: bool,
+    people: Vec<(String, String)>,
+}
+
+fn read_library(ctx: &egui::Context) -> mpsc::Receiver<Vec<SavedWorkspace>> {
+    let (tx, rx) = mpsc::channel();
+    let ctx = ctx.clone();
+    std::thread::spawn(move || {
+        let _ = tx.send(saved_workspaces());
+        ctx.request_repaint_of(egui::ViewportId::ROOT);
+    });
+    rx
+}
+
+fn saved_people(path: &std::path::Path) -> rusqlite::Result<Vec<(String, String)>> {
+    let database = rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    database.busy_timeout(std::time::Duration::from_millis(80))?;
+    let mut query = database.prepare(
+        "SELECT h.id, COALESCE(NULLIF(json_extract(CAST(o.bytes AS TEXT),'$.label'),''),h.id)
+         FROM heads h JOIN objects o ON o.digest=h.digest WHERE h.kind='persona'
+         ORDER BY 2 COLLATE NOCASE, h.id",
+    )?;
+    let rows = query.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+    rows.collect()
+}
+
+fn saved_workspaces() -> Vec<SavedWorkspace> {
     let base=base_directory("XDG_STATE_HOME",".local/state").join("ai-personas/editable-workspaces");
     let mut paths=std::collections::BTreeMap::new();
     for root in std::fs::read_dir(base).into_iter().flatten().flatten().map(|entry|entry.path()).chain(journal::candidates()) {
         if root.join("neural.sqlite").is_file() || root.join("progress.json").is_file() {
             let modified=std::fs::metadata(&root).and_then(|m|m.modified()).ok();
-            paths.insert(std::fs::canonicalize(&root).unwrap_or(root),modified);
+            paths.insert(std::fs::canonicalize(&root).unwrap_or(root),(modified,None));
         }
     }
     for entry in std::fs::read_dir(recent_directory()).into_iter().flatten().flatten() {
         if entry.path().extension().is_none_or(|ext|ext!="json") {continue;}
         let Some(path)=std::fs::read(entry.path()).ok().and_then(|b|serde_json::from_slice::<PathBuf>(&b).ok()) else {continue;};
         if path.join("neural.sqlite").is_file() {
-            paths.insert(path,entry.metadata().and_then(|m|m.modified()).ok());
+            let opened = entry.metadata().and_then(|m|m.modified()).ok();
+            paths.insert(path,(opened,opened));
         }
     }
     let mut items:Vec<_>=paths.into_iter().collect();
     items.sort_by_key(|(_,modified)|std::cmp::Reverse(*modified));
-    items.into_iter().map(|(path,_)|path).collect()
+    items.into_iter().map(|(path, (_, opened))| {
+        let database = path.join("neural.sqlite");
+        let editable = database.is_file();
+        let people = if editable { saved_people(&database).unwrap_or_default() } else { Vec::new() };
+        SavedWorkspace { path, opened, editable, people }
+    }).collect()
 }
 
 impl App {
@@ -113,7 +153,7 @@ impl App {
         let base = base_directory("XDG_STATE_HOME", ".local/state")
             .join("ai-personas/editable-workspaces");
         let name = journal::id("workspace");
-        let saved = saved_workspaces();
+        let library_read = Some(read_library(ctx));
         let codex = helpers::codex(None).unwrap_or_else(|| {
             let home = std::env::var("HOME").unwrap_or_default();
             journal::CodexPaths {
@@ -147,7 +187,8 @@ impl App {
                 .as_ref()
                 .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or_default(),
-            saved,
+            saved: Vec::new(),
+            library_read,
             codex,
             models: Value::Null,
             model: String::new(),
@@ -159,6 +200,9 @@ impl App {
                 name: "Persona 1".into(),
                 profile: String::new(),
             }],
+            library_filter: String::new(),
+            library_dark: true,
+            open_path: false,
             create_mode: requested.is_some() && existing.is_none(),
         };
         if let Some(root)=existing {app.open(ctx,root);}
@@ -340,19 +384,72 @@ impl App {
     }
 
     fn setup(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        ui.heading("Starting personas");
-        ui.weak("Give each persona a name and the character profile it should start from.");
+        if ui.available_width() >= 850. {
+            let gap = ui.spacing().item_spacing.x;
+            ui.scope(|ui| {
+                ui.spacing_mut().item_spacing.x = 22.;
+                ui.columns(2, |columns| {
+                    columns[0].spacing_mut().item_spacing.x = gap;
+                    columns[1].spacing_mut().item_spacing.x = gap;
+                    self.setup_people(&mut columns[0]);
+                    let p = theme::palette(&columns[1]);
+                    egui::Frame::new()
+                        .fill(p.panel)
+                        .stroke(egui::Stroke::new(1., p.border))
+                        .corner_radius(10)
+                        .inner_margin(18)
+                        .show(&mut columns[1], |ui| {
+                            ui.set_min_width(ui.available_width());
+                            self.setup_connection(ui, ctx);
+                        });
+                });
+            });
+        } else {
+            self.setup_people(ui);
+            ui.add_space(16.);
+            self.setup_connection(ui, ctx);
+        }
+    }
+
+    fn setup_people(&mut self, ui: &mut egui::Ui) {
+        let p = theme::palette(ui);
+        design::section_heading(
+            ui,
+            "Starting ensemble",
+            &format!(
+                "{} {}",
+                self.personas.len(),
+                if self.personas.len() == 1 {
+                    "persona"
+                } else {
+                    "personas"
+                }
+            ),
+        );
         field(ui, "Your name on these profiles", &mut self.operator);
+        ui.add_space(6.);
         let mut remove = None;
         for (i, persona) in self.personas.iter_mut().enumerate() {
-            ui.push_id(i, |ui| ui.group(|ui| {
-                field(ui, "Name", &mut persona.name);
-                ui.label("Starting character");
-                ui.add(egui::TextEdit::multiline(&mut persona.profile).desired_rows(3)
-                    .desired_width(f32::INFINITY)
-                    .hint_text("Describe their traits, voice and tendencies, including OCEAN or VAD if useful."));
-                if ui.small_button("Remove persona").clicked() { remove = Some(i); }
-            }));
+            let color = neural::persona_color(&persona.name.to_lowercase());
+            ui.push_id(i, |ui| {
+                egui::Frame::new().fill(p.panel.lerp_to_gamma(color,0.07)).stroke(egui::Stroke::new(1.,p.border))
+                    .corner_radius(9).inner_margin(14).show(ui, |ui| {
+                        ui.set_min_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            let (mark, _) = ui.allocate_exact_size(egui::Vec2::splat(52.),egui::Sense::hover());
+                            design::persona_mark(ui,mark,&persona.name,color);
+                            ui.vertical(|ui| {
+                                ui.set_width(ui.available_width());
+                                field(ui,"Persona name",&mut persona.name);
+                            });
+                        });
+                        ui.add_space(7.);
+                        ui.label("Starting character");
+                        ui.add(egui::TextEdit::multiline(&mut persona.profile).desired_rows(4).desired_width(f32::INFINITY)
+                            .hint_text("Describe their traits, voice and tendencies, including OCEAN or VAD if useful."));
+                        if ui.small_button("Remove persona").clicked() { remove = Some(i); }
+                    });
+            });
         }
         if let Some(i) = remove {
             self.personas.remove(i);
@@ -363,8 +460,10 @@ impl App {
                 profile: String::new(),
             });
         }
-        ui.add_space(12.0);
-        ui.heading("Model connection");
+    }
+
+    fn setup_connection(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        design::section_heading(ui, "Model connection", "");
         ui.horizontal_wrapped(|ui| {
             ui.selectable_value(&mut self.provider_route, 0, "Codex account");
             ui.selectable_value(&mut self.provider_route, 1, "OpenAI API key");
@@ -488,7 +587,7 @@ impl App {
                     && !self.codex.executable.trim().is_empty()
             };
         if ui
-            .add_enabled(valid, egui::Button::new("Create workspace"))
+            .add_enabled(valid, theme::primary("Create workspace"))
             .clicked()
         {
             self.create(ctx);
@@ -510,88 +609,27 @@ impl eframe::App for App {
     }
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.drain(ctx);
+        if let Some(reader) = &self.library_read {
+            match reader.try_recv() {
+                Ok(saved) => { self.saved = saved; self.library_read = None; }
+                Err(mpsc::TryRecvError::Disconnected) => self.library_read = None,
+                Err(mpsc::TryRecvError::Empty) => {}
+            }
+        }
         if let Some(workspace) = &mut self.workspace {
             workspace.update(ctx, frame);
             if workspace.show_library {
                 self.operator.clone_from(&workspace.operator);
                 workspace.on_exit(self.gl.as_deref());
                 self.workspace=None;
-                self.saved=saved_workspaces();
+                self.library_read=Some(read_library(ctx));
                 self.create_mode=false;
                 self.error=None;
-                theme::apply(ctx,true,1.);
+                theme::apply(ctx,self.library_dark,1.);
             }
             return;
         }
-        let palette = theme::Palette::new(true);
-        egui::TopBottomPanel::top("studio-masthead")
-            .frame(
-                egui::Frame::new()
-                    .fill(palette.field)
-                    .inner_margin(egui::Margin::symmetric(28, 14)),
-            )
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    theme::glyph(ui, theme::Icon::Workspaces, theme::ACCENT);
-                    ui.label(RichText::new("Persona Studio").strong().size(19.));
-                    ui.separator();
-                    ui.label(
-                        RichText::new(if self.create_mode {
-                            "New workspace"
-                        } else {
-                            "Workspaces"
-                        })
-                        .color(palette.muted),
-                    );
-                });
-            });
-        egui::CentralPanel::default()
-            .frame(
-                egui::Frame::new()
-                    .fill(palette.canvas)
-                    .inner_margin(egui::Margin::symmetric(28, 22)),
-            )
-            .show(ctx, |ui| {
-                egui::ScrollArea::vertical()
-                    .id_salt("home-scroll")
-                    .show(ui, |ui| {
-                        let width = ui.available_width().min(1150.);
-                        let pad = ((ui.available_width() - width) / 2.).max(0.);
-                        ui.horizontal_top(|ui| {
-                            if pad > 0. {
-                                ui.add_space(pad);
-                            }
-                            ui.vertical(|ui| {
-                                ui.set_width(width);
-                                if self.create_mode {
-                                    if ui
-                                        .add_enabled(
-                                            !self.busy,
-                                            egui::Button::new("←  All workspaces").frame(false),
-                                        )
-                                        .clicked()
-                                    {
-                                        self.create_mode = false;
-                                        self.error = None;
-                                    }
-                                    ui.add_space(10.);
-                                    let content = ui.available_width().min(820.);
-                                    ui.set_max_width(content);
-                                    ui.label(
-                                        RichText::new("Create a workspace").strong().size(34.),
-                                    );
-                                    ui.add_space(12.);
-                                    self.connection_status(ui);
-                                    ui.add_enabled_ui(!self.busy, |ui| self.setup(ui, ctx));
-                                } else {
-                                    ui.add_space(if width > 800. { 42. } else { 8. });
-                                    self.welcome(ui, ctx);
-                                    self.connection_status(ui);
-                                }
-                            });
-                        });
-                    });
-            });
+        self.library(ctx);
     }
 }
 
@@ -625,139 +663,4 @@ impl App {
         }
     }
 
-    fn welcome(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        let p = theme::palette(ui);
-        let w = ui.available_width();
-        let cover = |ui: &mut egui::Ui, width: f32| {
-            ui.set_width(width);
-            ui.add(
-                egui::Image::new(egui::include_image!(
-                    "../../docs/assets/ai-personas-cartoon.png"
-                ))
-                .fit_to_exact_size(egui::vec2(width, width * 941. / 1672.))
-                .corner_radius(14.)
-                .alt_text("Illustration of a group of characters working around a drawing table"),
-            );
-        };
-        if w >= 790. {
-            ui.horizontal_top(|ui| {
-                let left = (w * 0.55).min(620.);
-                ui.vertical(|ui| cover(ui, left));
-                ui.add_space(24.);
-                ui.vertical(|ui| {
-                    ui.set_max_width((w - left - 42.).max(260.));
-                    self.library_intro(ui, ctx);
-                });
-            });
-        } else {
-            cover(ui, w);
-            ui.add_space(16.);
-            self.library_intro(ui, ctx);
-        }
-        ui.add_space(32.);
-        ui.separator();
-        ui.add_space(14.);
-        ui.heading("Saved workspaces");
-        ui.add_space(8.);
-        if self.saved.is_empty() {
-            ui.weak("New workspaces saved in your studio folder appear here.");
-        }
-        let mut selected = None;
-        for root in &self.saved {
-            let name = root.file_name().unwrap_or_default().to_string_lossy();
-            egui::Frame::new()
-                .fill(p.panel)
-                .corner_radius(8.)
-                .inner_margin(14)
-                .show(ui, |ui| {
-                    ui.set_width((ui.available_width() - 2.).max(80.));
-                    ui.horizontal(|ui| {
-                        if ui
-                            .add_enabled(
-                                !self.busy,
-                                egui::Button::new(RichText::new(name).strong()),
-                            )
-                            .clicked()
-                        {
-                            selected = Some(root.clone());
-                        }
-                        ui.add(
-                            egui::Label::new(
-                                RichText::new(root.display().to_string())
-                                    .small()
-                                    .color(p.muted),
-                            )
-                            .truncate(),
-                        )
-                        .on_hover_text(root.display().to_string());
-                    });
-                });
-            ui.add_space(4.);
-        }
-        if let Some(root) = selected {
-            self.open(ctx, root);
-        }
-    }
-
-    fn library_intro(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        ui.add_space(6.);
-        ui.label(RichText::new("Your workspaces").strong().size(36.));
-        ui.add_space(8.);
-        ui.label("Bring a group of personas together. Follow their conversations, inspect their character models and open the work they deliver.");
-        ui.add_space(20.);
-        ui.add_enabled_ui(!self.busy, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                if ui
-                    .add_sized([150., 38.], theme::primary("New workspace"))
-                    .clicked()
-                {
-                    self.create_mode = true;
-                    self.error = None;
-                }
-                if ui
-                    .add_sized([132., 38.], egui::Button::new("Open folder…"))
-                    .clicked()
-                {
-                    if let Some(root) = rfd::FileDialog::new().pick_folder() {
-                        self.open(ctx, root);
-                    }
-                }
-            });
-            ui.add_space(8.);
-            ui.collapsing("Open by path", |ui| {
-                field(ui, "Saved workspace folder", &mut self.existing_root);
-                if ui
-                    .add_enabled(
-                        !self.existing_root.trim().is_empty(),
-                        egui::Button::new("Open workspace"),
-                    )
-                    .clicked()
-                {
-                    self.open(ctx, journal::expand(&PathBuf::from(&self.existing_root)));
-                }
-            });
-            if ui.link("Restore a workspace archive…").clicked() {
-                if let Some(archive) = rfd::FileDialog::new().set_title("Choose a workspace archive").pick_file() {
-                    if let Some(parent) = rfd::FileDialog::new().set_title("Choose a folder for the new restored workspace").pick_folder() {
-                        let name = archive.file_stem().and_then(|s|s.to_str()).unwrap_or("workspace");
-                        let root = parent.join(format!("{name}-restored"));
-                        self.busy = true;
-                        self.cancellable = false;
-                        self.error = None;
-                        let (tx, ctx, operator) = (self.tx.clone(), ctx.clone(), self.operator.clone());
-                        std::thread::spawn(move || {
-                            let result = (|| {
-                                tokio::runtime::Runtime::new().map_err(|e|e.to_string())?
-                                    .block_on(cli::execute(&root, &operator, cli::Command::Restore { archive, sha256: None }))
-                                    .map_err(|e|e.to_string())?;
-                                root.canonicalize().map_err(|e|e.to_string())
-                            })();
-                            let _ = tx.send(Update::Opened(result));
-                            ctx.request_repaint();
-                        });
-                    }
-                }
-            }
-        });
-    }
 }

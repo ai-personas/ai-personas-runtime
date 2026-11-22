@@ -1,6 +1,7 @@
 //! Decode local artifacts on the file worker, never on the UI thread.
 use super::*;
-use std::io::{Cursor, Read};
+use std::io::{Cursor, Read, Seek};
+use std::fs::File;
 
 pub(crate) fn read_file(path: &Path) -> Result<Vec<u8>, String> {
     let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
@@ -59,37 +60,7 @@ impl Source {
         }
     }
     pub(super) fn bytes(&self, cancel: &native_preview::Cancellation) -> Result<Vec<u8>, String> {
-        if cancel.is_cancelled() { return Err("Preview request cancelled.".into()); }
-        match self {
-            Self::File(p) => read_file(p),
-            Self::Snapshot { path, sha256, .. } => {
-                let bytes = read_file(path)?;
-                super::super::journal::require(
-                    super::super::journal::digest(&bytes) == *sha256,
-                    "The preview file changed after export. Refresh the recorded files.",
-                )?;
-                Ok(bytes)
-            }
-            Self::Member {
-                container,
-                format,
-                index,
-                name,
-            } => {
-                let bytes = container.bytes(cancel)?;
-                match format {
-                    ArchiveFormat::Zip => {
-                        let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| e.to_string())?;
-                        let mut entry = zip.by_index(*index).map_err(|e| e.to_string())?;
-                        if entry.name() != name {
-                            return Err("The package changed since it was opened. Return to the file list and select it again.".into());
-                        }
-                        read_all(&mut entry)
-                    }
-                    ArchiveFormat::Tar => native_preview::tar_archive(&bytes, Some((*index, name)), cancel),
-                }
-            }
-        }
+        read_all(&mut self.open_input(cancel)?)
     }
     fn companion(&self, cancel: &native_preview::Cancellation) -> Option<Self> {
         for extension in ["stl", "glb", "obj"] {
@@ -107,8 +78,8 @@ impl Source {
                         .with_extension(extension)
                         .to_string_lossy()
                         .into_owned();
-                    let bytes = container.bytes(cancel).ok()?;
-                    let entries = format.entries(&bytes, cancel).ok()?;
+                    let mut file = container.open_input(cancel).ok()?;
+                    let entries = format.entries(&mut file, cancel).ok()?;
                     if let Some(entry) = entries.iter().find(|entry| entry.name == name && entry.note.is_none()) {
                         return Some(Self::Member {
                             container: container.clone(),
@@ -129,25 +100,28 @@ impl ArchiveFormat {
     pub(super) fn for_name(name: &str) -> Option<Self> {
         let name = name.to_ascii_lowercase();
         if name.ends_with(".zip") { return Some(Self::Zip); }
-        [".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz", ".tbz2", ".tar.xz", ".txz"]
-            .iter().any(|suffix| name.ends_with(suffix)).then_some(Self::Tar)
+        if [".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz", ".tbz2", ".tar.xz", ".txz"]
+            .iter().any(|suffix| name.ends_with(suffix)) { return Some(Self::Tar); }
+        ["7z","rar","iso","ar","deb","cpio","cab","gz","bz2","xz","zst","lz","lzma","lzh","xar"]
+            .contains(&extension(Path::new(&name)).as_str()).then_some(Self::System)
     }
 
-    fn entries(&self, bytes: &[u8], cancel: &native_preview::Cancellation) -> Result<Vec<ArchiveEntry>, String> {
+    fn entries(&self, file: &mut File, cancel: &native_preview::Cancellation) -> Result<Vec<ArchiveEntry>, String> {
+        file.rewind().map_err(|e|e.to_string())?;
         let mut entries = match self {
             Self::Zip => {
-                let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| e.to_string())?;
+                let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
                 let mut entries = Vec::new();
                 for index in 0..zip.len() {
                     if cancel.is_cancelled() { return Err("Preview request cancelled.".into()); }
-                    let f = zip.by_index(index).map_err(|e| e.to_string())?;
+                    let f = zip.by_index_raw(index).map_err(|e| e.to_string())?;
                     if !f.is_dir() {
                         entries.push(ArchiveEntry { index, name: f.name().into(), size: f.size(), note: None });
                     }
                 }
                 entries
             }
-            Self::Tar => serde_json::from_slice(&native_preview::tar_archive(bytes, None, cancel)?)
+            Self::Tar | Self::System => serde_json::from_reader(native_preview::archive(file, *self, None, cancel)?)
                 .map_err(|e| format!("Could not read the TAR directory: {e}"))?,
         };
         entries.sort_by(|a, b| a.name.cmp(&b.name).then(a.index.cmp(&b.index)));
@@ -275,141 +249,231 @@ pub(super) fn recorded(source: super::super::helpers::ResultFiles) -> Result<Cat
     Ok(Catalog { files, note: note.into() })
 }
 
-fn retained_pdf_header(source: &Source, extension: &str) -> Result<bool, String> {
-    let Source::Snapshot { path, .. } = source else {
-        return Ok(false);
-    };
-    // The prefix selects a decoder. Native preparation verifies the whole
-    // snapshot digest before staging the file under its recorded name.
-    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
-    let mut header = Vec::with_capacity(1024);
-    file.take(1024)
-        .read_to_end(&mut header)
-        .map_err(|e| e.to_string())?;
-    if matches!(extension, "" | "bin" | "dat" | "data" | "blob") {
-        Ok(ai_personas::pdf_preview::is_pdf(&header))
-    } else {
-        Ok(header.trim_ascii_start().starts_with(b"%PDF-"))
-    }
+pub(super) fn raw(
+    source: &Source,
+    cancel: &native_preview::Cancellation,
+) -> Result<Decoded, String> {
+    raw_input(source.open_input(cancel)?, String::new())
 }
 
-pub(super) fn decode(source: &Source, cancel: &native_preview::Cancellation) -> Result<Decoded, String> {
-    if cancel.is_cancelled() {
-        return Err("Preview request cancelled.".into());
-    }
+fn raw_input(file: File, note: String) -> Result<Decoded, String> {
+    Ok(Decoded {
+        body: Body::Bytes(byte_view::Page::read(Arc::new(file), 0)?),
+        note,
+    })
+}
+
+pub(super) fn decode(
+    source: &Source,
+    cancel: &native_preview::Cancellation,
+) -> Result<Decoded, String> {
+    let mut file = source.open_input(cancel)?;
     let name = source.name();
-    let ext = extension(Path::new(&name));
-    let mut route = native_preview::route(&ext);
-    if route.is_none() && retained_pdf_header(source, &ext)? {
-        route = native_preview::route("pdf");
+    let named = extension(Path::new(&name));
+    let prefix = input::read_at(&file, 0, 8192)?;
+    let len = file.metadata().map_err(|e| e.to_string())?.len();
+    let format = formats::identify(&prefix, &named, &file);
+    let ext = format.as_str();
+    let mut reason = String::new();
+    if ext == "sqlite" {
+        match database::Page::open(source, &mut file, cancel) {
+            Ok(page) => {
+                return Ok(Decoded {
+                    body: Body::Database(page),
+                    note: String::new(),
+                })
+            }
+            Err(error) => return raw_input(file, error),
+        }
     }
-    if let Some(route) = route {
-        let result = route.availability().and_then(|()| native_preview::prepare(source, route, cancel));
-        match result {
+    if matches!(ext, "xlsx" | "xls" | "xlsb" | "xlsm" | "ods") {
+        file.rewind().map_err(|e| e.to_string())?;
+        if let Ok(book) = office::Book::workbook(&read_all(&mut file)?) {
+            return Ok(Decoded {
+                body: Body::Book(book),
+                note: String::new(),
+            });
+        }
+    }
+    if ext == "wav" {
+        file.rewind().map_err(|e| e.to_string())?;
+        if let Ok(wave) = sound::Wave::read(std::io::BufReader::new(&mut file), cancel) {
+            return Ok(Decoded {
+                body: Body::Wave(wave),
+                note: String::new(),
+            });
+        }
+    }
+    if let Some(route) = native_preview::route(ext) {
+        match native_preview::prepare(source, &mut file, ext, route, cancel) {
             Ok(document) => {
                 let note = document.summary.clone();
-                return Ok(Decoded { body: Body::Native(document), note });
+                return Ok(Decoded {
+                    body: Body::Native(document),
+                    note,
+                });
             }
-            Err(reason) => {
-                if cancel.is_cancelled() { return Err("Preview request cancelled.".into()); }
-                if matches!(ext.as_str(), "step" | "stp") {
+            Err(error) => {
+                if cancel.is_cancelled() {
+                    return Err("Preview cancelled.".into());
+                }
+                reason = error;
+                if matches!(ext, "step" | "stp") {
                     if let Some(companion) = source.companion(cancel) {
-                        let mut decoded = decode(&companion, cancel)
-                            .map_err(|error| format!("Native STEP preview failed: {reason}\nCompanion mesh failed: {error}"))?;
-                        decoded.note = format!(
-                            "STEP source · showing companion mesh {}. The STEP geometry itself is not decoded. Native preview unavailable: {reason}\n{}",
-                            companion.name(), decoded.note
-                        );
-                        return Ok(decoded);
+                        if let Ok(mut view) = decode(&companion, cancel) {
+                            view.note = format!(
+                                "Companion mesh {}. STEP preview unavailable. {reason}",
+                                companion.name()
+                            );
+                            return Ok(view);
+                        }
                     }
                 }
-                return Ok(Decoded {
-                    body: Body::Unsupported(format!("{} could not render this source. {reason}", route.label)),
-                    note: String::new(),
-                });
             }
         }
     }
-    let bytes = source.bytes(cancel)?;
-    if let Some(format) = ArchiveFormat::for_name(&name) {
-        let entries = format.entries(&bytes, cancel)?;
-        return Ok(Decoded { body: Body::Archive(format, entries), note: String::new() });
-    }
-    if ext == "wasm" || bytes.starts_with(b"\0asm") {
-        let interface=ai_personas::computation::module_interface(&bytes)
-            .map_err(|code|format!("WebAssembly module could not be decoded ({code})"))?;
-        return Ok(Decoded {body:Body::Wasm(interface,bytes.len()),note:String::new()});
-    }
-    let mut note = String::new();
-    let image_type = if matches!(source, Source::Snapshot { .. }) {
-        ai_personas::neural::context::image_media(&bytes).and_then(|media| media.strip_prefix("image/"))
+    let archive = if ext == "zip" {
+        Some(ArchiveFormat::Zip)
+    } else if ext == "tar" {
+        Some(ArchiveFormat::Tar)
     } else {
-        None
+        ArchiveFormat::for_name(&name).or_else(|| ArchiveFormat::for_name(&format!("file.{ext}")))
     };
-    let format = image_type.unwrap_or(&ext);
-    let body = match format {
-        "svg" => svg(source, &bytes, 2.0)?,
-        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tif" | "tiff" | "ico" => {
-            let mut reader = image::ImageReader::new(Cursor::new(&bytes))
-                .with_guessed_format()
-                .map_err(|e| e.to_string())?;
-            reader.no_limits();
-            let image = reader.decode().map_err(|e| e.to_string())?;
-            let info = format!("{} × {} px", image.width(), image.height());
-            if format == "gif" {
-                note = "First frame of the animation.".into();
+    if let Some(archive) = archive {
+        match archive.entries(&mut file, cancel) {
+            Ok(entries) => {
+                return Ok(Decoded {
+                    body: Body::Archive(archive, entries),
+                    note: String::new(),
+                })
             }
-            let rgba = image.to_rgba8();
+            Err(error) => reason = error,
+        }
+    }
+    if cancel.is_cancelled() {
+        return Err("Preview cancelled.".into());
+    }
+    let textual = formats::looks_text(&prefix);
+    let known = formats::structured(ext);
+    if !known && (!textual || len > 128 * 1024 * 1024) {
+        if len > 128 * 1024 * 1024 && reason.is_empty() {
+            reason = "Large file · paged inspection".into();
+        }
+        let mut decoded = raw_input(file, reason)?;
+        if let Body::Bytes(page) = &mut decoded.body {
+            page.prefer_text = textual;
+        }
+        return Ok(decoded);
+    }
+    file.rewind().map_err(|e| e.to_string())?;
+    let bytes = read_all(&mut file)?;
+    match structured(source, &bytes, ext, cancel) {
+        Ok(Some(body)) => {
+            return Ok(Decoded {
+                body,
+                note: String::new(),
+            })
+        }
+        Err(error) => reason = error,
+        Ok(None) => {}
+    }
+    if cancel.is_cancelled() {
+        return Err("Preview cancelled.".into());
+    }
+    if let Some(text) = formats::text(&bytes) {
+        return Ok(Decoded {
+            body: Body::Text(text, matches!(ext, "md" | "markdown" | "mdown")),
+            note: reason,
+        });
+    }
+    raw_input(file, reason)
+}
+
+fn structured(
+    source: &Source,
+    bytes: &[u8],
+    ext: &str,
+    cancel: &native_preview::Cancellation,
+) -> Result<Option<Body>, String> {
+    let body = match ext {
+        "svg" => svg(source, bytes, 2.0)?,
+        "mid" | "midi" => Body::Score(sound::Score::read(bytes)?),
+        "docx" | "pptx" | "odt" | "odp" => Body::Book(office::Book::document(bytes, ext)?),
+        "html" | "htm" | "xhtml" => {
+            let html = formats::text(bytes).ok_or("Could not decode the HTML document.")?;
+            Body::Html(super::super::html_view::Document::new(html))
+        }
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tif" | "tiff" | "ico" | "pgm"
+        | "ppm" | "pbm" | "pnm" | "pam" | "qoi" | "tga" | "hdr" | "dds" | "ff" => {
+            let make_reader = || {
+                let mut reader = image::ImageReader::new(Cursor::new(bytes));
+                if let Some(format) = image::ImageFormat::from_extension(ext) {
+                    reader.set_format(format);
+                }
+                reader.with_guessed_format().map_err(|e| e.to_string())
+            };
+            let (w, h) = make_reader()?
+                .into_dimensions()
+                .map_err(|e| e.to_string())?;
+            if u64::from(w) * u64::from(h) > 64 * 1024 * 1024 {
+                return Err(format!(
+                    "{w} × {h} px exceeds the raster preview memory budget."
+                ));
+            }
+            if w.max(h) <= 4096 {
+                if let Some(animated) = sequence::animated(bytes, ext, cancel)? {
+                    return Ok(Some(animated));
+                }
+            }
+            let decoded = make_reader()?.decode().map_err(|e| e.to_string())?;
+            let scaled = w.max(h) > 4096;
+            let display = if scaled {
+                decoded.thumbnail(4096, 4096)
+            } else {
+                decoded
+            }
+            .into_rgba8();
+            let info = format!(
+                "{w} × {h} px{}",
+                if scaled { " · Scaled preview" } else { "" }
+            );
             Body::Image(
                 egui::ColorImage::from_rgba_unmultiplied(
-                    [rgba.width() as usize, rgba.height() as usize],
-                    rgba.as_raw(),
+                    [display.width() as usize, display.height() as usize],
+                    display.as_raw(),
                 ),
                 info,
             )
         }
         "stl" | "obj" | "glb" | "gltf" => Body::Mesh(super::super::mesh::load(
-            &bytes,
-            &ext,
+            bytes,
+            ext,
             if let Source::File(p) = source {
-                Some(p.as_path())
+                Some(p)
             } else {
                 None
             },
         )?),
+        "wasm" => Body::Wasm(
+            ai_personas::computation::module_interface(bytes)
+                .map_err(|code| format!("Could not decode the WebAssembly module ({code})."))?,
+            bytes.len(),
+        ),
         "csv" | "tsv" => {
-            let text = std::str::from_utf8(&bytes).map_err(|e| e.to_string())?;
-            let rows = data_view::delimited_rows(text, ext == "tsv").map_err(|e| e.to_string())?;
-            Body::Table(rows,text.to_owned())
+            let text = formats::text(bytes).ok_or("Could not decode the table as text.")?;
+            let rows = data_view::delimited_rows(&text, ext == "tsv").map_err(|e| e.to_string())?;
+            Body::Table(rows, text)
         }
         "json" => {
-            let text = std::str::from_utf8(&bytes).map_err(|e| e.to_string())?;
-            match serde_json::from_str::<serde_json::Value>(text) {
-                Ok(value) => {
-                    let datasets = data_view::json_datasets(&value);
-                    Body::Parameters(value, text.into(), datasets)
-                }
-                Err(error) => {
-                    note = format!("Invalid JSON: {error}. Showing the original source.");
-                    Body::Text(text.into(), false)
-                }
-            }
+            let text = formats::text(bytes).ok_or("Could not decode JSON as text.")?;
+            let value = serde_json::from_str(&text).map_err(|e| format!("Invalid JSON. {e}"))?;
+            let datasets = data_view::json_datasets(&value);
+            Body::Parameters(value, text, datasets)
         }
-        "h5" | "hdf5" | "blend" | "brd" | "sch" | "gbr" | "ger" | "gerber"
-        | "drl" | "dxf" | "dwg" | "iges" | "igs" | "fcstd" => Body::Unsupported(format!(
-            "{ext} has no embedded decoder. Choose an installed application to view the original file. Launching it does not verify its contents.",
-        )),
-        _ => {
-            if bytes.contains(&0) || std::str::from_utf8(&bytes).is_err() {
-                Body::Unsupported(format!(
-                    "No built-in preview for {} files. Open this file in its native application.",
-                    if ext.is_empty() { "this format" } else { &ext }
-                ))
-            } else {
-                let text = std::str::from_utf8(&bytes).map_err(|e| e.to_string())?;
-                Body::Text(text.into(), matches!(ext.as_str(), "md" | "markdown"))
-            }
-        }
+        _ => return Ok(None),
     };
-    Ok(Decoded { body, note })
+    if cancel.is_cancelled() {
+        return Err("Preview cancelled.".into());
+    }
+    Ok(Some(body))
 }

@@ -170,7 +170,7 @@ impl App {
             ui.add_space(6.);
             match view {
                 ProfileView::Overview => {
-                    if !s(&person, "seed").trim().is_empty() {
+                    if (Self::constrained_activity_layout(ui.ctx()) || ui.available_width() < 370.) && !s(&person, "seed").trim().is_empty() {
                         if ui
                             .link(RichText::new(starting_profile_credit(&person)).small())
                             .clicked()
@@ -226,7 +226,7 @@ impl App {
 
     fn profile_heading(&mut self, ui: &mut Ui) {
         let current = self.label(&self.persona);
-        let color = theme::palette(ui).ink(self.color(&self.persona));
+        let color = self.color(&self.persona);
         let mut selected = None;
         if Self::constrained_activity_layout(ui.ctx()) || ui.available_width() < 370. {
             let width = ui.available_width().max(1.);
@@ -251,46 +251,46 @@ impl App {
             }
             return;
         }
-        ui.horizontal(|ui| {
-            avatar(ui, current, color, 44.);
-            ui.allocate_ui_with_layout(
-                egui::vec2(ui.available_width(), 44.),
-                egui::Layout::right_to_left(egui::Align::Center),
-                |ui| {
-                    if self.records("personas").len() > 1 {
-                        ui.menu_button("Switch persona", |ui| {
-                            ui.set_max_width(
-                                (ui.ctx().content_rect().width() - 40.).clamp(180., 420.),
-                            );
-                            for record in self.records("personas") {
-                                let body = &record["body"];
-                                let id = s(body, "id");
-                                let name = body["label"].as_str().unwrap_or(id);
-                                let row = egui::Button::selectable(id == self.persona, name).wrap();
-                                if ui.add(row).on_hover_text(id).clicked() {
-                                    selected = Some(id.to_owned());
-                                    ui.close();
-                                }
+        let p = theme::palette(ui);
+        let person = self.selected_person();
+        let mut show_origin = false;
+        egui::Frame::new().fill(p.panel.lerp_to_gamma(color, 0.10))
+            .stroke(egui::Stroke::new(1., p.border.lerp_to_gamma(color, 0.38)))
+            .inner_margin(16).corner_radius(10).show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.horizontal_top(|ui| {
+                    avatar(ui, current, color, 62.);
+                    ui.vertical(|ui| {
+                        ui.set_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            ui.label(design::caption("Persona profile", p.ink(color)));
+                            if self.records("personas").len() > 1 {
+                                design::action_at_right(ui, |ui| {
+                                    ui.menu_button("Switch persona", |ui| {
+                                        ui.set_max_width(360.);
+                                        for record in self.records("personas") {
+                                            let body = &record["body"];
+                                            let id = s(body, "id");
+                                            let name = body["label"].as_str().unwrap_or(id);
+                                            if ui.selectable_label(id == self.persona, name).on_hover_text(id).clicked() {
+                                                selected = Some(id.to_owned());
+                                                ui.close();
+                                            }
+                                        }
+                                    });
+                                });
                             }
                         });
-                    }
-                    let width = ui.available_width().max(1.);
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(width, 44.),
-                        egui::Layout::top_down(egui::Align::Min),
-                        |ui| {
-                            ui.set_min_width(width);
-                            eyebrow(ui, "Persona");
-                            ui.add(
-                                egui::Label::new(RichText::new(current).strong().size(26.))
-                                    .truncate(),
-                            )
-                            .on_hover_text(format!("{current}\n{}", self.persona));
-                        },
-                    );
-                },
-            );
-        });
+                        ui.add(egui::Label::new(design::display(current, 42.)).truncate()).on_hover_text(&self.persona);
+                        if !s(&person, "seed").trim().is_empty() {
+                            show_origin = ui.link(RichText::new(starting_profile_credit(&person)).small()).clicked();
+                            starting_description(ui, &person);
+                        }
+                    });
+                });
+            });
+        ui.add_space(6.);
+        if show_origin { self.profile_view = ProfileView::Origin; }
         if let Some(id) = selected {
             self.show_person(&id);
         }

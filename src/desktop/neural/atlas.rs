@@ -121,7 +121,7 @@ impl Panel {
             eyebrow(ui, "Ensemble study");
         });
         ui.add_space(5.);
-        ui.label(RichText::new("Character Atlas").strong().size(30.));
+        ui.label(design::display("Character Atlas", 38.));
         ui.label("Compare each persona with their first model, on the same situation.");
         ui.add_space(12.);
         self.controls(ui, &contract, people);

@@ -1,9 +1,9 @@
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=Personas
+Name=Persona Studio
 Comment=Create personas, work together, and follow their results
-Exec=personas-desktop
+Exec=personas-desktop %F
 Icon=org.ai-personas.desktop
 Terminal=false
 Categories=Office;Utility;

@@ -1,7 +1,7 @@
 //! Native workspace for editable persona models. Inspection uses a read-only
 //! snapshot; controls retain the same runtime entry points as the terminal.
 use super::{
-    artifacts, document,
+    artifacts, design, document, file_desk,
     theme::{self, Icon},
 };
 use ai_personas::{
@@ -188,6 +188,7 @@ pub struct App {
     responsibilities: responsibilities::Board,
     agreement_book: agreements::Book,
     preview_generation: u64,
+    preview_zip_member: Option<(usize, String)>,
     preview_pending: bool,
     preview_metadata: Value,
     print_preview: Option<print_preview::Preview>,
@@ -247,7 +248,7 @@ impl App {
             home: Default::default(),
             home_updates: Default::default(),
             workspace_find: Default::default(),
-            delivery_desk: Default::default(),
+            delivery_desk: delivery_desk::Desk::new(gl),
             file_history: Default::default(),
             delivery_followups: Default::default(),
             runner_observation: Default::default(),
@@ -300,6 +301,7 @@ impl App {
             responsibilities: Default::default(),
             agreement_book: Default::default(),
             preview_generation: 0,
+            preview_zip_member: None,
             preview_pending: false,
             preview_metadata: Value::Null,
             print_preview: None,
@@ -421,6 +423,7 @@ impl App {
         self.layout.editor = Editor::Artifacts;
         self.artifact_mode = 0;
         self.preview_generation += 1;
+        self.preview_zip_member = None;
         self.preview_pending = true;
         self.preview_metadata = Value::Null;
         self.viewer.clear_selection();
@@ -521,6 +524,7 @@ impl App {
                                 preview.directory,
                                 preview.path,
                                 preview.digest,
+                                self.preview_zip_member.take(),
                             );
                         }
                         Err(e) => self.error = Some(e),
@@ -720,6 +724,7 @@ impl eframe::App for App {
         if self.closing && !self.running && !self.command_bench.executing() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
+        if self.wide_navigation(ctx) { self.navigation_rail(ctx); }
         self.header(ctx);
         self.status_bar(ctx);
         if self.layout.activity {
@@ -829,6 +834,7 @@ impl eframe::App for App {
         self.save_layout();
         self.viewer.destroy();
         self.files.destroy();
+        self.delivery_desk.release();
     }
 }
 fn s<'a>(v: &'a Value, key: &str) -> &'a str {
@@ -888,7 +894,7 @@ fn time_label(ts: i64) -> String {
 }
 /// A continuing identity keeps its hue when someone joins, leaves or is
 /// filtered out. Names and exact IDs, not colours, distinguish people.
-fn persona_color(id: &str) -> Color32 {
+pub(super) fn persona_color(id: &str) -> Color32 {
     let colors = [theme::ACCENT, Color32::from_rgb(219, 134, 158), PURPLE,
         Color32::from_rgb(121, 166, 230), TEAL, theme::GREEN];
     let hash = id.bytes().fold(0x811c9dc5u32, |h, byte| (h ^ u32::from(byte)).wrapping_mul(16777619));
@@ -899,7 +905,7 @@ fn persona_color(id: &str) -> Color32 {
 fn eyebrow(ui: &mut Ui, text: &str) {
     ui.label(
         RichText::new(text.to_uppercase())
-            .size(11.)
+            .monospace().size(11.)
             .color(theme::palette(ui).muted)
             .extra_letter_spacing(1.2),
     );
@@ -923,24 +929,6 @@ fn card(ui: &Ui) -> egui::Frame {
 fn avatar(ui: &mut Ui, label: &str, color: Color32, diameter: f32) -> egui::Response {
     let (rect, response) =
         ui.allocate_exact_size(egui::vec2(diameter, diameter), egui::Sense::click());
-    ui.painter()
-        .circle_filled(rect.center(), diameter / 2., color.gamma_multiply(0.2));
-    ui.painter().circle_stroke(
-        rect.center(),
-        diameter / 2. - 1.,
-        Stroke::new(1., color.gamma_multiply(0.7)),
-    );
-    ui.painter().text(
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
-        label
-            .chars()
-            .next()
-            .unwrap_or('?')
-            .to_uppercase()
-            .to_string(),
-        FontId::proportional(diameter * 0.4),
-        color,
-    );
+    design::persona_mark(ui, rect, label, color);
     response
 }

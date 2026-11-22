@@ -477,9 +477,11 @@ impl App {
         let command = connection.show(ui, self);
         ui.separator();
         ui.strong("Appearance");
-        let dark = ui
-            .checkbox(&mut self.layout.dark, "Dark workspace")
-            .changed();
+        let dark = ui.horizontal(|ui| {
+            let graphite = ui.selectable_value(&mut self.layout.dark, true, "Graphite").changed();
+            let paper = ui.selectable_value(&mut self.layout.dark, false, "Paper").changed();
+            graphite || paper
+        }).inner;
         let zoom = ui
             .add(
                 egui::Slider::new(&mut self.layout.scale, theme::MIN_ZOOM..=theme::MAX_ZOOM)

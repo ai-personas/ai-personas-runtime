@@ -165,12 +165,42 @@ def hdf5(src,dst):
     return {"kind":"json","dataset_count":len(datasets),
         "note":"Readable supported datasets retain all values and dimensions, without application size, count or depth caps. Null dataspaces, unavailable linked data and per-dataset errors are explicit. External/soft links and virtual/external-storage sources are not resolved; link targets and hard-group aliases are listed. Nonfinite JSON floats become null, and extended scalar types may be text. Dimension scales and references are not resolved."}
 
+def font_specimen(src, dst):
+    from PIL import Image, ImageDraw, ImageFont
+    path = src
+    if src.suffix.lower() in (".woff", ".woff2"):
+        from fontTools.ttLib import TTFont
+        path = dst.with_suffix(".otf")
+        with TTFont(src) as font:
+            font.flavor = None
+            font.save(path)
+    image = Image.new("RGB", (1200, 710), "#f4efe4")
+    draw = ImageDraw.Draw(image)
+    face = ImageFont.truetype(str(path), 44)
+    family, style = face.getname()
+    draw.line((54, 110, 1146, 110), fill="#bbb3a2", width=2)
+    draw.line((54, 416, 1146, 416), fill="#bbb3a2", width=2)
+    def line(text, size, top, ink="#272620"):
+        font = ImageFont.truetype(str(path), size)
+        width = draw.textlength(text, font=font)
+        if width > 1092:
+            font = ImageFont.truetype(str(path), max(8, int(size * 1092 / width)))
+        draw.text((54, top), text, font=font, fill=ink, anchor="lt")
+    line(f"{family}  /  {style}", 44, 45)
+    line("Aa Bb Cc", 224, 154)
+    line("ABCDEFGHIJKLMNOPQRSTUVWXYZ", 52, 455)
+    line("abcdefghijklmnopqrstuvwxyz", 54, 540)
+    line("0123456789   &!?  @#%  ()", 48, 633, "#6b5141")
+    image.save(dst)
+    return {"family": family, "style": style, "face_index": 0}
+
+
 def main():
-    p=argparse.ArgumentParser(); p.add_argument("mode",choices=("dxf","cad","hdf5")); p.add_argument("source",type=Path); p.add_argument("target",type=Path); a=p.parse_args()
+    p=argparse.ArgumentParser(); p.add_argument("mode",choices=("dxf","cad","hdf5","font")); p.add_argument("source",type=Path); p.add_argument("target",type=Path); a=p.parse_args()
     if not a.source.is_file(): p.error("source is not a regular file")
     a.target.parent.mkdir(parents=True,exist_ok=True)
     try:
-        result={"dxf":dxf,"cad":cad,"hdf5":hdf5}[a.mode](a.source,a.target)
+        result={"dxf":dxf,"cad":cad,"hdf5":hdf5,"font":font_specimen}[a.mode](a.source,a.target)
         print(json.dumps(result,ensure_ascii=False)); return 0
     except Exception as e:
         print("{}: {}".format(type(e).__name__,e),file=sys.stderr); return 2

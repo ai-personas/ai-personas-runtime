@@ -1,5 +1,6 @@
 //! Passive text from an HTML document. The desktop never resolves URLs or instantiates controls.
-use super::*;
+use super::theme;
+use eframe::egui::{self, RichText, Stroke, Ui};
 use scraper::{node::Element, Html, Node};
 
 const PARSE_BYTES: usize = 256 * 1024;
@@ -114,13 +115,96 @@ struct Reader {
     cell_depth: usize,
     bytes: usize,
     truncated: bool,
+    max_bytes: usize,
+    max_blocks: usize,
+}
+
+pub(super) struct Document {
+    source: String,
+    reading: Reader,
+}
+
+impl Document {
+    pub fn new(source: String) -> Self {
+        let reading = Reader::parse_with_limit(&source, source.len().saturating_mul(2), usize::MAX);
+        Self { source, reading }
+    }
+
+    pub fn show(&self, ui: &mut Ui, source: &mut bool, page: &mut usize) {
+        ui.horizontal_wrapped(|ui| {
+            let reading = ui
+                .selectable_value(source, false, "Document text")
+                .changed();
+            let html = ui.selectable_value(source, true, "HTML source").changed();
+            if reading || html {
+                *page = 0;
+            }
+            if ui.small_button("Copy source").clicked() {
+                ui.ctx().copy_text(self.source.clone());
+            }
+        });
+        if *source {
+            let text = if self.source.len() > 64 * 1024 {
+                super::artifacts::source_page(ui, &self.source, page)
+            } else {
+                &self.source
+            };
+            egui::ScrollArea::both()
+                .id_salt(("html-source", *page))
+                .show(ui, |ui| super::document::code(ui, text, "html"));
+        } else {
+            let blocks = &self.reading.blocks;
+            let count = blocks.len().div_ceil(100).max(1);
+            *page = (*page).min(count - 1);
+            if count > 1 {
+                ui.horizontal(|ui| {
+                    if ui
+                        .add_enabled(*page > 0, egui::Button::new("Previous"))
+                        .clicked()
+                    {
+                        *page -= 1;
+                    }
+                    ui.label(format!("{} of {}", *page + 1, count));
+                    if ui
+                        .add_enabled(*page + 1 < count, egui::Button::new("Next"))
+                        .clicked()
+                    {
+                        *page += 1;
+                    }
+                });
+            }
+            egui::ScrollArea::vertical()
+                .id_salt(("html-reading", *page))
+                .show(ui, |ui| {
+                    for (role, text) in blocks.iter().skip(*page * 100).take(100) {
+                        let label = match role {
+                            Role::Title => super::design::display(text, 34.),
+                            Role::Heading => super::design::display(text, 25.),
+                            Role::TableHeading => RichText::new(text).strong(),
+                            Role::Body => RichText::new(text),
+                        };
+                        ui.add(egui::Label::new(label).wrap().selectable(true));
+                    }
+                    if blocks.is_empty() {
+                        ui.weak("No readable document text.");
+                    }
+                });
+        }
+    }
 }
 
 impl Reader {
     fn parse(source: &str) -> Self {
+        Self::parse_with_limit(source, EXCERPT_BYTES, EXCERPT_BLOCKS)
+    }
+    fn parse_with_limit(source: &str, max_bytes: usize, max_blocks: usize) -> Self {
         let dom = Html::parse_document(source.strip_prefix('\u{feff}').unwrap_or(source));
         let root = dom.root_element();
-        let mut out = Self::default();
+        let mut out = Self {
+            max_bytes,
+            max_blocks,
+            ..Default::default()
+        };
         if let Some(title) = root
             .child_elements()
             .find(|e| e.value().name() == "head")
@@ -190,9 +274,9 @@ impl Reader {
         {
             return;
         }
-        let part = prefix(&line, EXCERPT_BYTES - self.bytes);
-        self.truncated = part.len() < line.len() || self.blocks.len() >= EXCERPT_BLOCKS;
-        if !part.is_empty() && self.blocks.len() < EXCERPT_BLOCKS {
+        let part = prefix(&line, self.max_bytes.saturating_sub(self.bytes));
+        self.truncated = part.len() < line.len() || self.blocks.len() >= self.max_blocks;
+        if !part.is_empty() && self.blocks.len() < self.max_blocks {
             self.bytes += part.len();
             self.blocks.push((
                 role,

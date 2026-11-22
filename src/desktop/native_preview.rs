@@ -17,6 +17,9 @@ use std::{
 #[derive(Clone, Copy)]
 enum Kind {
     Pdf,
+    Html,
+    Font,
+    StillImage,
     Office,
     Board,
     Schematic,
@@ -35,6 +38,9 @@ pub(super) struct Route {
 // Extend this registry and the matching preparation/page renderer together.
 // A registered extension is not a promise that its optional renderer is installed.
 pub(super) const ROUTES: &[Route] = &[
+    Route { label: "Font specimen", extensions: &["ttf","otf","ttc","otc","woff","woff2"], kind: Kind::Font, tools: &["python3"] },
+    Route { label: "Still image · FFmpeg", extensions: &["avif","heic","heif","jxl","exr","psd","jp2","j2k","pcx"], kind: Kind::StillImage, tools: &["ffmpeg"] },
+    Route { label: "HTML pages", extensions: &["html","htm","xhtml"], kind: Kind::Html, tools: &["pdfinfo","pdftoppm"] },
     Route {
         label: "PDF pages · Poppler",
         extensions: &["pdf"],
@@ -69,13 +75,13 @@ pub(super) const ROUTES: &[Route] = &[
     Route { label: "DWG drawing · LibreDWG + ezdxf", extensions: &["dwg"], kind: Kind::Dwg, tools: &["dwg2dxf","python3"] },
     Route {
         label: "Video frame inspection · FFmpeg",
-        extensions: &["mp4", "mov", "webm", "avi", "mkv", "m4v"],
+        extensions: &["mp4", "mov", "webm", "avi", "mkv", "m4v", "mpeg", "mpg", "ogv", "vob", "wmv", "flv"],
         kind: Kind::Video,
         tools: &["ffprobe", "ffmpeg"],
     },
     Route {
         label: "Audio waveform · FFmpeg",
-        extensions: &["wav", "mp3", "ogg", "flac", "m4a", "aac"],
+        extensions: &["wav", "mp3", "ogg", "oga", "opus", "flac", "m4a", "aac", "aif", "aiff", "wma", "ac3"],
         kind: Kind::Audio,
         tools: &["ffmpeg"],
     },
@@ -87,7 +93,7 @@ pub(super) fn route(extension: &str) -> Option<&'static Route> {
         .find(|route| route.extensions.contains(&extension))
 }
 
-fn executable(name: &str) -> Option<PathBuf> {
+pub(super) fn executable(name: &str) -> Option<PathBuf> {
     let office_names = ["soffice", "libreoffice"];
     let single_name = [name];
     let candidates: &[&str] = if name == "soffice" {
@@ -131,7 +137,7 @@ impl Route {
     }
 }
 
-enum DerivedKind { Svg, Mesh, Json }
+enum DerivedKind { Svg, Mesh, Json, Image }
 enum Pages {
     Derived(PathBuf, DerivedKind),
     Pdf(PathBuf),
@@ -144,6 +150,8 @@ enum Pages {
 pub(super) struct Document {
     directory: tempfile::TempDir,
     pages: Pages,
+    pub kind: &'static str,
+    pub media: bool,
     pub labels: Vec<String>,
     pub summary: String,
     pub diagnostics: String,
@@ -272,7 +280,7 @@ fn run_python(mode: &str, input: &Path, output: &Path, folder: &Path, cancel: &C
     run("python3", &command, folder, cancel)
 }
 
-pub(super) fn tar_archive(bytes: &[u8], member: Option<(usize, &str)>, cancel: &Cancellation) -> Result<Vec<u8>, String> {
+pub(super) fn archive(reader: &mut impl Read, format: super::ArchiveFormat, member: Option<(usize, &str)>, cancel: &Cancellation) -> Result<std::fs::File, String> {
     cancelled(cancel)?;
     let directory = tempfile::Builder::new().prefix("personas-archive-")
         .tempdir().map_err(|e| e.to_string())?;
@@ -280,8 +288,8 @@ pub(super) fn tar_archive(bytes: &[u8], member: Option<(usize, &str)>, cancel: &
     let input = folder.join("archive");
     let output = folder.join("result");
     let script = folder.join("archive_reader.py");
-    std::fs::write(&input, bytes).map_err(|e| e.to_string())?;
-    std::fs::write(&script, include_str!("archive_reader.py")).map_err(|e| e.to_string())?;
+    super::input::copy(reader, &mut std::fs::File::create(&input).map_err(|e|e.to_string())?, cancel)?;
+    std::fs::write(&script, if matches!(format, super::ArchiveFormat::System) { include_str!("system_archive.py") } else { include_str!("archive_reader.py") }).map_err(|e| e.to_string())?;
     // Standard-library parser. Member paths are never used as filesystem destinations.
     let mut command = args(&["-I"]);
     command.extend([script.into_os_string(), input.into_os_string(), output.as_os_str().into()]);
@@ -290,7 +298,7 @@ pub(super) fn tar_archive(bytes: &[u8], member: Option<(usize, &str)>, cancel: &
     }
     run("python3", &command, folder, cancel)?;
     cancelled(cancel)?;
-    loader::read_file(&output)
+    std::fs::File::open(output).map_err(|e| e.to_string())
 }
 
 fn pdf_pages(path: &Path, folder: &Path, cancel: &Cancellation) -> Result<(usize, String), String> {
@@ -305,6 +313,8 @@ fn pdf_pages(path: &Path, folder: &Path, cancel: &Cancellation) -> Result<(usize
 
 pub(super) fn prepare(
     source: &Source,
+    file: &mut std::fs::File,
+    extension: &str,
     route: &Route,
     cancel: &Cancellation,
 ) -> Result<Arc<Document>, String> {
@@ -321,11 +331,24 @@ pub(super) fn prepare(
     let name = Path::new(&name)
         .file_name()
         .ok_or("The selected file has no filename.")?;
-    let input = input_dir.join(name);
-    std::fs::write(&input, source.bytes(cancel)?).map_err(|e| e.to_string())?;
+    let mut input = input_dir.join(name);
+    // Named imports such as Office and CAD use the detected format for their staged copy.
+    input.set_extension(extension);
+    file.rewind().map_err(|e|e.to_string())?;
+    super::input::copy(file, &mut std::fs::File::create(&input).map_err(|e|e.to_string())?, cancel)?;
     cancelled(cancel)?;
     let mut diagnostics = String::new();
     let (pages, labels, summary) = match route.kind {
+        Kind::Html => {
+            let source_bytes = std::fs::read(&input).map_err(|e|e.to_string())?;
+            let resources = super::formats::html_resources(source, &source_bytes)?;
+            let printed = ai_personas::document_print::print_html_with_control(&source_bytes, &resources, || cancel.is_cancelled())?;
+            let pdf = folder.join("document.pdf");
+            std::fs::write(&pdf, printed.pdf).map_err(|e|e.to_string())?;
+            let count = printed.pages as usize;
+            if count == 0 { return Err("The printed document contains no pages.".into()); }
+            (Pages::Pdf(pdf), (1..=count).map(|p|format!("Page {p} of {count}")).collect(), "HTML print layout".into())
+        }
         Kind::Pdf | Kind::Office => {
             let pdf = if matches!(route.kind, Kind::Office) {
                 let profile = folder.join("office-profile");
@@ -388,6 +411,20 @@ pub(super) fn prepare(
             let labels = (0..8).map(|i| format!("Frame near {:.2} s", duration * i as f64 / 8.0)).collect();
             (Pages::Video(input, duration), labels, format!("Video inspection: eight sampled timestamps across {duration:.2} seconds, rendered on demand. This is not playback and does not show every frame or play audio."))
         }
+        Kind::Font => {
+            let out = folder.join("specimen.png");
+            diagnostics.push_str(&run_python("font", &input, &out, folder, cancel)?);
+            (Pages::Derived(out, DerivedKind::Image), vec!["Type specimen".into()], "Selected font · first face".into())
+        }
+        Kind::StillImage => {
+            let out = folder.join("image.png");
+            let mut command = args(&["-hide_banner", "-loglevel", "error", "-nostdin", "-protocol_whitelist", "file,pipe", "-i"]);
+            command.push(input.as_os_str().into());
+            command.extend(args(&["-frames:v", "1", "-vf", "scale='min(4096,iw)':'min(4096,ih)':force_original_aspect_ratio=decrease", "-update", "1"]));
+            command.push(out.as_os_str().into());
+            diagnostics.push_str(&run("ffmpeg", &command, folder, cancel)?);
+            (Pages::Derived(out, DerivedKind::Image), vec!["Image".into()], "Decoded still image".into())
+        }
         Kind::Dxf => { let out=folder.join("drawing.svg"); diagnostics.push_str(&run_python("dxf",&input,&out,folder,cancel)?); (Pages::Derived(out,DerivedKind::Svg),vec!["Modelspace · SVG".into()],"DXF modelspace only; paper layouts, external references, proxy entities and CAD constraints are not represented.".into()) }
         Kind::Cad => { let out=folder.join("geometry.stl"); diagnostics.push_str(&run_python("cad",&input,&out,folder,cancel)?); (Pages::Derived(out,DerivedKind::Mesh),vec!["Tessellated geometry".into()],"STEP/IGES or stored FreeCAD BREP decoded by Open CASCADE and tessellated for review; PMI, colors, constraints, parametric history and assembly semantics are not preserved.".into()) }
         Kind::Hdf5 => { let out=folder.join("datasets.json"); diagnostics.push_str(&run_python("hdf5",&input,&out,folder,cancel)?); (Pages::Derived(out,DerivedKind::Json),vec!["Dataset catalogue".into()],"HDF5 datasets and attributes retain all readable supported values. Links, unsupported values and read errors remain explicit.".into()) }
@@ -399,6 +436,8 @@ pub(super) fn prepare(
     };
     Ok(Arc::new(Document {
         directory,
+        media: matches!(route.kind, Kind::Audio | Kind::Video),
+        kind: route.label.split(" · ").next().unwrap_or(route.label),
         pages,
         labels,
         summary,

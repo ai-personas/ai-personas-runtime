@@ -8,8 +8,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-#[path = "html.rs"]
-mod html;
+use crate::desktop::html_view as html;
 #[path = "archive.rs"]
 mod archive;
 pub(in crate::desktop::neural) use archive::Member as ZipFile;
@@ -117,6 +116,7 @@ impl Format {
 struct Job {
     root: PathBuf,
     reference: String,
+    path: String,
     kind: Kind,
     page: u32,
     serial: u64,
@@ -129,7 +129,7 @@ enum Content {
     Html(html::Preview),
     Archive(archive::Listing),
     Table(Vec<Vec<String>>),
-    Other,
+    Studio(Arc<tempfile::TempDir>, PathBuf, String),
     Text(String, bool),
 }
 type Answer = (u64, ai_personas::neural::Result<Content>);
@@ -174,11 +174,14 @@ enum View {
     Archive(archive::Listing),
     Table(Vec<Vec<String>>, data_view::TableView),
     Text(String, bool),
+    Studio,
     Note(String),
 }
 
 #[derive(Default)]
 pub(super) struct Inline {
+    gl: Option<Arc<eframe::glow::Context>>,
+    studio: Option<artifacts::Viewer>,
     worker: Option<Worker>,
     latest: Arc<AtomicU64>,
     reference: String,
@@ -192,13 +195,25 @@ pub(super) struct Inline {
 impl Drop for Inline {
     fn drop(&mut self) {
         self.latest.fetch_add(1, Ordering::Relaxed);
+        self.release();
     }
 }
 
 impl Inline {
+    pub fn new(gl: Option<&Arc<eframe::glow::Context>>) -> Self {
+        let mut inline = Self::default();
+        inline.gl = gl.cloned();
+        inline
+    }
+
+    pub fn release(&mut self) {
+        if let Some(mut viewer) = self.studio.take() { viewer.destroy(); }
+    }
+
     pub fn clear(&mut self) {
         self.latest.fetch_add(1, Ordering::Relaxed);
         self.reference.clear();
+        if let Some(viewer) = &mut self.studio { viewer.clear_selection(); }
         self.pages = Default::default();
         self.view = View::Pending;
         self.member = None;
@@ -228,6 +243,7 @@ impl Inline {
                 let job = Job {
                     root: root.into(),
                     reference: file.reference.clone(),
+                    path: self.member.as_ref().map_or_else(|| file.path.clone(), |m| m.path.clone()),
                     kind: self.member.as_ref().map_or(file.format.kind, |m| m.kind),
                     page: self.pages.page,
                     serial,
@@ -253,6 +269,7 @@ impl Inline {
         if self.member.is_some() && ui.link("← Archive contents").clicked() {
             self.latest.fetch_add(1, Ordering::Relaxed);
             self.member = None;
+            if let Some(viewer) = &mut self.studio { viewer.clear_selection(); }
             self.pages = Default::default();
             self.html_source = false;
             if let Some(listing) = self.directory.take() {
@@ -297,10 +314,10 @@ impl Inline {
                     Ok(Content::Archive(listing)) => View::Archive(listing),
                     Ok(Content::Table(rows)) => View::Table(rows, Default::default()),
                     Ok(Content::Text(body, truncated)) => View::Text(body, truncated),
-                    Ok(Content::Other) => {
-                        View::Note(if self.member.is_some() {
-                            "No inline preview for this format. Save the file to open it locally."
-                        } else { "Use the full file viewer for this format." }.into())
+                    Ok(Content::Studio(directory, path, sha256)) => {
+                        let viewer = self.studio.get_or_insert_with(|| artifacts::Viewer::new(ui.ctx(), self.gl.as_ref()));
+                        viewer.open_snapshot(directory, path, sha256, None);
+                        View::Studio
                     }
                     Err(e) => {
                         if let Some(total) = e
@@ -389,6 +406,15 @@ impl Inline {
                         }
                     });
             }
+            View::Studio => {
+                if let Some(viewer) = &mut self.studio {
+                    let height = (ui.ctx().content_rect().height() * 0.41).clamp(155., 340.);
+                    let area = egui::vec2(ui.available_width(), height);
+                    ui.push_id(("delivery-studio-preview", reference), |ui| {
+                        ui.allocate_ui(area, |ui| viewer.embedded_ui(ui));
+                    });
+                }
+            }
             View::Note(text) => {
                 ui.weak(text.as_str());
                 if document
@@ -412,9 +438,6 @@ impl Inline {
 }
 
 fn load(job: &Job, cancelled: impl Fn() -> bool) -> ai_personas::neural::Result<Content> {
-    if job.member.is_some() && matches!(job.kind, Kind::Archive | Kind::Other) {
-        return Ok(Content::Other);
-    }
     let db = data::open(&job.root)?;
     let asset = store::exact(&db, &job.reference)?;
     if asset.reference.kind != "asset" || asset.reference.handle() != job.reference {
@@ -435,32 +458,22 @@ fn load(job: &Job, cancelled: impl Fn() -> bool) -> ai_personas::neural::Result<
             "This file is too large for an inline preview.",
         ));
     }
-    // Some retained files have a generic name and media type. Check just the
-    // header before fetching an otherwise unsupported binary.
-    let kind = if matches!(job.kind, Kind::Other) {
-        let prefix: Vec<u8> = db.query_row(
-            "SELECT substr(bytes,1,1024) FROM objects WHERE digest=?1",
-            [digest],
-            |r| r.get(0),
-        )?;
-        if !ai_personas::pdf_preview::is_pdf(&prefix) {
-            return Ok(Content::Other);
-        }
-        Kind::Pdf
-    } else {
-        job.kind
-    };
     let bytes = store::bytes(&db, digest)?;
     drop(db);
     let bytes = match &job.member {
         Some(member) => member.contents(&bytes)?,
         None => bytes,
     };
-    let kind = if matches!(kind, Kind::Text | Kind::Html | Kind::Table(_)) && bytes.starts_with(b"%PDF-") {
-        Kind::Pdf
-    } else {
-        kind
+    let pdf_header = match job.kind {
+        Kind::Other => ai_personas::pdf_preview::is_pdf(&bytes),
+        Kind::Text | Kind::Html | Kind::Table(_) => bytes.starts_with(b"%PDF-"),
+        _ => false,
     };
+    let kind = if pdf_header {
+        Kind::Pdf
+    } else if job.member.is_some() && matches!(job.kind, Kind::Archive) {
+        Kind::Other
+    } else { job.kind };
     match kind {
         Kind::Pdf => {
             let max_side = job.ctx.input(|i| i.max_texture_side);
@@ -535,7 +548,15 @@ fn load(job: &Job, cancelled: impl Fn() -> bool) -> ai_personas::neural::Result<
                 end < content.len(),
             ))
         }
-        Kind::Other => Ok(Content::Other),
+        Kind::Other => {
+            use sha2::{Digest, Sha256};
+            let directory = Arc::new(tempfile::tempdir()?);
+            let name = Path::new(&job.path).file_name().unwrap_or_else(|| std::ffi::OsStr::new("file"));
+            let path = directory.path().join(name);
+            let sha256 = hex::encode(Sha256::digest(&bytes));
+            std::fs::write(&path, bytes)?;
+            Ok(Content::Studio(directory, path, sha256))
+        }
     }
 }
 

@@ -78,7 +78,7 @@ fi
 
 usage() {
     printf '%s\n' 'Usage: ./personas --neural [OPTIONS] COMMAND
-       ./personas --gui [--progress PATH] [--helpers PATH]
+       ./personas --gui [--progress PATH] [--helpers PATH] [--open-file FILE] [FILE…]
        ./personas --terminal [--progress PATH]
        ./personas --journal-terminal
        ./personas [OPTIONS] "Your need"

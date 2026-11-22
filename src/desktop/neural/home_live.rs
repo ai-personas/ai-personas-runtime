@@ -156,6 +156,8 @@ impl App {
     }
 
     pub(super) fn workspace_live_people(&mut self, ui: &mut Ui) {
+        let mut focus = self.home.focused_person.clone();
+        let mut all_choice = self.home.all_people;
         let (people, admissions) = self.observed_people(None);
         let mut people: Vec<_> = people.into_iter().collect();
         // Keep a small team's profile and message targets in a stable place as
@@ -185,14 +187,25 @@ impl App {
             (order, person.name.to_lowercase(), *id)
         });
         let p = theme::palette(ui);
+        let mut all = all_choice.unwrap_or(prioritize_work);
         ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("People & live work").size(20.).strong());
+            ui.label(design::display("Persona ensemble", 29.));
             if !people.is_empty() {
                 ui.label(
                     RichText::new(counted(people.len() as u64, "person", "people"))
                         .small()
                         .color(p.muted),
                 );
+            }
+            if people.len() > 1 {
+                design::action_at_right(ui, |ui| {
+                    let before = all;
+                    ui.selectable_value(&mut all, true, "All people");
+                    ui.selectable_value(&mut all, false, "Focus");
+                    if before != all {
+                        all_choice = Some(all);
+                    }
+                });
             }
         });
         if people.is_empty() {
@@ -255,30 +268,75 @@ impl App {
         }
         ui.label(RichText::new(summary.join("  ·  ")).small().color(p.muted));
         ui.add_space(5.);
-        let width = ui.available_width();
-        let columns = if width >= 970. {
-            3
-        } else if width >= 650. {
-            2
-        } else {
-            1
-        };
-        let columns = columns.min(people.len());
         let now = ai_personas::neural::now();
         let mut action = None;
-        for group in people.chunks(columns) {
-            ui.columns(columns, |cells| {
-                for (cell, (id, person)) in cells.iter_mut().zip(group) {
-                    // Columns fill their cells, but prose should keep natural
-                    // word spacing even when it wraps a long activity brief.
-                    let layout = egui::Layout::top_down(egui::Align::Min);
-                    cell.scope_builder(
-                        egui::UiBuilder::new().id(("home-person", id)).layout(layout),
-                        |ui| self.home_person(ui, id, person, now, &mut action),
-                    );
-                }
-            });
+        if all {
+            let columns = if ui.available_width() >= 970. {
+                3
+            } else if ui.available_width() >= 600. {
+                2
+            } else {
+                1
+            };
+            let columns = columns.min(people.len());
+            for group in people.chunks(columns) {
+                ui.columns(columns, |cells| {
+                    for (cell, (id, person)) in cells.iter_mut().zip(group) {
+                        cell.push_id(("home-person", id), |ui| {
+                            self.home_person(ui, id, person, now, &mut action)
+                        });
+                    }
+                });
+            }
+        } else {
+            if !people.iter().any(|(id, _)| *id == focus) {
+                focus = people[0].0.to_owned();
+            }
+            let mut tabs = |ui: &mut Ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for (id, person) in &people {
+                        let count = self.home_index.participations.get(*id).map_or(0, Vec::len);
+                        let admitted = person
+                            .work
+                            .keys()
+                            .any(|work| self.runner_observation.has_worker(work, id));
+                        let detail = if admitted {
+                            "In session".to_owned()
+                        } else {
+                            counted(count as u64, "activity", "activities")
+                        };
+                        if design::persona_tab(
+                            ui,
+                            person.name,
+                            &detail,
+                            self.color(id),
+                            *id == focus,
+                        )
+                        .on_hover_text(format!("Focus on {}", person.name))
+                        .clicked()
+                        {
+                            focus = (*id).to_owned();
+                        }
+                    }
+                });
+            };
+            if people.len() > 8 {
+                egui::ScrollArea::vertical()
+                    .id_salt("ensemble-tabs")
+                    .max_height(120.)
+                    .show(ui, &mut tabs);
+            } else {
+                tabs(ui);
+            }
+            ui.add_space(5.);
+            if let Some((id, person)) = people.iter().find(|(id, _)| *id == focus) {
+                ui.push_id(("home-person", id), |ui| {
+                    self.home_person(ui, id, person, now, &mut action)
+                });
+            }
         }
+        self.home.focused_person = focus;
+        self.home.all_people = all_choice;
         match action {
             Some(Action::Profile(id, view)) => {
                 self.show_person(&id);
@@ -419,7 +477,7 @@ impl App {
         action: &mut Option<Action>,
     ) {
         let p = theme::palette(ui);
-        let name = RichText::new(person.name).size(20.).strong();
+        let name = design::display(person.name, 30.);
         let Some(profile) = person.profile else {
             ui.horizontal(|ui| {
                 theme::glyph(ui, Icon::People, p.muted);
@@ -430,7 +488,7 @@ impl App {
         };
         ui.horizontal(|ui| {
             let label = format!("Open {}’s profile", person.name);
-            let mark = avatar(ui, person.name, p.ink(self.color(id)), 38.);
+            let mark = avatar(ui, person.name, self.color(id), 58.);
             mark.widget_info(|| {
                 egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &label)
             });

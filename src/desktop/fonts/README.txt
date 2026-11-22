@@ -14,3 +14,7 @@ DejaVu Sans Mono: Bitstream Vera/DejaVu license, see DejaVu-LICENSE.txt.
 
 These fonts are third-party assets and are not covered by this repository's
 Apache-2.0 license. Personas is not affiliated with or endorsed by Blender.
+
+Instrument Serif is the display face used for Studio titles.
+https://github.com/google/fonts/tree/main/ofl/instrumentserif
+SIL Open Font License 1.1, see InstrumentSerif-OFL.txt.

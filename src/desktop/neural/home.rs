@@ -4,6 +4,8 @@ mod loom;
 #[derive(Default)]
 pub(super) struct Home {
     pub(super) loom: loom::Loom,
+    pub(super) focused_person: String,
+    pub(super) all_people: Option<bool>,
     query: String,
     kind: ActivityFilter,
     activity_page: usize,
@@ -52,7 +54,6 @@ const ACTIVITY_ROWS: usize = 6;
 impl App {
     pub(super) fn workspace_home(&mut self, ui: &mut Ui) {
         self.overview_composer(ui);
-        let jump = self.home_sections(ui);
         egui::ScrollArea::vertical()
             .id_salt("workspace-overview")
             .auto_shrink([false, false])
@@ -70,29 +71,29 @@ impl App {
                     });
                     return;
                 }
-                ui.add_space(14.);
+                ui.add_space(12.);
+                let jump = self.home_sections(ui);
+                ui.add_space(16.);
                 Section::People.jump_here(ui, jump);
                 let width = ui.available_width();
-                let handoffs =
-                    !self.home_index.requests.is_empty() || !self.home_index.deliveries.is_empty();
-                if width >= 1080. && handoffs {
-                    let gap = 16.;
-                    let live_width = (width - gap) * 0.58;
+                if width >= 920. {
+                    let gap = 20.;
+                    let left = (width - gap) * 0.49;
                     let spacing = ui.spacing().item_spacing.x;
                     ui.horizontal_top(|ui| {
                         ui.spacing_mut().item_spacing.x = gap;
                         ui.vertical(|ui| {
                             ui.spacing_mut().item_spacing.x = spacing;
-                            ui.set_width(live_width);
+                            ui.set_width(left);
                             self.workspace_live_people(ui);
-                            ui.add_space(14.);
-                            Section::Feed.jump_here(ui, jump);
-                            self.workspace_updates(ui);
+                            ui.add_space(16.);
+                            self.home_handoffs(ui, jump);
                         });
                         ui.vertical(|ui| {
                             ui.spacing_mut().item_spacing.x = spacing;
-                            ui.set_width((width - gap - live_width).max(1.));
-                            self.home_handoffs(ui, jump);
+                            ui.set_width(width - left - gap);
+                            Section::Feed.jump_here(ui, jump);
+                            self.home_feed(ui);
                         });
                     });
                 } else {
@@ -101,7 +102,7 @@ impl App {
                     self.home_handoffs(ui, jump);
                     ui.add_space(14.);
                     Section::Feed.jump_here(ui, jump);
-                    self.workspace_updates(ui);
+                    self.home_feed(ui);
                 }
                 ui.add_space(16.);
                 Section::Activities.jump_here(ui, jump);
@@ -122,9 +123,12 @@ impl App {
             Section::Deliveries.jump_here(ui, jump);
             self.home_deliveries(ui);
         } else if requests {
+            Section::Deliveries.jump_here(ui, jump);
             quiet_queue(ui, Icon::Files, "No packages delivered yet.");
         }
         if !requests {
+            Section::Requests.jump_here(ui, jump);
+            if !deliveries { Section::Deliveries.jump_here(ui, jump); }
             let state = if deliveries {
                 "No open human requests."
             } else {
@@ -134,44 +138,89 @@ impl App {
         }
     }
 
-    fn home_sections(&self, ui: &mut Ui) -> Option<Section> {
-        if self.snapshot.status.is_null() {
-            return None;
+    fn home_feed(&mut self, ui: &mut Ui) {
+        let mut open = None;
+        if !self.home_index.activities.is_empty() {
+            panel(ui).show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                open = self.activity_loom(ui);
+            });
+            ui.add_space(7.);
         }
+        match open {
+            Some((work, Some(seq))) => self.open_home_event(&work, seq),
+            Some((work, None)) => self.open_home_activity(&work),
+            None => {}
+        }
+        self.workspace_updates(ui);
+    }
+
+    fn home_sections(&self, ui: &mut Ui) -> Option<Section> {
+        let p = theme::palette(ui);
         let mut jump = None;
+        let items = [
+            (
+                Section::People,
+                "persona",
+                "personas",
+                self.records("personas").len(),
+                Icon::People,
+            ),
+            (
+                Section::Activities,
+                "activity",
+                "activities",
+                self.home_index.activities.len(),
+                Icon::Activity,
+            ),
+            (
+                Section::Deliveries,
+                "delivery",
+                "deliveries",
+                self.home_index.deliveries.len(),
+                Icon::Files,
+            ),
+            (
+                Section::Requests,
+                "human request",
+                "human requests",
+                self.home_index.requests.len(),
+                Icon::Questions,
+            ),
+        ];
         ui.horizontal_wrapped(|ui| {
-            ui.weak("Jump to");
-            let items = [
-                (
-                    Section::People,
-                    "People",
-                    Some(self.records("personas").len()),
-                ),
-                (Section::Feed, "Workspace activity", None),
-                (
-                    Section::Requests,
-                    "Human requests",
-                    Some(self.home_index.requests.len()),
-                ),
-                (
-                    Section::Deliveries,
-                    "Deliveries",
-                    Some(self.home_index.deliveries.len()),
-                ),
-                (
-                    Section::Activities,
-                    "Activities",
-                    Some(self.home_index.activities.len()),
-                ),
-            ];
-            for (section, title, count) in items {
-                if count == Some(0) && matches!(section, Section::Requests | Section::Deliveries) {
-                    continue;
+            for (target, singular, plural, count, icon) in items {
+                let response = ui
+                    .scope(|ui| {
+                        ui.spacing_mut().item_spacing.x = 5.;
+                        ui.horizontal(|ui| {
+                            theme::glyph(
+                                ui,
+                                icon,
+                                p.ink(match target {
+                                    Section::People => PURPLE,
+                                    Section::Deliveries => TEAL,
+                                    _ => p.accent,
+                                }),
+                            );
+                            ui.add(
+                                egui::Button::new(counted(count as u64, singular, plural))
+                                    .frame(false),
+                            )
+                        })
+                        .inner
+                    })
+                    .inner;
+                if response.on_hover_text(format!("Go to {plural}")).clicked() {
+                    jump = Some(target);
                 }
-                let label = count.map_or_else(|| title.to_owned(), |n| format!("{title} ({n})"));
-                if ui.link(label).clicked() {
-                    jump = Some(section);
-                }
+                ui.add_space(7.);
+            }
+            if ui
+                .add(egui::Button::new("Timeline ↓").frame(false))
+                .clicked()
+            {
+                jump = Some(Section::Feed);
             }
         });
         ui.separator();
@@ -179,36 +228,6 @@ impl App {
     }
 
     fn home_heading(&mut self, ui: &mut Ui) {
-        let p = theme::palette(ui);
-        let mut open = None;
-        egui::Frame::new()
-            .fill(p.header)
-            .stroke(Stroke::new(1., p.border))
-            .corner_radius(9)
-            .inner_margin(16)
-            .show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                let activity = !self.home_index.activities.is_empty();
-                if ui.available_width() >= 840. && activity {
-                    let width = ui.available_width();
-                    let left = (width * 0.37).min(450.);
-                    ui.horizontal_top(|ui| {
-                        ui.vertical(|ui| { ui.set_width(left); self.home_identity(ui); });
-                        ui.vertical(|ui| { ui.set_width(ui.available_width()); open = self.activity_loom(ui); });
-                    });
-                } else {
-                    self.home_identity(ui);
-                    if activity { ui.collapsing("Activity loom", |ui| open = self.activity_loom(ui)); }
-                }
-            });
-        match open {
-            Some((work, Some(seq))) => self.open_home_event(&work, seq),
-            Some((work, None)) => self.open_home_activity(&work),
-            None => {}
-        }
-    }
-
-    fn home_identity(&mut self, ui: &mut Ui) {
         let name = self
             .root
             .file_name()
@@ -232,32 +251,12 @@ impl App {
             name
         }
         .to_owned();
-        ui.horizontal_wrapped(|ui| {
-            theme::glyph(ui, Icon::People, theme::palette(ui).ink(TEAL));
-            eyebrow(ui, "Persona Studio  /  Society desk");
-        });
-        ui.add(egui::Label::new(RichText::new(&title).size(28.).strong()).wrap())
-            .on_hover_text(self.root.display().to_string());
-        if !self.snapshot.status.is_null() {
-            let field = theme::palette(ui);
-            ui.add_space(4.);
-            ui.horizontal_wrapped(|ui| {
-                for (label, count, ink) in [
-                    ("People", self.records("personas").len(), field.accent),
-                    ("Issued", self.home_index.deliveries.len(), TEAL),
-                    ("Needs you", self.home_index.requests.len(), theme::ACCENT),
-                ] {
-                    egui::Frame::new().fill(field.canvas).corner_radius(4).inner_margin(6).show(ui, |ui| {
-                        ui.horizontal(|ui| { ui.colored_label(field.ink(ink), RichText::new(count.to_string()).monospace().strong()); ui.small(label); });
-                    });
-                }
-            });
-            ui.add_space(6.);
-            ui.horizontal_wrapped(|ui| {
+        design::workspace_heading(ui, &title, |ui| {
+            if !self.snapshot.status.is_null() {
                 if ui.button("New brief…").clicked() { self.dialog = Some(Dialog::activity(false)); }
                 self.workspace_run_controls(ui);
-            });
-        }
+            }
+        });
     }
 
     fn home_activity_title<'a>(&'a self, work: &'a str) -> &'a str {
@@ -389,18 +388,22 @@ impl App {
                                 "Changes requested"
                             });
                         }
-                        if ui.small_button("Save handoff…")
+                        ui.menu_button("Export ↓", |ui| {
+                        if ui.button("Save handoff…")
                             .on_hover_text("Save the printable delivery sheet and its exact files").clicked() {
+                            ui.close();
                             selected = Some(SelectedDelivery::Handoff(reference.clone(), s(body, "title").into(),
                                 body["artifacts"].as_array().map_or(0, Vec::len)));
                         }
-                        if ui.small_button("Save files ZIP…")
+                        if ui.button("Save files ZIP…")
                             .on_hover_text("Save this edition’s files with their original paths").clicked() {
+                            ui.close();
                             selected = Some(SelectedDelivery::SaveZip(
                                 reference.clone(),
                                 s(body, "title").to_owned(),
                             ));
                         }
+                        });
                     });
                     if title_link(ui, s(body, "title"), &reference).clicked() {
                         selected = Some(SelectedDelivery::Package(
@@ -714,7 +717,7 @@ fn panel(ui: &Ui) -> egui::Frame {
 fn panel_heading(ui: &mut Ui, icon: Icon, color: Color32, name: &str, count: usize) {
     ui.horizontal_wrapped(|ui| {
         theme::glyph(ui, icon, theme::palette(ui).ink(color));
-        ui.label(RichText::new(name).size(19.).strong());
+        ui.label(design::display(name, 26.));
         ui.weak(number(count as u64));
     });
     ui.add_space(5.);

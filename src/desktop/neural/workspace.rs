@@ -7,6 +7,20 @@ impl App {
         let p = theme::Palette::new(self.layout.dark);
         let tight = ctx.content_rect().width() < 340.;
         let short_toolbar = tight && ctx.content_rect().height() < 260.;
+        if self.wide_navigation(ctx) {
+            egui::TopBottomPanel::top("studio-topbar")
+                .frame(egui::Frame::new().fill(p.panel).inner_margin(egui::Margin::symmetric(20, 7)))
+                .show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        let parent = self.root.file_name().and_then(|s| s.to_str()).unwrap_or("Workspace");
+                        let width = (ui.available_width() - 236.).clamp(80., 420.);
+                        ui.allocate_ui(egui::vec2(width, 30.), |ui| design::breadcrumb(ui, parent, self.editor_name()));
+                        design::action_at_right(ui, |ui| {
+                            ui.horizontal(|ui| self.header_actions(ui, ctx, false, false));
+                        });
+                    });
+                });
+        } else {
         egui::TopBottomPanel::top("studio-menu")
             .frame(egui::Frame::new().fill(p.field).inner_margin(if tight {
                 egui::Margin::symmetric(5, 5)
@@ -22,18 +36,7 @@ impl App {
                 ui.horizontal_wrapped(|ui| {
                     if theme::icon_button(ui, Icon::Workspaces, "Open workspace library").clicked()
                     {
-                        if self.running {
-                            if let Err(error) = std::env::current_exe().and_then(|exe| {
-                                std::process::Command::new(exe)
-                                    .arg("--operator")
-                                    .arg(&self.operator)
-                                    .spawn()
-                            }) {
-                                self.error = Some(error.to_string());
-                            }
-                        } else if !self.busy {
-                            self.show_library = true;
-                        }
+                        self.open_library();
                     }
                     let waiting = self.home_index.requests.len();
                     let inbox_label = if waiting == 0 {
@@ -77,11 +80,7 @@ impl App {
                     } else {
                         inbox_label.clone()
                     };
-                    let wordmark = RichText::new("PERSONAS")
-                        .size(15.)
-                        .strong()
-                        .extra_letter_spacing(2.);
-                    let studio = RichText::new("STUDIO").size(11.).color(p.muted);
+                    let wordmark = RichText::new("Persona Studio").size(16.).strong().color(p.text);
                     let measure = |text: egui::WidgetText, style| {
                         text.into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, style)
                             .size()
@@ -93,8 +92,7 @@ impl App {
                     let button_width =
                         |text: &str| measure(text.into(), egui::TextStyle::Button) + padding;
                     let brand_width = measure(wordmark.clone().into(), egui::TextStyle::Body)
-                        + measure(studio.clone().into(), egui::TextStyle::Body)
-                        + 2. * gap;
+                        + gap;
                     let actions_width = (if tight { 28. } else { button_width("Find…") })
                         + button_width("+ New")
                         + 28.
@@ -116,7 +114,6 @@ impl App {
                     let tabs = brand_width + tab_width + actions_width <= remaining;
                     if tabs || brand_width + compact_width + actions_width <= remaining {
                         ui.label(wordmark);
-                        ui.label(studio);
                     }
                     let mut go_to = None;
                     if tabs {
@@ -142,6 +139,11 @@ impl App {
                                         go_to = Some(page);
                                         ui.close();
                                     }
+                                }
+                                ui.separator();
+                                if ui.button("File viewer").clicked() {
+                                    file_desk::request(ctx, false);
+                                    ui.close();
                                 }
                             });
                         })
@@ -180,6 +182,7 @@ impl App {
                     }
                 });
             });
+        }
         let workspace = self.layout.editor.is_workspace_view();
         let compact = Self::constrained_activity_layout(ctx);
         if workspace && (compact || !self.has_workspace_notices()) {
@@ -300,6 +303,59 @@ impl App {
             });
     }
 
+    pub(super) fn wide_navigation(&self, ctx: &egui::Context) -> bool {
+        ctx.content_rect().width() >= 1180.
+    }
+
+    fn editor_name(&self) -> &'static str {
+        match self.layout.editor {
+            Editor::Home => "Overview", Editor::Studio => "Activity", Editor::Delivery => "Delivery",
+            Editor::People => "Personas", Editor::Inbox => "Needs you", Editor::Conversations => "Conversations",
+            Editor::Artifacts => "Artifacts", Editor::Character => "Character Lab", Editor::Atlas => "Character Atlas",
+            Editor::Usage => "Usage", Editor::Responsibilities => "Responsibility board", Editor::Agreements => "Agreement book",
+        }
+    }
+
+    pub(super) fn navigation_rail(&mut self, ctx: &egui::Context) {
+        let operator = self.operator.clone();
+        design::rail(ctx, "workspace-rail", &operator, "Workspace operator", |ui| {
+            design::rail_group(ui, "Studio");
+            if design::rail_link(ui, Icon::Folder, "Workspace library", false).clicked() { self.open_library(); }
+            let waiting = self.home_index.requests.len();
+            let inbox = if waiting == 0 { "Needs you".into() } else { format!("Needs you  ·  {waiting}") };
+            for (group, pages) in [
+                ("Workspace", &[(Editor::Home, Icon::Workspaces, "Overview"), (Editor::People, Icon::People, "Personas"),
+                    (Editor::Studio, Icon::Activity, "Activity"), (Editor::Conversations, Icon::Conversation, "Conversations"),
+                    (Editor::Inbox, Icon::Questions, inbox.as_str())][..]),
+                ("Explore", &[(Editor::Artifacts, Icon::Folder, "Artifacts"), (Editor::Character, Icon::Settings, "Character Lab"),
+                    (Editor::Atlas, Icon::Map, "Character Atlas"), (Editor::Usage, Icon::Sessions, "Usage")][..]),
+            ] {
+                design::rail_group(ui, group);
+                for &(page, icon, label) in pages {
+                    let selected = self.layout.editor == page || (page == Editor::Studio &&
+                        matches!(self.layout.editor, Editor::Responsibilities | Editor::Agreements | Editor::Delivery));
+                    if design::rail_link(ui, icon, label, selected).clicked() {
+                        self.layout.editor = page;
+                        if page == Editor::Inbox { self.inbox.active_list(); }
+                    }
+                }
+            }
+            if design::rail_link(ui, Icon::Files, "File viewer", false).clicked() { file_desk::request(ctx, false); }
+        });
+    }
+
+    fn open_library(&mut self) {
+        if self.running {
+            if let Err(error) = std::env::current_exe().and_then(|exe| {
+                std::process::Command::new(exe).arg("--operator").arg(&self.operator).spawn()
+            }) {
+                self.error = Some(error.to_string());
+            }
+        } else if !self.busy {
+            self.show_library = true;
+        }
+    }
+
     fn header_actions(&mut self, ui: &mut Ui, ctx: &egui::Context, tight: bool, in_menu: bool) {
         let find = if tight {
             theme::icon_button(ui, Icon::Search, &self.find_hint(ctx))
@@ -319,6 +375,7 @@ impl App {
                     ui.close();
                 }
             }
+            if ui.button("File viewer…").clicked() { file_desk::request(ctx, false); ui.close(); }
             if ui.button("Persona").clicked() {
                 self.dialog = Some(Dialog::persona(&self.persona));
                 ui.close();
