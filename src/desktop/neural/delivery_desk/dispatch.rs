@@ -2,6 +2,8 @@
 //! here; a preview or a local export is not a human response or an order.
 use super::*;
 
+const FILES_PER_PAGE: usize = 6;
+
 impl App {
     pub(super) fn dispatch_slips(&mut self, ui: &mut Ui, p: &Package) {
         let Some(slips) = p.body["dispatches"].as_array().filter(|s| !s.is_empty()) else {
@@ -13,6 +15,7 @@ impl App {
         let ink = colors.ink(persona_color(issuer));
         let mut save = false;
         let mut preview = None;
+        let mut page = self.delivery_desk.slip_page;
         ui.add_space(8.);
         panel(ui).show(ui, |ui| {
             ui.set_width(ui.available_width());
@@ -42,28 +45,44 @@ impl App {
             ui.separator();
             let slip = &slips[index];
             let addresses: Vec<_> = strings(&slip["artifacts"]).collect();
+            if index != self.delivery_desk.slip {
+                page = 0;
+            }
+            page = page.min(addresses.len().saturating_sub(1) / FILES_PER_PAGE);
             let direction = |ui: &mut Ui| {
                 eyebrow(ui, "Prepared for");
                 ui.add(
                     egui::Label::new(RichText::new(s(slip, "recipient")).size(21.).strong()).wrap(),
                 );
-                ui.label(s(slip, "instructions"));
+                let instructions = s(slip, "instructions");
+                ui.label(instructions);
+                if ui
+                    .small_button("Copy instructions")
+                    .on_hover_text("Copy the issuer’s wording. Nothing is sent.")
+                    .clicked()
+                {
+                    ui.ctx().copy_text(instructions.to_owned());
+                }
             };
             let mut contents = |ui: &mut Ui| {
                 ui.horizontal_wrapped(|ui| {
                     eyebrow(ui, "Take unchanged");
                     ui.small(counted(addresses.len() as u64, "file", "files"));
                 });
-                let mut ready = !addresses.is_empty();
-                for reference in &addresses {
-                    match p
-                        .files
-                        .iter()
-                        .enumerate()
-                        .find(|(_, f)| &f.reference == reference)
-                    {
-                        Some((i, f)) => {
-                            ready &= f.digest.is_some();
+                let ready = !addresses.is_empty()
+                    && addresses.iter().all(|r| {
+                        p.by_reference
+                            .get(*r)
+                            .is_some_and(|&i| p.files[i].digest.is_some())
+                    });
+                for &reference in addresses
+                    .iter()
+                    .skip(page * FILES_PER_PAGE)
+                    .take(FILES_PER_PAGE)
+                {
+                    match p.by_reference.get(reference) {
+                        Some(&i) => {
+                            let f = &p.files[i];
                             if ui
                                 .link(&f.path)
                                 .on_hover_text(format!("Preview {}\n{}", f.path, reference))
@@ -73,11 +92,11 @@ impl App {
                             }
                         }
                         None => {
-                            ready = false;
                             ui.weak(format!("File edition unavailable: {reference}"));
                         }
                     }
                 }
+                home::pager(ui, &mut page, addresses.len(), FILES_PER_PAGE, "slip files");
                 if ui
                     .add_enabled(
                         ready,
@@ -105,8 +124,28 @@ impl App {
                 ui.add_space(8.);
                 contents(ui);
             }
+            let outstanding: Vec<_> = strings(&p.body["remaining"]).collect();
+            if !outstanding.is_empty() {
+                ui.add_space(6.);
+                egui::CollapsingHeader::new(format!(
+                    "Before forwarding · {}",
+                    counted(
+                        outstanding.len() as u64,
+                        "remaining item",
+                        "remaining items"
+                    )
+                ))
+                .id_salt(("dispatch-conditions", &p.reference))
+                .show(ui, |ui| {
+                    ui.weak("The issuer recorded these open items for this edition:");
+                    for condition in outstanding {
+                        ui.label(format!("• {condition}"));
+                    }
+                });
+            }
         });
         self.delivery_desk.slip = index;
+        self.delivery_desk.slip_page = page;
         if let Some(i) = preview {
             self.delivery_desk.selected = i;
             self.delivery_desk.focus_preview = true;
@@ -115,9 +154,9 @@ impl App {
             let slip = &slips[index];
             let refs: Vec<_> = strings(&slip["artifacts"]).collect();
             let path = (refs.len() == 1)
-                .then(|| p.files.iter().find(|f| f.reference == refs[0]))
+                .then(|| p.by_reference.get(refs[0]))
                 .flatten()
-                .map(|f| f.path.as_str());
+                .map(|&i| p.files[i].path.as_str());
             self.save_dispatch(
                 &p.reference,
                 index + 1,

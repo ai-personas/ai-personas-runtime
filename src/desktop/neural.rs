@@ -358,6 +358,7 @@ impl App {
         let finish=Arc::new(std::sync::atomic::AtomicBool::new(false));
         let (root,tx,ctx)=(self.root.clone(),self.tx.clone(),ctx.clone());
         self.running=true;
+        self.notice.clear();
         self.error=None;
         self.following=Some((work.clone(),finish.clone()));
         std::thread::spawn(move ||{
@@ -387,6 +388,7 @@ impl App {
         let run = matches!(command, Command::Run { .. });
         let bench = matches!(&command,Command::InstallCommand{..}|Command::RunCommand{..}|Command::CommandHistory(_));
         if run {
+            self.notice.clear();
             self.running = true
         } else {
             self.busy = true

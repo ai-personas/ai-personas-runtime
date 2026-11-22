@@ -16,6 +16,7 @@ pub(super) struct Desk {
     inline: Inline,
     focus_preview: bool,
     slip: usize,
+    slip_page: usize,
     show_references: bool,
     file_page: usize,
     request_page: usize,
@@ -79,6 +80,7 @@ struct Package {
     body: Value,
     reference: String,
     files: Vec<File>,
+    by_reference: BTreeMap<String, usize>,
     issued: Option<String>,
     requests: Vec<usize>,
 }
@@ -93,7 +95,7 @@ impl Package {
             .iter()
             .map(|a| (s(a, "reference"), a))
             .collect();
-        let files = strings(&body["artifacts"])
+        let files: Vec<_> = strings(&body["artifacts"])
             .map(|reference| {
                 let asset = assets.get(reference).copied().unwrap_or(&Value::Null);
                 let metadata = &asset["body"];
@@ -128,6 +130,7 @@ impl Package {
             body: body.clone(),
             requests: requests::using_edition(app, &reference),
             reference,
+            by_reference: files.iter().enumerate().map(|(i, f)| (f.reference.clone(), i)).collect(),
             files,
             issued,
         }
@@ -221,6 +224,7 @@ impl App {
                 desk.file_page = 0;
                 desk.request_page = 0;
                 desk.slip = 0;
+                desk.slip_page = 0;
                 desk.origins = None;
                 desk.file_search.clear();
                 desk.focus_preview = false;
@@ -245,13 +249,11 @@ impl App {
             if let Some(p) = package {
                 let work = s(&p.body, "work");
                 let title = self.work_name(work);
-                let (label, detail) = if compact {
-                    ("Activity", title.as_str())
-                } else {
-                    (title.as_str(), work)
-                };
                 ui.weak("/");
-                if ui.link(label).on_hover_text(detail).clicked() {
+                let label = if compact { "Activity".to_owned() } else {
+                    home::short_text(&title, (ui.available_width() / 9.).clamp(14., 96.) as usize)
+                };
+                if ui.link(label).on_hover_text(format!("{title}\n{work}")).clicked() {
                     self.open_home_activity(work);
                 }
             }
