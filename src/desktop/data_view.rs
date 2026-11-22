@@ -10,6 +10,22 @@ pub struct Dataset {
     pub header: Option<bool>,
 }
 
+/// Shared by the full file viewer and immutable package previews.
+pub(super) fn delimited_rows(text: &str, tsv: bool) -> Result<Vec<Vec<String>>, csv::Error> {
+    // Some instruments write fixed-width numeric columns under a .tsv filename.
+    if tsv && !text.contains(['\t', '"']) {
+        let rows: Vec<Vec<String>> = text.lines().filter(|line| !line.trim().is_empty())
+            .map(|line| line.split_ascii_whitespace().map(str::to_owned).collect()).collect();
+        if rows.len() > 1 && rows[0].len() > 1 && rows[1..].iter().all(|r|
+            r.len() == rows[0].len() && r.iter().all(|v| v.parse::<f64>().is_ok())) {
+            return Ok(rows);
+        }
+    }
+    csv::ReaderBuilder::new().has_headers(false).flexible(true)
+        .delimiter(if tsv { b'\t' } else { b',' }).from_reader(text.as_bytes())
+        .records().map(|r| r.map(|r| r.iter().map(str::to_owned).collect())).collect()
+}
+
 /// Discover tabular representations by structure, without guessing which data
 /// constitute simulation results or assigning meaning or units to columns.
 pub fn json_datasets(value: &serde_json::Value) -> Vec<Dataset> {
@@ -176,6 +192,9 @@ pub struct TableView {
     y: BTreeSet<usize>,
     initialized: bool,
     header_hint: Option<bool>,
+    filter: String,
+    filter_header: Option<bool>,
+    matches: Vec<usize>,
 }
 impl Default for TableView {
     fn default() -> Self {
@@ -189,6 +208,9 @@ impl Default for TableView {
             y: BTreeSet::new(),
             initialized: false,
             header_hint: None,
+            filter: String::new(),
+            filter_header: None,
+            matches: Vec::new(),
         }
     }
 }
@@ -299,7 +321,24 @@ impl TableView {
                 });
         } else {
             const PAGE: usize = 200;
-            let pages = data.len().div_ceil(PAGE).max(1);
+            let changed = ui.add(egui::TextEdit::singleline(&mut self.filter)
+                .hint_text("Find a value in any column…")
+                .desired_width(ui.available_width().min(330.))).changed();
+            if changed || self.filter_header != Some(self.header) {
+                self.page = 0;
+                self.matches.clear();
+                let needle = self.filter.trim().to_lowercase();
+                if !needle.is_empty() {
+                    self.matches.extend(data.iter().enumerate().filter_map(|(i, row)|
+                        row.iter().any(|cell| cell.to_lowercase().contains(&needle)).then_some(i)));
+                }
+                self.filter_header = Some(self.header);
+            }
+            let filtered = !self.filter.trim().is_empty();
+            let count = if filtered { self.matches.len() } else { data.len() };
+            if filtered { ui.small(format!("Matching rows: {count} of {}", data.len())); }
+            if count == 0 && filtered { return; }
+            let pages = count.div_ceil(PAGE).max(1);
             self.page = self.page.min(pages - 1);
             ui.horizontal(|ui| {
                 if ui
@@ -328,9 +367,9 @@ impl TableView {
                                 ui.strong(label(c));
                             }
                             ui.end_row();
-                            for (i, row) in
-                                data.iter().enumerate().skip(self.page * PAGE).take(PAGE)
-                            {
+                            for position in self.page * PAGE..((self.page + 1) * PAGE).min(count) {
+                                let i = if filtered { self.matches[position] } else { position };
+                                let row = &data[i];
                                 ui.weak((i + 1).to_string());
                                 for c in 0..columns {
                                     ui.add(

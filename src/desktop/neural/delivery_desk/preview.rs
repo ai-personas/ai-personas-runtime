@@ -1,5 +1,6 @@
 //! A bounded in-page preview of a single immutable package member.
 use super::*;
+use super::super::super::data_view;
 use ai_personas::neural::store;
 use std::{
     io::Cursor,
@@ -27,6 +28,7 @@ enum Kind {
     Raster,
     Html,
     Archive,
+    Table(bool), // true for TSV
     Text,
     Other,
 }
@@ -53,6 +55,8 @@ impl Format {
             ("zip", _) | (_, "application/zip") => Kind::Archive,
             ("pdf", _) | (_, "application/pdf") => Kind::Pdf,
             ("svg", _) | (_, "image/svg+xml") => Kind::Vector,
+            ("csv", _) | (_, "text/csv") => Kind::Table(false),
+            ("tsv", _) | (_, "text/tab-separated-values") => Kind::Table(true),
             ("png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tif" | "tiff" | "ico", _)
             | (
                 _,
@@ -63,7 +67,7 @@ impl Format {
                 Kind::Html
             }
             (
-                "md" | "markdown" | "txt" | "json" | "csv" | "tsv" | "yaml" | "yml" | "xml" | "net"
+                "md" | "markdown" | "txt" | "json" | "yaml" | "yml" | "xml" | "net"
                 | "gbr" | "drl" | "kicad_sch" | "kicad_pcb" | "cir" | "spice",
                 _,
             ) => Kind::Text,
@@ -76,6 +80,8 @@ impl Format {
             (Kind::Raster, _) => "Raster image".into(),
             (Kind::Html, _) => "HTML document".into(),
             (Kind::Archive, _) => "ZIP archive".into(),
+            (Kind::Table(false), _) => "CSV table".into(),
+            (Kind::Table(true), _) => "TSV table".into(),
             (Kind::Text, "md" | "markdown") => "Markdown".into(),
             (Kind::Text, "gbr") => "Gerber source".into(),
             (Kind::Text, "drl") => "Drill source".into(),
@@ -119,6 +125,7 @@ enum Content {
     Pdf(egui::ColorImage, u32),
     Html(html::Preview),
     Archive(archive::Listing),
+    Table(Vec<Vec<String>>),
     Other,
     Text(String, bool),
 }
@@ -162,6 +169,7 @@ enum View {
     Pdf(egui::TextureHandle),
     Html(html::Preview),
     Archive(archive::Listing),
+    Table(Vec<Vec<String>>, data_view::TableView),
     Text(String, bool),
     Note(String),
 }
@@ -280,6 +288,7 @@ impl Inline {
                     }
                     Ok(Content::Html(page)) => View::Html(page),
                     Ok(Content::Archive(listing)) => View::Archive(listing),
+                    Ok(Content::Table(rows)) => View::Table(rows, Default::default()),
                     Ok(Content::Text(body, truncated)) => View::Text(body, truncated),
                     Ok(Content::Other) => {
                         View::Note("Use the full file viewer for this format.".into())
@@ -313,6 +322,14 @@ impl Inline {
             View::Pdf(texture) => self.pages.show(ui, texture, &path, reference),
             View::Html(page) => page.show(ui, reference, &mut self.html_source),
             View::Archive(listing) => selected = listing.show(ui),
+            View::Table(rows, table) => {
+                ui.push_id(("issued-table", reference), |ui| {
+                    // Keep the inner viewport bounded inside the delivery's own
+                    // scrolling page, including when this ZIP has many rows.
+                    let area = egui::vec2(ui.available_width(), 310.0_f32.min(ui.ctx().content_rect().height() * 0.46));
+                    ui.allocate_ui(area, |ui| table.ui(ui, rows));
+                });
+            }
             View::Image(texture, note) => {
                 let available = ui.available_width();
                 let height = (available * 0.72)
@@ -427,7 +444,7 @@ fn load(job: &Job, cancelled: impl Fn() -> bool) -> ai_personas::neural::Result<
         Some(member) => member.contents(&bytes)?,
         None => bytes,
     };
-    let kind = if matches!(kind, Kind::Text | Kind::Html) && bytes.starts_with(b"%PDF-") {
+    let kind = if matches!(kind, Kind::Text | Kind::Html | Kind::Table(_)) && bytes.starts_with(b"%PDF-") {
         Kind::Pdf
     } else {
         kind
@@ -482,6 +499,7 @@ fn load(job: &Job, cancelled: impl Fn() -> bool) -> ai_personas::neural::Result<
         }
         Kind::Html => Ok(Content::Html(html::Preview::read(&bytes)?)),
         Kind::Archive => Ok(Content::Archive(archive::Listing::read(&bytes)?)),
+        Kind::Table(tsv) => Ok(Content::Table(data_view::delimited_rows(std::str::from_utf8(&bytes)?, tsv)?)),
         Kind::Text => {
             if bytes.contains(&0) {
                 return Err(ai_personas::neural::failure(

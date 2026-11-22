@@ -275,28 +275,6 @@ pub(super) fn recorded(source: super::super::helpers::ResultFiles) -> Result<Cat
     Ok(Catalog { files, note: note.into() })
 }
 
-// Some instruments write fixed-width numeric columns under a .tsv filename.
-// Detect that unambiguous layout before using the ordinary quoted TSV reader.
-fn aligned_numeric_rows(text: &str) -> Option<Vec<Vec<String>>> {
-    if text.contains(['\t', '"']) {
-        return None;
-    }
-    let mut lines = text.lines().filter(|line| !line.trim().is_empty());
-    let first: Vec<_> = lines.next()?.split_ascii_whitespace().collect();
-    if first.len() < 2 {
-        return None;
-    }
-    let mut rows = vec![first.iter().map(|v| (*v).to_owned()).collect()];
-    for line in lines {
-        let fields: Vec<_> = line.split_ascii_whitespace().collect();
-        if fields.len() != first.len() || !fields.iter().all(|v| v.parse::<f64>().is_ok()) {
-            return None;
-        }
-        rows.push(fields.into_iter().map(str::to_owned).collect());
-    }
-    (rows.len() > 1).then_some(rows)
-}
-
 fn retained_pdf_header(source: &Source, extension: &str) -> Result<bool, String> {
     let Source::Snapshot { path, .. } = source else {
         return Ok(false);
@@ -401,14 +379,7 @@ pub(super) fn decode(source: &Source, cancel: &native_preview::Cancellation) -> 
         )?),
         "csv" | "tsv" => {
             let text = std::str::from_utf8(&bytes).map_err(|e| e.to_string())?;
-            let rows = if let Some(rows) = (ext == "tsv").then(|| aligned_numeric_rows(text)).flatten() {
-                rows
-            } else {
-                csv::ReaderBuilder::new().has_headers(false).flexible(true)
-                    .delimiter(if ext == "tsv" { b'\t' } else { b',' }).from_reader(bytes.as_slice())
-                    .records().map(|r| r.map(|r| r.iter().map(str::to_owned).collect()))
-                    .collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
-            };
+            let rows = data_view::delimited_rows(text, ext == "tsv").map_err(|e| e.to_string())?;
             Body::Table(rows,text.to_owned())
         }
         "json" => {
