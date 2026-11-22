@@ -1688,7 +1688,7 @@ impl App {
     }
 }
 
-fn event_text(event: &Value) -> &str {
+pub(super) fn event_text(event: &Value) -> &str {
     let body = &event["body"];
     if event["kind"] == "delivery" && body["record"]["title"].is_string() {
         return s(&body["record"], "title");

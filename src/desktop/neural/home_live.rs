@@ -551,7 +551,7 @@ impl App {
         resource
     }
 
-    fn home_membership_state(&self, part: &Value) -> &'static str {
+    pub(super) fn home_membership_state(&self, part: &Value) -> &'static str {
         let ended = self
             .home_index
             .activity(s(part, "work"))

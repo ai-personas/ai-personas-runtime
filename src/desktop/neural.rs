@@ -27,6 +27,7 @@ mod data;
 mod home;
 mod home_index;
 mod home_live;
+mod society;
 mod home_navigation;
 mod home_updates;
 mod delivery_desk;
@@ -445,6 +446,7 @@ impl App {
         self.home_index.refresh(&snapshot.status, &snapshot.events);
         self.home_updates.observe(&snapshot.events, self.events.len());
         self.home.loom.observe(&snapshot.events, self.events.len());
+        self.home.society.observe(&snapshot.status, &snapshot.events, self.events.len());
         for (offset,event) in snapshot.events.iter().enumerate() {
             if event["body"]["tool"]=="compute.run" {
                 if let Some(program)=event["tool_outcome"]["program"].as_str() {

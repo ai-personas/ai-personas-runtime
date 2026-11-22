@@ -4,6 +4,8 @@ mod loom;
 #[derive(Default)]
 pub(super) struct Home {
     pub(super) loom: loom::Loom,
+    pub(super) society: society::Society,
+    work_desk: bool,
     pub(super) focused_person: String,
     pub(super) all_people: Option<bool>,
     query: String,
@@ -55,7 +57,7 @@ impl App {
     pub(super) fn workspace_home(&mut self, ui: &mut Ui) {
         self.overview_composer(ui);
         egui::ScrollArea::vertical()
-            .id_salt("workspace-overview")
+            .id_salt(("workspace-overview", self.home.work_desk))
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 self.home_heading(ui);
@@ -71,7 +73,24 @@ impl App {
                     });
                     return;
                 }
-                ui.add_space(12.);
+                ui.add_space(10.);
+                ui.horizontal_wrapped(|ui| {
+                    ui.selectable_value(&mut self.home.work_desk, false, "Society");
+                    ui.selectable_value(&mut self.home.work_desk, true, "Work desk");
+                    if !self.home.work_desk && !self.home_index.requests.is_empty() {
+                        let requests = counted(self.home_index.requests.len() as u64, "open human request", "open human requests");
+                        if ui.link(requests).clicked() {
+                            self.inbox.active_list();
+                            self.layout.editor = Editor::Inbox;
+                        }
+                    }
+                });
+                ui.separator();
+                if !self.home.work_desk {
+                    self.society_view(ui);
+                    return;
+                }
+                ui.add_space(6.);
                 let jump = self.home_sections(ui);
                 ui.add_space(16.);
                 Section::People.jump_here(ui, jump);
