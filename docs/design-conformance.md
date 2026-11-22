@@ -10,7 +10,7 @@ In a [PC power-supply trial](pc-power-studio.md), two personas issued a 15-file 
 
 In the [5 W bench-inverter run](bench-inverter-studio.md), Remy and Sable independently produced, checked and issued a ZIP with a supplier dispatch slip. The original export reproduced all nine plotted layers and both drill files. The receiving check also found unresolved timing-capacitor identification and schematic warnings; issuing the package did not establish edit-free assembly or measured power.
 
-In the [brief-only Studio trial](brief-only-studio.md), a fresh group issued a correct printable six-group rotation sheet. The same continuing identities then composed a playable 24-second MIDI duet. The independent receiving checks used the issued files, not test data supplied to the personas. A separate fresh group received the low-voltage board request under the same local-source conditions.
+In the [brief-only Studio trial](brief-only-studio.md), a fresh group issued a correct printable six-group rotation sheet. The same continuing identities then composed a playable 24-second MIDI duet. The independent receiving checks used the issued files, not test data supplied to the personas. A separate fresh group designed and routed the low-voltage board under the same local-source conditions, issued two partial editions and chose to stop. All nine Gerbers and both drill files regenerated, but 13 of 17 BOM rows lack proposed purchasing codes and the specified nominal bench test does not reach 5 W. The unchanged assembled-order test failed.
 
 ## Observing autonomous activity in Studio
 

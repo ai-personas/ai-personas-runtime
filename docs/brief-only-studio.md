@@ -1,5 +1,7 @@
 # One brief, no starter project
 
+**Result: the personas completed event planning and music tasks, and designed and routed an inverter without outside input. They did not deliver an inverter package ready for an unchanged assembled order.**
+
 Can a group choose its own work from a request, rather than follow an electronics workflow? We ran two fresh societies in parallel through **native Studio, Codex OAuth and `gpt-6.1-sol` at medium effort**. One started with event scheduling; the other with a low-voltage bench inverter. No task, file format, profession or sequence of tools was added to the runtime for these examples.
 
 ## What the groups got
@@ -35,3 +37,23 @@ The only request was:
 > Design a 5 W low-voltage DC-to-AC inverter board for bench use, not mains or grid. Deliver a package I can send unchanged to order it assembled. Work from this request, the installed tools and stock libraries only. Do not consult other projects, use the internet for research, ask outside the group or place an order.
 
 An empty *project* is not enough by itself. The earlier Remy/Sable [quote package](bench-inverter-studio.md) used public documents. A receiving experiment with Kit and Perrin began with that ZIP; at 112 accepted decisions it had no issued delivery. In another empty-folder attempt, Ellis found an earlier trial directory and downloaded public datasheets with a local command. That listener was finished (15 accepted decisions, no issue). None of those is counted as producing an assembled-order package from the request and installed resources alone.
+
+### What the local-only group actually issued
+
+Arden and Bell chose the circuit assumptions, divided up the CAD and review work, inspected stock symbols, corrected routing and placement problems, and reviewed the frozen result. They issued **two partial engineering editions**, not a purchase release. The operator sent no answer, design suggestion, source file or amendment. The only journal entries outside persona decisions were the two invitations for the single brief. All **164** `command.local` launches matched the test-host entry log (150 exit zero, 14 nonzero). The only other dispatched effects were two local image reads and one workspace bundle. There was **no** web fetch, remote install, human request, supplier contact or order. Arden and Bell each **chose to stop**, explicitly leaving the unchanged-order result incomplete.
+
+Across 186 accepted decisions (99 Arden, 87 Bell) and two rejected responses, all 188 completed inputs and final provider outputs matched. There were 182 ordinary accepted choices using an active character. Receipts reported 2,942,946 input tokens (1,232,256 cached) and 122,598 output tokens. The length and cost of this run are not evidence of superior engineering.
+
+Studio’s **Save this ZIP unchanged…** returned the exact asset `inverter/engineering-review-v2.zip` from `delivery:delivery-a0fea571fdceaf3bc9f8b6a2a1281af3@1`: **343,287 bytes**, SHA-256 `8786d11bec3a520e443ce48702e35e709c9875c0e5c58b1e244c0ed5d0c98cf6`. All 50 ZIP members passed CRC checks; the included manifest matched all 49 other members. The earlier 158,563-byte edition had 44 members. The newer edition added verification material, not a qualified purchasing BOM.
+
+![The final partial edition in Studio, with its supported use and all four open items.](assets/studio-brief-only-inverter.jpg)
+
+| Independent receiving check on the updated ZIP | Result |
+|---|---|
+| CAM and board | KiCad 9.0.9 regenerated all **nine Gerbers and both drill files**, matching apart from creation-date lines. Gerbonara parsed the four outline segments (65 × 45 mm), 25 plated drill hits and no non-plated hits. With stock libraries configured, ordinary board DRC had **zero violations or unconnected items**. |
+| Schematic and placement | 60 distinct numbered connections in the exported schematic and routed board had the same connectivity when compared by pin membership. KiCad’s strict schematic parity check nevertheless reported **67 net-name warnings**. All 17 references (15 SMT, two THT), values, footprint item names, positions, native rotations and mounting categories agreed with the engineering BOM and placement sheet. |
+| Editability on a second machine | Schematic ERC had no findings with the design host’s paths available. The project symbol table points to seven absolute paths on that host. With the same stock libraries installed at different paths and the original tree unreadable, board DRC still passed but ERC reported **21 symbol-library warnings**. The archive is not a fully portable, cleanly relinked source project. |
+| Purchasing and assembly | **13 of 17 engineering BOM rows have no proposed MPN**: both connectors, three resistors and eight capacitors. The four IC identifiers are explicitly unverified and every board-BOM row withholds purchasing release. The driver’s logic, current and thermal limits, regulator/capacitor compatibility and acceptance of filled and copper-capped thermal vias remain open. A consistent placement file cannot resolve them. |
+| 5 W target | The proposed output is a nominal **49.41 Hz** differential square wave from a 12 V DC bench supply. The named 30 Ω bench load gets at most `12²/30 = 4.8 W` in the ideal nominal case, before bridge or copper losses. The authors propose measuring an appropriate adjustable load; they neither specified a verified 5 W operating point nor measured one. No physical board was built or tested. |
+
+**Disposition:** keep this edition for engineering review, not assembled ordering. The scheduling and music deliveries demonstrate that the runtime is not a fixed circuit-design workflow. They do not compensate for the concrete inverter release blockers.
