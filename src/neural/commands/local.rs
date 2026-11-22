@@ -13,7 +13,7 @@ use std::{
     fs::File,
     io::{Read, Seek, Write},
     os::unix::{
-        fs::PermissionsExt,
+        fs::{OpenOptionsExt, PermissionsExt},
         process::{CommandExt, ExitStatusExt},
     },
     path::{Path, PathBuf},
@@ -110,6 +110,29 @@ fn executable(program: &str, cwd: &Path) -> Result<PathBuf> {
             "Local executable {program:?} was not found or is not executable"
         ))
     })
+}
+
+// An operator may supply a host environment (e.g. an instrumented toolchain).
+// The persona still selects the program and every argument. Do not interpret a
+// shell command, change the selected basename, or fall back to direct execution.
+fn launch_command(path: &Path, launcher: Option<&Path>, host: &mut Value) -> Result<Command> {
+    let Some(launcher) = launcher else { return Ok(Command::new(path)); };
+    if !launcher.is_absolute() {
+        return Err(failure("AI_PERSONAS_LOCAL_LAUNCHER must name an absolute executable path"));
+    }
+    let resolved = launcher.canonicalize()?;
+    let mut file = File::options().read(true).custom_flags(libc::O_NONBLOCK).open(&resolved)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.permissions().mode() & 0o111 == 0 {
+        return Err(failure("The configured local launcher is not an executable file"));
+    }
+    let mut hash = Sha256::new();
+    std::io::copy(&mut file, &mut hash)?;
+    host["launcher"]["resolved"] = json!(resolved.to_string_lossy());
+    host["launcher"]["sha256_before_launch"] = json!(hex::encode(hash.finalize()));
+    let mut command = Command::new(launcher);
+    command.arg(path);
+    Ok(command)
 }
 
 fn read_stream(mut file: File) -> Result<Vec<u8>> {
@@ -223,6 +246,10 @@ pub(crate) fn run(
     let mut host = json!({"os":std::env::consts::OS,"arch":std::env::consts::ARCH,
         "effective_uid":unsafe { libc::geteuid() },"working_directory":project,"directory_mode":input.directory,
         "inherited_environment_sha256":crate::host_command::environment_sha256()});
+    let launcher = std::env::var_os("AI_PERSONAS_LOCAL_LAUNCHER").map(PathBuf::from);
+    if let Some(path) = &launcher {
+        host["launcher"] = json!({"path":path.to_string_lossy()});
+    }
     let mut process_started = false;
     let mut cancelled = false;
     let mut timed_out = false;
@@ -256,7 +283,7 @@ pub(crate) fn run(
             cancelled = true;
             return Err(failure("Stopped before launch"));
         }
-        let mut child = Command::new(path)
+        let mut child = launch_command(&path, launcher.as_deref(), &mut host)?
             .args(&input.arguments)
             .current_dir(project)
             .stdin(stdin)

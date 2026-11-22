@@ -1427,6 +1427,15 @@ impl App {
                         }
                     });
                 }
+                if let Some(path) = result["local_launcher"]["path"].as_str() {
+                    egui::CollapsingHeader::new("Configured program launcher").id_salt(("local-launcher", seq)).show(ui, |ui| {
+                        ui.monospace(path);
+                        if let Some(hash) = result["local_launcher"]["sha256_before_launch"].as_str() {
+                            ui.small(format!("SHA-256 before launch: {hash}"));
+                        }
+                        ui.weak("Process status refers to the launcher. The receipt does not enumerate the files or services its child used.");
+                    });
+                }
                 if let Some(inputs) = result["project_inputs"].as_object() {
                     egui::CollapsingHeader::new(format!("Project inputs · {}", inputs.len())).id_salt(("staged-inputs", seq)).show(ui, |ui| {
                         ui.weak("Observed before launch. Later edits in the shared directory do not change these input bytes.");

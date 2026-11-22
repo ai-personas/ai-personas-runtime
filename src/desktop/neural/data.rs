@@ -546,6 +546,9 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
     }
     if matches!(body["tool"].as_str(), Some("command.run" | "command.local")) {
         projection["receipt"]=result["receipt"].clone();
+        if let Some(launcher) = result["result"]["host"].get("launcher") {
+            projection["local_launcher"] = launcher.clone();
+        }
         if result["result"]["host"]["directory_mode"] == "workspace" && result["result"]["files_supplied"].as_object().is_some_and(|m| !m.is_empty()) {
             projection["project_inputs"] = result["result"]["files_supplied"].clone();
         }
