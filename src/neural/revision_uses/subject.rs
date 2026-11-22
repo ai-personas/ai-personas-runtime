@@ -25,6 +25,7 @@ fn candidate(db: &Connection, who: Option<&str>, handle: &str) -> Result<Proposa
         .as_str()
         .ok_or_else(|| failure("Candidate has no owner"))?;
     if record.reference.kind != "candidate"
+        || record.reference.revision != 1
         || record.reference.handle() != handle
         || who.is_some_and(|p| p != owner)
     {
@@ -40,7 +41,7 @@ fn candidate(db: &Connection, who: Option<&str>, handle: &str) -> Result<Proposa
         |row| row.get(0),
     )?;
     let author = accepted(db, owner, &call, true)?;
-    if body["predecessor"] != json!(proposed.predecessor)
+    if !store::written_by(db, &record, &call)? || body["predecessor"] != json!(proposed.predecessor)
         || proposed.predecessor != author.snapshot.model
         || body["intent"] != proposed.intent
         || body["evidence"] != json!(proposed.evidence)
@@ -55,7 +56,10 @@ fn candidate(db: &Connection, who: Option<&str>, handle: &str) -> Result<Proposa
         .as_deref()
         .map(|id| character_paths::package(db, id, owner))
         .transpose()?;
-    let mut authored = false;
+    let mut authored = if author.response["persona_maintenance"]["kind"] == "trial" {
+        let parent = prior.as_ref().ok_or_else(|| failure("A personal trial needs an active predecessor"))?;
+        super::issued::personal_trial(db, &author, parent, &record)?
+    } else { false };
     for op in author.response["operations"]
         .as_array()
         .into_iter()
@@ -75,7 +79,8 @@ fn candidate(db: &Connection, who: Option<&str>, handle: &str) -> Result<Proposa
             }
             _ => continue,
         };
-        if package.digest().map_err(failure)? == digest && body["development"] == json!(question) {
+        if package.digest().map_err(failure)? == digest && body["development"] == json!(question)
+            && super::issued::receipt(db, &author, &record, Some((op["tool"].as_str().unwrap_or_default(),op["id"].as_str().unwrap_or_default())))? {
             authored = true;
             break;
         }
@@ -103,6 +108,12 @@ fn candidate(db: &Connection, who: Option<&str>, handle: &str) -> Result<Proposa
         }
     }
     Ok(Proposal { record, author })
+}
+
+/// A supported model switch or comparison takes an edition issued by an
+/// accepted decision, not an object from the filesystem or an operator payload.
+pub(in crate::neural) fn issued_candidate(db: &Connection, owner: &str, handle: &str) -> Result<store::Record> {
+    Ok(candidate(db, Some(owner), handle)?.record)
 }
 
 pub(super) fn resolve(db: &Connection, who: Option<&str>, reference: &str) -> Result<Subject> {

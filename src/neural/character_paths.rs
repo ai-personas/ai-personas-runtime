@@ -116,12 +116,7 @@ pub fn inspect(db: &Connection, actor: Option<&str>, query: &Query) -> Result<Va
         let alternate_digest = if let Some(digest) = reference.strip_prefix("object:") {
             digest.to_owned()
         } else {
-            let candidate = store::exact(db, reference)?;
-            if candidate.reference.kind != "candidate" || candidate.body["owner"] != owner {
-                return Err(failure(
-                    "Choose a candidate or package from the same persona",
-                ));
-            }
+            let candidate = super::revision_uses::issued_candidate(db, owner, reference)?;
             candidate.body["model"]
                 .as_str()
                 .ok_or_else(|| failure("Candidate has no model"))?

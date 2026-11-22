@@ -861,7 +861,7 @@ fn switch_model(
             }
             let candidate_input=super::character::observed_input(db,snapshot,candidate,"candidate")?
                 .ok_or_else(||failure(format!("Read or select {candidate} in a preceding decision so its full record reaches you before activation")))?;
-            let record = store::exact(db, candidate)?;
+            let record = super::revision_uses::issued_candidate(db, &persona.id, candidate)?;
             if record.reference.kind != "candidate"
                 || record.body["owner"] != persona.id
                 || record.body["predecessor"] != json!(persona.model)

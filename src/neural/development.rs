@@ -415,7 +415,7 @@ pub(super) fn update(db: &Connection, snapshot: &Snapshot, update: Update) -> Re
         prior.push(entry);
     }
     if let Some(review) = &update.candidate_review {
-        let candidate = store::exact(db, &review.candidate)?;
+        let candidate = super::revision_uses::issued_candidate(db, &snapshot.actor, &review.candidate)?;
         let origin = candidate.body["development"]
             .as_str()
             .ok_or_else(|| failure("Candidate has no development question"))?;

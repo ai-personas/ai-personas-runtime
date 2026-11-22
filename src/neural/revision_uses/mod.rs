@@ -1,7 +1,9 @@
 //! Inspect where a proposed or deployed numerical revision changes the
 //! inclination values on actual accepted inputs, alongside their observed results.
 mod subject;
+mod issued;
 mod judgment;
+pub(super) use subject::issued_candidate;
 pub mod atlas;
 pub use judgment::inspect_follow_up;
 

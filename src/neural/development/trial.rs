@@ -128,13 +128,15 @@ fn replay(
     )
 }
 
-pub(super) fn create(
+/// Reconstruct an authored candidate without writing any state. Both proposal
+/// creation and subsequent authorization use this same calculation.
+pub(in crate::neural) fn material(
     db: &Connection,
     snapshot: &Snapshot,
-    persona: &Persona,
+    before: &ModelPackage,
     trial: &Trial,
     considered: &[String],
-) -> Result<Value> {
+) -> Result<(ModelPackage, Value)> {
     if snapshot.development_version < 6
         || snapshot.model.is_none()
         || !snapshot.data["context_recovery"].is_null()
@@ -159,7 +161,6 @@ pub(super) fn create(
         ));
     }
     let contract = FeatureContract::standard();
-    let before = context::model(db, persona)?;
     let evidence = vec![trial.decision.clone(), trial.outcome.clone()];
     let after = before
         .patch(
@@ -168,7 +169,7 @@ pub(super) fn create(
                 expected_model: trial.expected_model.clone(),
                 edits: trial.edits.clone(),
                 reason: trial.reason.clone(),
-                evidence: evidence.clone(),
+                evidence,
             },
         )
         .map_err(failure)?;
@@ -177,7 +178,7 @@ pub(super) fn create(
     {
         return Err(failure("This trial changes no numerical parameter; keep the current model or propose a literal difference"));
     }
-    let trigger = replay(db, snapshot, &trial.decision, &before, &after, &contract)?;
+    let trigger = replay(db, snapshot, &trial.decision, before, &after, &contract)?;
     let source = experience::metadata(db, Some(&snapshot.actor), &trial.decision)?;
     let call = source["invocation"]
         .as_str()
@@ -218,7 +219,7 @@ pub(super) fn create(
         let case = if guard.decision == trial.decision {
             trigger.clone()
         } else {
-            replay(db, snapshot, &guard.decision, &before, &after, &contract)?
+            replay(db, snapshot, &guard.decision, before, &after, &contract)?
         };
         let mut seen = BTreeSet::new();
         if guard.inclinations.is_empty() {
@@ -241,6 +242,27 @@ pub(super) fn create(
     } else {
         None
     };
+    Ok((
+        after,
+        json!({"trigger":trigger,"outcome":trial.outcome,"decision_effects":boundary,"relation":relation,
+        "preserve":trial.preserve,"protection":protection,"scope":"Forward arithmetic on recorded inputs, not a behavioral assessment or proof of improvement."}),
+    ))
+}
+
+fn create(
+    db: &Connection,
+    snapshot: &Snapshot,
+    persona: &Persona,
+    trial: &Trial,
+    considered: &[String],
+) -> Result<Value> {
+    let (after, probes) = material(
+        db,
+        snapshot,
+        &context::model(db, persona)?,
+        trial,
+        considered,
+    )?;
     let question = super::update(
         db,
         snapshot,
@@ -248,7 +270,7 @@ pub(super) fn create(
             base: None,
             question: trial.question.clone(),
             interpretation: trial.reason.clone(),
-            evidence,
+            evidence: after.evidence.clone(),
             contrary_evidence: vec![],
             prediction: trial.prediction.clone(),
             alternatives: trial.alternative_explanation.clone(),
@@ -267,8 +289,7 @@ pub(super) fn create(
         &snapshot.actor,
         &snapshot.invocation,
         after,
-        json!({"trigger":trigger,"outcome":trial.outcome,"decision_effects":boundary,"relation":relation,
-            "preserve":trial.preserve,"protection":protection,"scope":"Forward arithmetic on recorded inputs, not a behavioral assessment or proof of improvement."}),
+        probes,
         Some(reference),
     )?;
     result["development"] = json!(reference);

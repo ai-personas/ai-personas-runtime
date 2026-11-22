@@ -67,7 +67,7 @@ pub(super) fn subject(
         .ok_or_else(|| failure("Activate a character before comparing its behavior"))?;
     match (&input.candidate, &input.active_model) {
         (Some(reference), None) => {
-            let candidate = store::exact(db, reference)?;
+            let candidate = super::revision_uses::issued_candidate(db, &persona.id, reference)?;
             if candidate.reference.kind != "candidate"
                 || candidate.body["owner"] != persona.id
                 || candidate.body["predecessor"] != active

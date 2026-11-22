@@ -47,6 +47,8 @@ The working directory must exist. The provider file contains configuration and c
 ]}
 ```
 
+**Character updates happen inside `ai-personas-runtime`.** An operator can supply a starting description or feedback; neither writes weights. A persona’s accepted decision authors any candidate. Before comparing or activating it, the runtime reconstructs the package from the author’s initialization or literal edits and checks the exact issuing receipt. Activation is a separate decision by the same persona; assessing a candidate never installs it. Studio’s previews, a model JSON file, an operator’s name and a peer’s recommendation are not update authority. Changing the shared reasoning provider does not change an individual’s character package.
+
 The first calls translate the attributed seeds into candidates. Subsequent calls observe and adopt exact packages before the personas see the task. Each active model evaluates eighteen value/known input pairs into twelve inclinations. The provider can propose literal coordinate edits, compare a candidate in matched situations and decide whether to adopt it. Rollback retains the intervening history.
 
 In **Character Lab → What if…**, mark a situational input as known, adjust its value and observe the twelve forward outputs. The chart compares the previous package at the same inputs when there is a predecessor. For an initial model the comparison is its all-unknown baseline. This operator preview makes no model call and writes no experience. **Development** links accepted decisions to their supplied character, recorded questions and observations.
