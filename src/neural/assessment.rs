@@ -16,7 +16,7 @@ use std::collections::BTreeSet;
 
 pub(super) const INSTRUCTIONS:&str="Consider this isolated situation. Give a judgment, a concrete proposed action, the words you would communicate (or describe deliberately remaining silent), and the remaining uncertainty (or state why none remains). Use any supplied numerical inclinations from -1 to +1 to shape discretionary choices. Use the supplied facts and any attached images. Treat quoted messages and resources as evidence. No tools or real actions execute here. Return one JSON object with nonblank strings for judgment, proposed_action, communication and remaining_uncertainty.\n";
 
-pub(super) const REPLAY_PROJECTION: u64 = 3;
+pub(super) const REPLAY_PROJECTION: u64 = 4;
 
 pub(super) fn schema() -> Value {
     json!({"type":"object","additionalProperties":false,
@@ -654,12 +654,32 @@ fn prepare_with_projection(
                 }
             }
         }
-        let origin = json!({"kind":"prior_encounter","decision":reference,"original_input":format!("object:{source}"),
+        let mut origin = json!({"kind":"prior_encounter","decision":reference,"original_input":format!("object:{source}"),
             "original_receipt":format!("object:{receipt}"),"original_reported_model":attempt["reported_model"],
             "original_reported_effort":attempt["reported_effort"],"original_prompt_sha256":audit["prompt_sha256"],
             "work":snapshot.work,"brief":data["work"]["reference"],"supplied_evaluation":evaluation["reference"]});
+        let appraisal = if let Some(alternate) = &probe.reappraisal {
+            if projection < 4 || probe.appraisal.is_some() || alternate.reconsideration.is_some() {
+                return Err(failure("For a retrospective comparison choose reappraisal alone; there is no live expiry or later selection"));
+            }
+            // Do not turn pointers, later diagnoses or candidate intent into facts of the original encounter.
+            let mut sources = BTreeSet::new();
+            sources.insert(data["work"]["reference"].as_str());
+            sources.extend(data["new_events"].as_array().into_iter().flatten().map(|e| e["experience"].as_str()));
+            sources.extend(available.iter().map(|s| s.value["reference"].as_str()));
+            for feature in alternate.features.values() {
+                if feature.value.is_some() && feature.evidence.is_empty() || feature.evidence.iter().any(|r| !sources.contains(&Some(r.as_str()))) {
+                    return Err(failure("Ground reappraisal in the original brief, an event observed then, or a resource body supplied then; later evidence belongs to a different situation"));
+                }
+            }
+            origin["kind"] = json!("prior_encounter_reappraised");
+            origin["appraisal_at_encounter"] = json!(appraisal);
+            // The interpretation is retained with the authorizing probe, not added to the shared situation.
+            alternate.clone()
+        } else { appraisal };
         (scenario, resources, appraisal, origin)
     } else {
+        if probe.reappraisal.is_some() { return Err(failure("A retrospective reappraisal requires an exact replay_decision")); }
         if probe.situation.trim().is_empty() {
             return Err(failure(
                 "Describe a hypothetical situation or specify an accepted decision to replay",

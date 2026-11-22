@@ -284,6 +284,9 @@ pub enum Command {
         /// Exact resource bodies to reuse from that specific input.
         #[arg(long="resource")]
         resources:Vec<String>,
+        /// Preview an explicitly hypothetical reappraisal from this JSON file. Does not run inference.
+        #[arg(long)]
+        reappraisal: Option<PathBuf>,
     },
     /// Compare each persona's adopted character generations on one hypothetical input, offline.
     CharacterAtlas {
@@ -660,10 +663,10 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
                     context::appraisal_context(db,&part)
                 }),
                 Command::VerifyAssessment{reference}=>store.snapshot(|db|super::assessment::verify(db,&store::exact(db,&reference)?)),
-                Command::ReplayInput{decision,resources}=>store.snapshot(|db|{
+                Command::ReplayInput{decision,resources,reappraisal}=>store.snapshot(|db|{
                     let original=super::experience::metadata(db,None,&decision)?;
                     let actor=original["actor"].as_str().ok_or_else(||failure("Missing original actor"))?;
-                    let probe=super::tools::Probe{situation:String::new(),appraisal:None,references:resources,
+                    let probe=super::tools::Probe{situation:String::new(),appraisal:None,reappraisal:reappraisal.as_deref().map(read_json).transpose()?,references:resources,
                         replay_decision:Some(decision),include_no_character:false};
                     let case=super::assessment::prepare(db,actor,&probe)?;
                     Ok(json!({"origin":case.origin,"situation":case.scenario,"resources":case.resources,

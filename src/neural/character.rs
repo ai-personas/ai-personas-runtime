@@ -26,6 +26,12 @@ pub(super) fn saw_record(snapshot: &Snapshot, reference: &str, kind: &str) -> bo
             .into_iter()
             .flatten()
             .any(|event| {
+                if event["kind"] == "personal_trial_proposed" && kind == "candidate" {
+                    let result = &event["supplied_result"];
+                    return event["actor"] == snapshot.actor && event["target"] == snapshot.actor
+                        && result["candidate"] == reference && result["model_object"].is_string()
+                        && result["probes"]["trigger"].is_object();
+                }
                 if event["kind"] != "tool_result" || event["actor"] != snapshot.actor {
                     return false;
                 }
@@ -111,7 +117,15 @@ pub(super) fn select_appraisal(
         .iter()
         .any(|op| op.tool == "persona.evaluate");
     let reason = match &decision.next_context.appraisal {
-        Some(AppraisalChoice::Baseline) => return Ok(None),
+        Some(AppraisalChoice::Baseline { reason }) => {
+            if snapshot.development_version >= 6 && snapshot.model.is_some() && reason.trim().is_empty() {
+                return Err(failure("Give your reason for using baseline instead of a situational appraisal"));
+            }
+            if evaluated && snapshot.development_version >= 6 {
+                return Err(failure("Choose baseline or a fresh persona.evaluate result, not both"));
+            }
+            return Ok(None);
+        }
         Some(AppraisalChoice::Evaluate { appraisal, reason }) => {
             if reason.trim().is_empty() || snapshot.model.is_none()
                 || !matches!(decision.next_model, NextModel::Preserve) {
@@ -141,7 +155,7 @@ pub(super) fn select_appraisal(
         }
         None if evaluated => "New appraisal for the following decision".into(),
         None if snapshot.model.is_some() && snapshot.development_version >= 4 => {
-            return Err(failure("Choose next_context.appraisal explicitly: {kind:baseline}, {kind:evaluate,appraisal,reason}, or {kind:reuse,evaluation,reason}"));
+            return Err(failure("Choose next_context.appraisal explicitly: {kind:baseline,reason}, {kind:evaluate,appraisal,reason}, or {kind:reuse,evaluation,reason}"));
         }
         None => return Ok(None),
     };

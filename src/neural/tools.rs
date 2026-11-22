@@ -318,6 +318,11 @@ pub struct Probe {
     /// Set for a hypothetical case. Replay uses the appraisal actually supplied at that time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub appraisal: Option<crate::persona_model::Appraisal>,
+    /// Optional counterfactual on a replay: your new appraisal of evidence actually present
+    /// then. Both arms use it; its prose is not a hint sent to either arm. The recorded
+    /// appraisal remains separately identified. Do not set appraisal as well.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reappraisal: Option<crate::persona_model::Appraisal>,
     /// For replay, choose only resource bodies actually supplied to that original decision.
     #[serde(default)]
     pub references: Vec<String>,

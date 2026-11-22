@@ -3,7 +3,7 @@
 use super::{
     context::Snapshot,
     experience, failure, id,
-    protocol::{DecisionV4, Maintenance},
+    protocol::{DecisionV4, Maintenance, PersonalMaintenance},
     store, Result,
 };
 use rusqlite::{params, Connection};
@@ -11,6 +11,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
+
+pub mod trial;
 
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -178,7 +180,13 @@ fn observed_experience(db: &Connection, snapshot: &Snapshot, reference: &str) ->
         return Err(failure(format!("Expected an experience:event-N@1 or experience:call-ID@1 observation, received {reference}. Cite the character-use receipt in follow_up.character_use.")));
     }
     experience::metadata(db, Some(&snapshot.actor), reference)?;
-    if !observed(snapshot, reference) {
+    // The previous-choice card supplies the owner's actual judgment and chosen
+    // operations, not the entire original input, response or character-use record.
+    let previous = &snapshot.data["decision_continuity"]["previous_work_decision"];
+    let choice_on_desk = snapshot.development_version >= 6 && snapshot.model.is_some()
+        && snapshot.data["context_recovery"].is_null() && previous["experience"] == reference
+        && previous["invocation"].as_str().is_some_and(|id| reference == format!("experience:{id}@1"));
+    if !choice_on_desk && !observed(snapshot, reference) {
         return Err(failure(format!(
             "Read the exact experience {reference} before interpreting it"
         )));
@@ -258,12 +266,12 @@ pub(super) fn consider(db: &Connection, snapshot: &Snapshot, decision: &Decision
     for r in evidence {
         observed_experience(db, snapshot, r)?;
     }
-    let Maintenance::Defer {
+    let PersonalMaintenance::Ordinary(Maintenance::Defer {
         reason,
         revisit,
         question,
         base,
-    } = &decision.persona_maintenance
+    }) = &decision.persona_maintenance
     else {
         return Ok(());
     };

@@ -281,7 +281,7 @@ pub fn save_asset(
     Ok(reference)
 }
 
-fn candidate(
+pub(super) fn candidate(
     db: &Connection,
     actor: &str,
     invocation: &str,
@@ -1048,8 +1048,16 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         if switching&&!snapshot.data["context_recovery"].is_null(){return Err(failure("Context recovery supplies metadata, not observed candidate/assessment bodies. Recover the needed evidence before activating or rolling back a character model."));}
         if switching&&!decision.operations.is_empty(){return Err(failure("activate/rollback in a separate response with no operations; the next call uses the replacement model"));}
         // Host commands may be read-only; explicit asset mutations must be acknowledged.
-        maintenance(&decision.persona_maintenance,&decision.operations,tools::model_mutation,|name|matches!(name,"persona.evaluate"|"persona.assess"|"development.update"),switching)
-            .map_err(|e|failure(format!("persona_maintenance: {e}")))?;
+        match &decision.persona_maintenance {
+            PersonalMaintenance::Ordinary(choice) => maintenance(choice,&decision.operations,tools::model_mutation,|name|matches!(name,"persona.evaluate"|"persona.assess"|"development.update"),switching)
+                .map_err(|e|failure(format!("persona_maintenance: {e}")))?,
+            PersonalMaintenance::Trial(trial) => {
+                if switching || !part.accepted || part.declined || decision.operations.iter().any(|op| tools::model_mutation(&op.tool)) {
+                    return Err(failure("Propose one personal trial during accepted work, preserving your active character; assess or change its binding separately"));
+                }
+                super::development::trial::propose(db,snapshot,&persona,trial,decision.considered_experience.as_deref().unwrap_or(&[]))?;
+            }
+        }
         maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"result.review"|"asset.feedback"|"image.read"|"image.render_svg"|"document.print_html"|"document.render_pdf"|"command.run"|"command.local"|"geometry.render"|"geometry.inspect_stl"|"geometry.profile_stl"|"work.outcome"|"result.deliver"),false)
             .map_err(|e|failure(format!("asset_maintenance: {e}")))?;
         super::development::record_applications(db,snapshot,&decision.examining)?;

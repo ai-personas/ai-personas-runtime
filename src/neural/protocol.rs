@@ -14,7 +14,7 @@ pub struct DecisionV4 {
     /// Copy the current snapshot's top-level invocation, never an older event id.
     pub invocation: String,
     pub work: WorkJudgment,
-    pub persona_maintenance: Maintenance,
+    pub persona_maintenance: PersonalMaintenance,
     /// For every active-character decision, list the exact observed experiences
     /// considered for character maintenance. An explicit empty list is valid.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -117,6 +117,15 @@ pub enum Maintenance {
         base: Option<String>,
     },
 }
+/// A personal trial is an alternative to ordinary maintenance, not an asset edit
+/// or permission to activate the candidate. Historical choices keep their shape.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum PersonalMaintenance {
+    Ordinary(Maintenance),
+    Trial(Box<super::development::trial::Disposition>),
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NextModel {
@@ -171,7 +180,9 @@ pub struct ContextChoice {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AppraisalChoice {
-    Baseline,
+    /// Why all-unknown input fits your next choice. This is not a judgment that
+    /// the situation lacks evidence, nor a request to invent feature values.
+    Baseline { #[serde(default)] #[schemars(required)] reason: String },
     Evaluate { appraisal: Appraisal, reason: String },
     Reuse { evaluation: String, reason: String },
 }

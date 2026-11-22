@@ -737,7 +737,8 @@ impl App {
             return;
         }
         let no_change = decisions.iter().filter(|d| d["maintenance"]["kind"] == "no_change").count();
-        let edits = decisions.iter().flat_map(|d| d["operations"].as_array().into_iter().flatten())
+        let trials = decisions.iter().filter(|d| d["maintenance"]["kind"] == "trial").count();
+        let edits = trials + decisions.iter().flat_map(|d| d["operations"].as_array().into_iter().flatten())
             .filter(|op| op["tool"] == "persona.patch").count();
         let bindings = decisions.iter().filter(|d| matches!(d["next_model"]["kind"].as_str(), Some("activate" | "rollback"))).count();
         ui.add_space(12.);
@@ -759,7 +760,7 @@ impl App {
         });
         ui.add_space(12.);
         ui.horizontal_wrapped(|ui| {
-            for (index, label) in ["All choices", "No change", "Declared change", "Deferred"].iter().enumerate() {
+            for (index, label) in ["All choices", "No change", "Declared change", "Deferred", "Personal trials"].iter().enumerate() {
                 if ui.selectable_value(&mut self.development_filter, index, *label).changed() {
                     self.development_anchor.clear();
                 }
@@ -769,6 +770,7 @@ impl App {
             1 => d["maintenance"]["kind"] == "no_change",
             2 => d["maintenance"]["kind"] == "change",
             3 => d["maintenance"]["kind"] == "defer",
+            4 => d["maintenance"]["kind"] == "trial",
             _ => true,
         }).collect();
         const PAGE: usize = 25;
@@ -807,6 +809,20 @@ impl App {
                             ui.add_space(7.);
                             let reason = s(maintenance, "reason");
                             ui.add(egui::Label::new(if reason.is_empty() { "No reason is present in this retained field; inspect the exact decision." } else { reason }).wrap());
+                            if maintenance["kind"] == "trial" {
+                                ui.strong(s(maintenance, "question"));
+                                for (label, key) in [("Prediction", "prediction"), ("Worth preserving", "preserve"), ("Other possible cause", "alternative_explanation")] {
+                                    ui.label(format!("{label}: {}", s(maintenance, key)));
+                                }
+                                ui.horizontal_wrapped(|ui| {
+                                    for (label, key) in [("Earlier choice", "decision"), ("Observed outcome", "outcome")] {
+                                        if let Some(r) = maintenance[key].as_str() {
+                                            if ui.small_button(label).on_hover_text(r).clicked() { self.open_resource(ui.ctx(), r.into()); }
+                                        }
+                                    }
+                                });
+                                ui.weak("Proposed numerical experiment. Comparison, adoption and benefit are separate observations.");
+                            }
                             for version in decision["deferred_questions"].as_array().into_iter().flatten() {
                                 if let Some(reference) = version["written"].as_str() {
                                     if ui.small_button("Open the question this choice retained →").on_hover_text(reference).clicked() {
