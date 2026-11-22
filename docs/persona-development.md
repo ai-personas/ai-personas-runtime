@@ -1,5 +1,7 @@
 # Inspecting persona development
 
+For the **numerical Studio runtime**, see [editable persona models](editable-persona-models.md) for ordinary considered-experience recall, persona-owned trials and separate adoption. The [inverter follow-up](brief-only-studio.md#did-the-personas-mature-compared-with-their-beginnings) distinguishes improved work from a lasting change in the persona. The fragment-based interface below is separate.
+
 The Decision schema lists the exact required OCEAN and VAD dimension names used
 by validation. Each dimension is a nonempty text description; arbitrary extra
 dimension keys are not part of that wire shape. The same VAD shape applies to

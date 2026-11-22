@@ -515,6 +515,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
             let (root, operator) = (root.to_owned(), operator.to_owned());
             tokio::task::spawn_blocking(move || super::connection::connect_codex(&root, &operator, route)).await?
         }
+        Command::ExperienceSearch{persona,search}=>super::experience::search(&store::open_inspection(root)?,&persona,&search),
         Command::RecallChoice{persona,decision,event}=>super::experience::recall::read(&store::open_inspection(root)?,&persona,&decision,&event),
         Command::IntakeHistory{work,page}=>super::intake::inspect(&store::open_inspection(root)?,&work,&page),
         Command::Agreements{work,query}=>super::agreements::inspect(&store::open_inspection(root)?,&work,&super::relationships::Contact::operator(operator),&query),
@@ -657,7 +658,6 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
                 Command::Find(query)=>store.snapshot(|db|super::discovery::find(db,&query)),
                 Command::Read{reference,start,end}=>context::read(&store.db,&reference,start,end),
                 Command::QuestionHistory{reference}=>store.snapshot(|db|super::question_history::inspect(db,&reference)),
-                Command::ExperienceSearch{persona,search}=>store.snapshot(|db|super::experience::search(db,&persona,&search)),
                 Command::RequestHistory{work,query}=>store.snapshot(|db|super::activity_requests::history(db,&work,None,&query)),
                 Command::RevisionUses(query)=>store.snapshot(|db|super::revision_uses::inspect(db,None,&query)),
                 Command::CharacterPaths(query)=>store.snapshot(|db|super::character_paths::inspect(db,None,&query)),
