@@ -93,6 +93,9 @@ pub enum Command {
         expected: Option<String>,
         reason: String,
     },
+    /// Use an existing Codex ChatGPT login for future calls in this saved workspace.
+    /// Keeps each persona's selected model and effort. Finish the current run first.
+    ConnectCodex(AuthRoute),
     /// Continue eligible decisions and accepted effects. Never resumes an explicit stop.
     Run {
         #[arg(long)]
@@ -493,6 +496,10 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
     if request_id.is_some() && !matches!(&command,Command::RunCommand{..}) { return Err(failure("--request-id applies to operator actions and portable command runs")); }
     if request_id.is_some_and(|id|id.trim().is_empty()) {return Err(failure("Supply a nonblank operator request ID"));}
     match command {
+        Command::ConnectCodex(route) => {
+            let (root, operator) = (root.to_owned(), operator.to_owned());
+            tokio::task::spawn_blocking(move || super::connection::connect_codex(&root, &operator, route)).await?
+        }
         Command::Agreements{work,query}=>super::agreements::inspect(&store::open_inspection(root)?,&work,&super::relationships::Contact::operator(operator),&query),
         Command::Restore{archive,sha256}=>super::archive::restore(root,&archive,sha256.as_deref(),operator),
         Command::Init {
@@ -527,19 +534,13 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
             }
             let (provider, auth_route) = if let Some(executable) = codex_executable {
                 let route = AuthRoute {
-                    codex_executable: executable.canonicalize()?,
-                    host_home: required(host_home, "--host-home")?.canonicalize()?,
-                    codex_home: required(codex_home, "--codex-home")?.canonicalize()?,
-                };
+                    codex_executable: executable,
+                    host_home: required(host_home, "--host-home")?,
+                    codex_home: required(codex_home, "--codex-home")?,
+                }.canonical()?;
                 let model = required(model, "--model")?;
                 let effort = required(effort, "--effort")?;
-                let provider = crate::auth::codex_adapter::configure_codex(
-                    &route.codex_executable,
-                    &route.host_home,
-                    &route.codex_home,
-                    &model,
-                    &effort,
-                )?;
+                let provider = route.settings(&model, &effort)?;
                 (provider, Some(route))
             } else if let Some(path)=&platform_key_file {
                 (super::platform_key::settings(path,&required(model,"--model")?,&required(effort,"--effort")?)?,None)

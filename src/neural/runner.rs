@@ -21,12 +21,30 @@ mod pdf;
 mod returned_file;
 use returned_file::ReturnedFile;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, clap::Args)]
 #[serde(deny_unknown_fields)]
 pub struct AuthRoute {
+    #[arg(long)]
     pub codex_executable: PathBuf,
+    #[arg(long)]
     pub host_home: PathBuf,
+    #[arg(long)]
     pub codex_home: PathBuf,
+}
+impl AuthRoute {
+    pub(super) fn canonical(self) -> Result<Self> {
+        Ok(Self {
+            codex_executable: self.codex_executable.canonicalize()?,
+            host_home: self.host_home.canonicalize()?,
+            codex_home: self.codex_home.canonicalize()?,
+        })
+    }
+
+    pub(super) fn settings(&self, model: &str, effort: &str) -> Result<provider::DirectSettings> {
+        Ok(crate::auth::codex_adapter::configure_codex(
+            &self.codex_executable, &self.host_home, &self.codex_home, model, effort,
+        )?)
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

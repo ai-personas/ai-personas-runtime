@@ -333,7 +333,7 @@ impl App {
             if in_menu {
                 ui.close();
             }
-            self.dialog = Some(Dialog::Settings);
+            self.dialog = Some(Dialog::Settings(Default::default()));
         }
     }
 
@@ -510,20 +510,25 @@ impl App {
     }
 
     fn workspace_notices(&mut self, ui: &mut Ui) {
+        let mut enable = None;
         for control in self
             .records("controls")
             .iter()
             .filter(|c| c["state"] != "running" && !s(c, "scope").starts_with("job:"))
         {
-            ui.colored_label(
-                theme::ACCENT,
-                format!(
-                    "{} · {} — {}",
-                    s(control, "scope"),
-                    s(control, "state"),
-                    s(control, "reason")
-                ),
-            );
+            let scope = s(control, "scope");
+            ui.horizontal_wrapped(|ui| {
+                if let Some(id) = scope.strip_prefix("persona:").filter(|_| control["state"] == "paused") {
+                    if ui.add_enabled(!self.busy, egui::Button::new(format!("Enable {}", self.label(id))).small())
+                        .on_hover_text("Allow this persona’s eligible work to be scheduled again.").clicked() {
+                        enable = Some(scope.to_owned());
+                    }
+                }
+                ui.colored_label(theme::ACCENT, format!("{scope} · {} — {}", s(control, "state"), s(control, "reason")));
+            });
+        }
+        if let Some(scope) = enable {
+            self.command(ui.ctx(), Command::Control { reason: format!("Operator enabled scheduling for {scope} in Studio"), scope, state: "running".into() });
         }
         if let Some(error) = self.error.clone() {
             ui.horizontal_wrapped(|ui| {

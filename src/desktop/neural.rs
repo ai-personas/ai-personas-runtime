@@ -614,6 +614,8 @@ impl App {
                     if accepted { "Delivery accepted".into() } else { "Changes requested".into() }
                 } else if v["configuration"].is_string() {
                     format!("Saved reasoning settings · {} at {} effort", s(&v["selected"],"model"), s(&v["selected"],"effort"))
+                } else if v["workspace_connection"] == "codex_oauth" {
+                    "Codex account connected · each persona kept its model and reasoning effort".into()
                 } else if v["operator_receipt"].is_string() {
                     if v["success"]!=true {"Render failed · compiler receipt opened".into()}
                     else if v["warnings"].as_array().is_some_and(|w|!w.is_empty()) {"Mesh rendered with compiler warnings".into()}

@@ -1,6 +1,7 @@
 use super::*;
 use ai_personas::neural::input_files::{CapturedFile, InputFiles};
 mod invitation;
+mod connection;
 
 #[derive(Default)]
 pub(super) struct SourceFiles {
@@ -63,7 +64,7 @@ pub(super) enum Dialog {
         effort: String,
         reason: String,
     },
-    Settings,
+    Settings(connection::Form),
     Render(super::render::RenderDialog),
 }
 impl Dialog {
@@ -94,7 +95,7 @@ impl Dialog {
             Self::Review { .. } => "Review delivery",
             Self::Reasoning { .. } => "Change reasoning settings",
             Self::Agreement(form) => form.title(),
-            Self::Settings => "Workspace settings",
+            Self::Settings(_) => "Workspace settings",
             Self::Render(_) => "Render OpenSCAD project",
         }
     }
@@ -184,7 +185,7 @@ impl App {
         let mut command = None;
         let mut start_workspace = false;
         let invitation = matches!(draft, Dialog::Activity { .. });
-        let scroll = matches!(&draft, Dialog::Participation { .. } | Dialog::Agreement(_))
+        let scroll = matches!(&draft, Dialog::Participation { .. } | Dialog::Agreement(_) | Dialog::Settings(_))
             || (invitation && ctx.content_rect().height() < 370.);
         let width=(ctx.content_rect().width()-24.).max(1.);
         let mut window=egui::Window::new(draft.title());
@@ -409,7 +410,7 @@ impl App {
                         }
                     }
                     Dialog::Agreement(form) => command = form.show(ui,self),
-                    Dialog::Settings => self.workspace_settings(ui, ctx),
+                    Dialog::Settings(form) => command = self.workspace_settings(ui, ctx, form),
                     Dialog::Render(form) => command=form.show(ui,self),
                 });
                 if self.submitting_dialog {
@@ -440,7 +441,7 @@ impl App {
                 self.submitting_dialog = true;
                 self.dispatch(ctx, command, request, start_workspace);
             }
-        } else if matches!(draft, Dialog::Settings) {
+        } else if matches!(draft, Dialog::Settings(_)) {
             self.save_layout();
         }
     }
@@ -471,10 +472,12 @@ impl App {
             });
     }
 
-    fn workspace_settings(&mut self, ui: &mut Ui, ctx: &egui::Context) {
+    fn workspace_settings(&mut self, ui: &mut Ui, ctx: &egui::Context, connection: &mut connection::Form) -> Option<Command> {
         ui.strong("Operator name");
         ui.text_edit_singleline(&mut self.operator);
         ui.small("Used for new messages, invitations, reviews and settings changes in this window.");
+        ui.separator();
+        let command = connection.show(ui, self);
         ui.separator();
         ui.strong("Appearance");
         let dark = ui
@@ -519,5 +522,6 @@ impl App {
                 self.command(ctx, Command::Backup { archive });
             }
         }
+        command
     }
 }
