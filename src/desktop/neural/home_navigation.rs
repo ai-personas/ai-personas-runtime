@@ -2,6 +2,11 @@ use super::*;
 use ai_personas::neural::live::{RunScope, RunnerObservation};
 use std::sync::atomic::Ordering;
 
+pub(super) fn event_position(events: &[Value], reference: &str) -> Option<usize> {
+    let seq = reference.strip_prefix("experience:event-")?.strip_suffix("@1")?.parse::<i64>().ok()?;
+    events.binary_search_by_key(&seq, |e| e["event"].as_i64().unwrap_or(-1)).ok()
+}
+
 impl App {
     pub(super) fn select_activity(&mut self, work: &str) {
         self.work = work.to_owned();

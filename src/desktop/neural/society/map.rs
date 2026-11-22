@@ -13,9 +13,17 @@ struct Sender {
 }
 
 impl Sender {
-    fn read(app: &App, history: &History, node: usize, end: usize, live: bool) -> Self {
+    fn read(
+        app: &App,
+        history: &History,
+        node: usize,
+        end: usize,
+        live: bool,
+        activity: Option<&str>,
+    ) -> Self {
         let identity = &history.nodes[node];
         let last = history
+            .time
             .last_by(node, end)
             .map(|entry| &app.events[entry.event]);
         let mut row = Self {
@@ -28,7 +36,7 @@ impl Sender {
         };
         if live {
             if let Identity::Persona(id) = identity {
-                let lines = current_work(app, id);
+                let lines = current_work(app, id, activity);
                 if let Some(first) = lines.first() {
                     row.live_worker = app.runner_observation.has_worker(&first.work, id);
                     row.state = first.state.clone();
@@ -80,6 +88,9 @@ impl Sender {
             if !row.detail.is_empty() {
                 row.detail.push('\n');
             }
+            if activity.is_some() && row.note.is_empty() {
+                row.note = format!("Last · {action}");
+            }
             row.detail.push_str(&format!(
                 "#{} · {action} · {}",
                 event["event"],
@@ -98,20 +109,35 @@ impl Sender {
 }
 
 impl View {
-    pub(super) fn map(&mut self, ui: &mut Ui, app: &App, history: &History, end: usize) -> bool {
+    pub(super) fn map(
+        &mut self,
+        ui: &mut Ui,
+        app: &App,
+        history: &History,
+        end: usize,
+        split: bool,
+    ) -> bool {
         let mut authors = Vec::new();
         let mut targets = Vec::new();
         let mut shared = None;
+        let activity = self
+            .activity
+            .as_deref()
+            .and_then(|id| app.home_index.activity(id));
         for (node, identity) in history.nodes.iter().enumerate() {
             let sent = history
+                .time
                 .sent
                 .get(&node)
                 .is_some_and(|v| v.first().is_some_and(|i| *i < end));
             let received = history
+                .time
                 .received
                 .get(&node)
                 .is_some_and(|v| v.first().is_some_and(|i| *i < end));
-            if matches!(identity, Identity::Persona(_)) || sent {
+            if matches!(identity, Identity::Persona(id) if self.person_visible(history, node, id, activity, end))
+                || sent
+            {
                 authors.push(node);
             }
             if received {
@@ -140,12 +166,18 @@ impl View {
             if let ai_personas::neural::live::RunnerObservation::Observed { workers, .. } =
                 &app.runner_observation
             {
-                authors.sort_by_key(|&node| !matches!(&history.nodes[node], Identity::Persona(id) if workers.contains_key(id)));
+                authors.sort_by_key(|&node| !matches!(&history.nodes[node], Identity::Persona(id) if workers.get(id).is_some_and(|work| self.activity.as_ref().is_none_or(|a| a == work))));
             }
         }
         targets.sort_by(order);
         if authors.is_empty() {
-            ui.weak("Add a persona or invite someone to an activity to start the map.");
+            ui.weak(if self.activity.is_some() && self.held.is_some() {
+                "This activity has no contributions by this point."
+            } else if self.activity.is_some() {
+                "No participants or contributions are recorded in this activity."
+            } else {
+                "Add a persona or invite someone to an activity to start the map."
+            });
             return false;
         }
         let compact = ui.available_width() < 525.;
@@ -158,7 +190,16 @@ impl View {
             .iter()
             .skip(self.sender_page * size)
             .take(size)
-            .map(|node| Sender::read(app, history, *node, end, self.held.is_none()))
+            .map(|node| {
+                Sender::read(
+                    app,
+                    history,
+                    *node,
+                    end,
+                    self.held.is_none(),
+                    self.activity.as_deref(),
+                )
+            })
             .collect();
         let destinations: Vec<_> = if compact {
             targets.iter().copied().chain(shared).collect()
@@ -172,11 +213,11 @@ impl View {
                 .collect()
         };
         let previous_scope = self.scope;
-        if compact {
-            self.list_map(ui, history, end, &sources, &destinations);
+        let picked_route = if compact {
+            self.list_map(ui, history, end, &sources, &destinations)
         } else {
-            self.draw_map(ui, app, history, end, &sources, &destinations);
-        }
+            self.draw_map(ui, app, history, end, &sources, &destinations)
+        };
         if authors.len() > size || !compact && targets.len() > PAGE {
             ui.horizontal_wrapped(|ui| {
                 page(ui, "Senders", &mut self.sender_page, authors.len(), size);
@@ -191,22 +232,25 @@ impl View {
                 }
             });
         }
-        let mut read = compact
-            && self.scope != previous_scope
-            && self.scope.from.is_some()
-            && self.scope.to.is_some();
+        let mut read = picked_route
+            || self.scope != previous_scope
+                && self.scope != Scope::default()
+                && (compact || self.scope.from.is_some() && self.scope.to.is_some());
         ui.horizontal_wrapped(|ui| {
             if destinations.is_empty() {
                 ui.small("Select a persona to inspect their work.");
             } else if compact {
                 ui.small("Select a name or an address to read its history.");
             } else {
-                ui.small("Select a line to read its history. Width shows contribution count. Dashed lines are shared posts.");
+                ui.small("Line width shows volume. Dashed lines are shared posts.");
             }
-            if let Some(records) = history.matches(self.scope, end) {
-                let label = format!("Read {}", counted(records.len() as u64, "record", "records"));
-                if ui.small_button(label).clicked() { read = true; }
-                if ui.small_button("Clear selection").clicked() { self.select(Scope::default()); }
+            if !split && self.scope != Scope::default() {
+                if ui.small_button("Read selection").clicked() {
+                    read = true;
+                }
+                if ui.small_button("Clear selection").clicked() {
+                    self.select(Scope::default());
+                }
             }
         });
         read
@@ -226,6 +270,22 @@ impl View {
         });
     }
 
+    fn selected_endpoint(&self, h: &History, node: usize, sender: bool) -> bool {
+        let (primary, other) = if sender {
+            (self.scope.from, self.scope.to)
+        } else {
+            (self.scope.to, self.scope.from)
+        };
+        if !h.is_pair(self.scope) {
+            return primary == Some(node);
+        }
+        match self.direction {
+            Direction::Both => primary == Some(node) || other == Some(node),
+            Direction::Forward => primary == Some(node),
+            Direction::Reverse => other == Some(node),
+        }
+    }
+
     fn list_map(
         &mut self,
         ui: &mut Ui,
@@ -233,7 +293,8 @@ impl View {
         end: usize,
         sources: &[Sender],
         targets: &[usize],
-    ) {
+    ) -> bool {
+        let mut picked = false;
         let p = theme::palette(ui);
         let label = self.scope.to.map_or("All recipients", |n| h.name(n));
         egui::ComboBox::from_id_salt("society-list-recipients")
@@ -272,7 +333,7 @@ impl View {
                 mark(ui, r, who);
                 if ui
                     .selectable_label(
-                        self.scope.from == Some(row.node),
+                        self.selected_endpoint(h, row.node, true),
                         RichText::new(h.name(row.node)).strong(),
                     )
                     .clicked()
@@ -293,7 +354,7 @@ impl View {
                 ui.label(short_text(&row.note, 90))
                     .on_hover_text(&row.detail);
             }
-            if !row.work.is_empty() {
+            if self.activity.is_none() && !row.work.is_empty() {
                 ui.add(
                     egui::Label::new(RichText::new(&row.work).small().color(p.muted)).truncate(),
                 )
@@ -301,7 +362,7 @@ impl View {
             }
             ui.horizontal_wrapped(|ui| {
                 for &to in targets {
-                    let Some(indices) = h.routes.get(&(row.node, to)) else {
+                    let Some(indices) = h.time.routes.get(&(row.node, to)) else {
                         continue;
                     };
                     let count = through(indices, end).len();
@@ -316,7 +377,7 @@ impl View {
                     if ui
                         .add(
                             egui::Button::selectable(
-                                self.scope == pair,
+                                self.scope != Scope::default() && self.shows_route(h, row.node, to),
                                 format!("→ {} · {count}", h.name(to)),
                             )
                             .small(),
@@ -330,10 +391,12 @@ impl View {
                         .clicked()
                     {
                         self.select(pair);
+                        picked = true;
                     }
                 }
             });
         }
+        picked
     }
 
     fn draw_map(
@@ -344,12 +407,16 @@ impl View {
         end: usize,
         sources: &[Sender],
         targets: &[usize],
-    ) {
+    ) -> bool {
+        let mut picked = false;
         let p = theme::palette(ui);
         let width = ui.available_width();
-        let left = (width * 0.35).clamp(180., 430.);
+        let left = (width * if width < 780. { 0.39 } else { 0.35 }).clamp(180., 430.);
         let right = (width * 0.21).clamp(118., 240.);
-        let height = sources.len().max(targets.len()).max(1) as f32 * 64.;
+        let lean = width < 780.;
+        let rows = sources.len().max(targets.len()).max(1);
+        let row_height = if lean { 52. } else { 61. };
+        let height = rows as f32 * row_height;
         let (area, _) = ui.allocate_exact_size(vec2(width, height + 27.), Sense::hover());
         let body = Rect::from_min_max(area.min + vec2(0., 24.), area.max);
         let x1 = body.left() + left;
@@ -399,7 +466,7 @@ impl View {
         let mut paths = Vec::new();
         for (i, row) in sources.iter().enumerate() {
             for (j, &to) in targets.iter().enumerate() {
-                let Some(events) = h.routes.get(&(row.node, to)) else {
+                let Some(events) = h.time.routes.get(&(row.node, to)) else {
                     continue;
                 };
                 let visible = through(events, end);
@@ -427,10 +494,7 @@ impl View {
                 .min_by(|a, b| a.1.total_cmp(&b.1))
                 .map(|(i, _)| i)
         });
-        let matches = |path: &Path| {
-            self.scope.from.is_none_or(|id| id == path.from)
-                && self.scope.to.is_none_or(|id| id == path.to)
-        };
+        let matches = |path: &Path| self.shows_route(h, path.from, path.to);
         for highlight in [false, true] {
             for (i, path) in paths.iter().enumerate() {
                 let lit = hovered.map_or_else(
@@ -470,8 +534,9 @@ impl View {
         }
         if let Some(i) = hovered {
             let path = &paths[i];
-            let event = &app.events[h.entries[path.last].event];
+            let event = &app.events[h.time.entries[path.last].event];
             if surface.clicked() {
+                picked = true;
                 self.select(Scope {
                     from: Some(path.from),
                     to: Some(path.to),
@@ -506,8 +571,9 @@ impl View {
         for (i, row) in sources.iter().enumerate() {
             let node = &h.nodes[row.node];
             let mid = from_y(i);
-            let r = Rect::from_min_max(pos2(body.left(), mid - 30.), pos2(x1 - 5., mid + 30.));
-            let selected = self.scope.from == Some(row.node);
+            let half = (row_height - 2.) * 0.5;
+            let r = Rect::from_min_max(pos2(body.left(), mid - half), pos2(x1 - 5., mid + half));
+            let selected = self.selected_endpoint(h, row.node, true);
             let response = endpoint(
                 ui,
                 r,
@@ -533,6 +599,38 @@ impl View {
             );
             let x = r.left() + 49.;
             let room = r.right() - x;
+            if lean {
+                text_line(
+                    ui,
+                    pos2(x, mid - 23.),
+                    room,
+                    RichText::new(h.name(row.node)).size(15.).strong(),
+                    p.text,
+                );
+                text_line(
+                    ui,
+                    pos2(x, mid - 5.),
+                    room,
+                    RichText::new(&row.state).size(12.),
+                    node.color(ui),
+                );
+                let detail = if self.activity.is_some() {
+                    &row.note
+                } else {
+                    &row.work
+                };
+                if !detail.is_empty() {
+                    text_line(
+                        ui,
+                        pos2(x, mid + 10.),
+                        room,
+                        RichText::new(short_text(detail, 100)).size(11.),
+                        p.muted,
+                    );
+                }
+                draw.vline(x1, mid - 11. ..=mid + 11., Stroke::new(2., node.color(ui)));
+                continue;
+            }
             let name_width = text_line(
                 ui,
                 pos2(x, mid - 27.),
@@ -580,13 +678,13 @@ impl View {
             let identity = &h.nodes[node];
             let mid = to_y(i);
             let r = Rect::from_min_max(pos2(x2 + 4., mid - 21.), pos2(body.right(), mid + 21.));
-            let count = through(&h.received[&node], end).len();
+            let count = through(&h.time.received[&node], end).len();
             let name = h.name(node);
             let response = endpoint(
                 ui,
                 r,
                 ("to", node),
-                self.scope.to == Some(node),
+                self.selected_endpoint(h, node, false),
                 &format!("To {name} · {count} contributions"),
             );
             if response.clicked() {
@@ -604,13 +702,26 @@ impl View {
                 RichText::new(name).strong().size(15.),
                 p.text,
             );
-            let summary = match self.scope.from {
+            let pair = h.is_pair(self.scope);
+            let peer = if pair && self.scope.from == Some(node) {
+                self.scope.to
+            } else if !pair || self.scope.to == Some(node) {
+                self.scope.from
+            } else {
+                None
+            };
+            let summary = match peer {
                 Some(from) => {
                     let sent = h
+                        .time
                         .routes
                         .get(&(from, node))
                         .map_or(0, |v| through(v, end).len());
-                    format!("{sent} from {} · {count} total", h.name(from))
+                    if pair {
+                        format!("{sent} from {}", h.name(from))
+                    } else {
+                        format!("{sent} from {} · {count} total", h.name(from))
+                    }
                 }
                 None => match identity {
                     Identity::Shared => format!("{count} shared posts"),
@@ -626,6 +737,7 @@ impl View {
                 p.muted,
             );
         }
+        picked
     }
 }
 
@@ -713,7 +825,7 @@ fn endpoint(
     r.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
-fn text_line(ui: &Ui, pos: Pos2, width: f32, text: RichText, ink: Color32) -> f32 {
+pub(super) fn text_line(ui: &Ui, pos: Pos2, width: f32, text: RichText, ink: Color32) -> f32 {
     let galley = egui::WidgetText::from(text).into_galley(
         ui,
         Some(egui::TextWrapMode::Truncate),
@@ -725,7 +837,7 @@ fn text_line(ui: &Ui, pos: Pos2, width: f32, text: RichText, ink: Color32) -> f3
     width
 }
 
-fn mark(ui: &Ui, rect: Rect, node: &Identity) {
+pub(super) fn mark(ui: &Ui, rect: Rect, node: &Identity) {
     if let Identity::Persona(id) = node {
         design::persona_mark(ui, rect, id, persona_color(id));
     } else {

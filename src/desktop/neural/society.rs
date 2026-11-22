@@ -2,15 +2,18 @@ use super::*;
 use home::short_text;
 use home_live::Observation;
 
+mod activity;
 mod cursor;
 mod history;
 mod map;
-use history::{through, History, Identity, Scope};
+mod reader;
+use history::{through, Archive, History, Identity, Scope};
 
 #[derive(Default)]
 pub(super) struct Society {
-    history: History,
+    history: Archive,
     view: View,
+    return_to: Option<Source>,
 }
 
 impl Society {
@@ -21,21 +24,63 @@ impl Society {
 
 #[derive(Default)]
 struct View {
-    // Exclusive contribution count. New arrivals cannot move a held point.
+    // Absolute event position, shared by every activity and stable as new work arrives.
     held: Option<usize>,
+    activity: Option<String>,
+    query: String,
     scope: Scope,
+    direction: Direction,
+    kind: RecordKind,
+    reading: bool,
+    expanded: Option<usize>,
     sender_page: usize,
     recipient_page: usize,
     record_page: usize,
+    reset_record_scroll: bool,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum Direction {
+    #[default]
+    Both,
+    Forward,
+    Reverse,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum RecordKind {
+    #[default]
+    All,
+    Addressed,
+    Shared,
+    Individual,
+}
+
+enum Source {
+    Activity(String),
+    Profile(String),
+    File(String),
+    Package(String),
 }
 
 enum Action {
     Event(usize),
     Activity(String),
     Profile(String),
+    File(String),
+    Package(String),
 }
 
 impl App {
+    pub(super) fn open_roster_profile(&mut self, id: &str) {
+        let from_society = self.viewing_society()
+            || matches!(&self.home.society.return_to, Some(Source::Profile(origin)) if self.layout.editor == Editor::People && *origin == self.persona);
+        self.show_person(id);
+        if from_society {
+            self.home.society.return_to = Some(Source::Profile(id.to_owned()));
+        }
+    }
+
     pub(super) fn society_view(&mut self, ui: &mut Ui) {
         let mut view = std::mem::take(&mut self.home.society.view);
         let action = view.show(ui, self, &self.home.society.history);
@@ -46,12 +91,66 @@ impl App {
                 let work = s(event, "work").to_owned();
                 if let Some(seq) = event["event"].as_i64() {
                     self.open_home_event(&work, seq);
+                    self.home.society.return_to = Some(Source::Activity(work));
                 }
             }
-            Some(Action::Activity(work)) => self.open_home_activity(&work),
-            Some(Action::Profile(person)) => self.show_person(&person),
+            Some(Action::Activity(work)) => {
+                self.open_home_activity(&work);
+                self.home.society.return_to = Some(Source::Activity(work));
+            }
+            Some(Action::Profile(person)) => {
+                self.show_person(&person);
+                self.home.society.return_to = Some(Source::Profile(person));
+            }
+            Some(Action::File(reference)) => {
+                self.open_resource(ui.ctx(), reference.clone());
+                self.home.society.return_to = Some(Source::File(reference));
+            }
+            Some(Action::Package(reference)) => {
+                self.open_issued_package(ui.ctx(), &reference);
+                self.home.society.return_to = Some(if self.layout.editor == Editor::Delivery {
+                    Source::Package(reference)
+                } else {
+                    Source::File(reference)
+                });
+            }
             None => {}
         }
+    }
+
+    pub(super) fn society_return(&mut self, ui: &mut Ui) {
+        let same = match &self.home.society.return_to {
+            Some(Source::Activity(work)) => {
+                self.layout.editor == Editor::Studio && self.work == *work
+            }
+            Some(Source::Profile(person)) => {
+                self.layout.editor == Editor::People && self.persona == *person
+            }
+            Some(Source::File(reference)) => {
+                self.layout.editor == Editor::Artifacts && self.selected_reference == *reference
+            }
+            Some(Source::Package(reference)) => {
+                self.layout.editor == Editor::Delivery && self.layout.delivery == *reference
+            }
+            None => return,
+        };
+        if !same {
+            self.home.society.return_to = None;
+        } else if ui.link("← Back to society").clicked() {
+            self.home.society.return_to = None;
+            self.layout.editor = Editor::Home;
+        }
+    }
+
+    pub(super) fn society_activity_picker(&mut self, ui: &mut Ui) {
+        let society = &mut self.home.society;
+        society
+            .view
+            .activity_picker(ui, &society.history, &self.home_index);
+    }
+
+    pub(super) fn society_reading(&self) -> bool {
+        self.home.society.view.reading
     }
 }
 
@@ -61,11 +160,14 @@ struct WorkLine {
     note: String,
 }
 
-fn current_work(app: &App, id: &str) -> Vec<WorkLine> {
+fn current_work(app: &App, id: &str, selected: Option<&str>) -> Vec<WorkLine> {
     let now = ai_personas::neural::now();
     let mut lines = Vec::new();
     let projects = app.observed_projects(id);
     for (work, records) in &projects {
+        if selected.is_some_and(|id| id != *work) {
+            continue;
+        }
         let worker = app.runner_observation.has_worker(work, id);
         if records.is_empty() {
             lines.push(WorkLine {
@@ -95,7 +197,7 @@ fn current_work(app: &App, id: &str) -> Vec<WorkLine> {
     for &index in app.home_index.participations.get(id).into_iter().flatten() {
         let part = &parts[index]["body"];
         let work = s(part, "work");
-        if projects.contains_key(work) {
+        if projects.contains_key(work) || selected.is_some_and(|id| id != work) {
             continue;
         }
         let continuation = &part["continuation"];
@@ -162,206 +264,124 @@ fn record_label(app: &App, event: &Value) -> String {
 }
 
 impl View {
-    fn show(&mut self, ui: &mut Ui, app: &App, history: &History) -> Option<Action> {
+    fn restart_reader(&mut self) {
+        self.record_page = 0;
+        self.expanded = None;
+        self.reset_record_scroll = true;
+    }
+
+    fn focus_activity(&mut self, work: Option<String>) {
+        self.activity = work;
+        self.query.clear();
+        self.sender_page = 0;
+        self.recipient_page = 0;
+        self.restart_reader();
+    }
+    fn select(&mut self, scope: Scope) {
+        self.scope = scope;
+        self.direction = Direction::Both;
+        self.restart_reader();
+    }
+
+    fn show(&mut self, ui: &mut Ui, app: &App, archive: &Archive) -> Option<Action> {
         let mut action = None;
-        ui.add_space(7.);
+        let history = archive.history(self.activity.as_deref());
         let previous = self.held;
-        let end = self.time_cursor(ui, app, history);
+        let end = self.time_cursor(ui, app, &history);
         if self.held != previous {
-            self.record_page = 0;
+            self.restart_reader();
         }
-        ui.add_space(12.);
-        let p = theme::palette(ui);
-        let map = egui::Frame::new()
-            .fill(p.panel)
-            .corner_radius(8)
-            .stroke(Stroke::new(1., p.border))
-            .inner_margin(14)
-            .show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(design::display("Exchange map", 30.));
-                    let activities = if self.held.is_some() {
-                        through(&history.work_starts, end).len()
-                    } else {
-                        app.home_index.activities.len()
-                    };
-                    ui.small(format!(
-                        "{}  ·  {}",
-                        counted(app.records("personas").len() as u64, "persona", "personas"),
-                        counted(activities as u64, "activity", "activities")
-                    ));
-                    if self.held.is_none() {
-                        if let ai_personas::neural::live::RunnerObservation::Observed {
-                            workers,
-                            ..
-                        } = &app.runner_observation
-                        {
-                            if !workers.is_empty() {
-                                ui.label(
-                                    RichText::new(format!("{} working now", workers.len()))
-                                        .small()
-                                        .color(p.ink(TEAL)),
-                                );
-                            }
-                        }
-                    }
+        ui.add_space(7.);
+        let width = ui.available_width();
+        let split = width >= 930.;
+        if split {
+            let gap = 12.;
+            let left = ((width - gap) * 0.60).min(width - 360.).max(540.);
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = gap;
+                ui.vertical(|ui| {
+                    ui.set_width(left);
+                    ui.spacing_mut().item_spacing.x = 6.;
+                    self.map_panel(ui, app, archive, &history, end, true);
                 });
-                self.map(ui, app, history, end)
+                ui.vertical(|ui| {
+                    ui.set_width(width - left - gap);
+                    ui.spacing_mut().item_spacing.x = 6.;
+                    self.reader(ui, app, &history, end, true, &mut action);
+                });
             });
-        ui.add_space(12.);
-        if map.inner {
-            ui.scroll_to_cursor(Some(egui::Align::Min));
+        } else {
+            ui.horizontal_wrapped(|ui| {
+                ui.selectable_value(&mut self.reading, false, "Exchange map");
+                ui.selectable_value(&mut self.reading, true, "Read record");
+            });
+            ui.add_space(4.);
+            if self.reading {
+                self.reader(ui, app, &history, end, false, &mut action);
+            } else if self.map_panel(ui, app, archive, &history, end, false) {
+                self.reading = true;
+            }
         }
-        self.records(ui, app, history, end, map.response.rect, &mut action);
         action
     }
 
-    fn select(&mut self, scope: Scope) {
-        self.scope = scope;
-        self.record_page = 0;
-    }
-
-    fn records(
+    fn map_panel(
         &mut self,
         ui: &mut Ui,
         app: &App,
-        history: &History,
+        archive: &Archive,
+        h: &History,
         end: usize,
-        map: egui::Rect,
-        action: &mut Option<Action>,
-    ) {
+        split: bool,
+    ) -> bool {
         let p = theme::palette(ui);
-        let scope = self.scope;
-        let indices = history.matches(scope, end);
-        let count = indices.map_or(end, |items| items.len());
-        let heading = match (scope.from, scope.to) {
-            (Some(a), Some(b)) => format!("{} → {}", history.name(a), history.name(b)),
-            (Some(a), None) => format!("From {}", history.name(a)),
-            (None, Some(b)) => format!("To {}", history.name(b)),
-            (None, None) => "Society record".into(),
-        };
-        ui.horizontal_wrapped(|ui| {
-            ui.label(design::display(heading, 26.));
-            ui.small(counted(count as u64, "contribution", "contributions"));
-            if map.top() < ui.clip_rect().top() && ui.small_button("Back to map").clicked() {
-                ui.scroll_to_rect(map, Some(egui::Align::Min));
-            }
-            for (i, node) in [scope.from, scope.to].into_iter().enumerate() {
-                if i == 1 && scope.to == scope.from {
-                    continue;
+        surface(ui).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            let members = self.activity.as_deref().and_then(|id| app.home_index.activity(id));
+            let people = h.nodes.iter().enumerate().filter(|(n,id)| {
+                matches!(id, Identity::Persona(person) if self.person_visible(h, *n, person, members, end))
+            }).count();
+            ui.horizontal_wrapped(|ui| {
+                ui.label(design::display("Exchange map", 28.));
+                let mut count = counted(people as u64, "persona", "personas");
+                if members.is_none() {
+                    let activities = if self.held.is_some() { archive.activity_count(end) } else { app.home_index.activities.len() };
+                    count.push_str(&format!(" · {}", counted(activities as u64, "activity", "activities")));
                 }
-                if let Some(Identity::Persona(id)) = node.map(|n| &history.nodes[n]) {
-                    if app
-                        .records("personas")
-                        .iter()
-                        .any(|r| r["body"]["id"] == id.as_str())
-                    {
-                        if ui
-                            .small_button(format!("{}’s profile", app.label(id)))
-                            .clicked()
-                        {
-                            *action = Some(Action::Profile(id.clone()));
-                        }
+                ui.small(count);
+                if self.held.is_none() {
+                    if let ai_personas::neural::live::RunnerObservation::Observed { workers, .. } = &app.runner_observation {
+                        let active = workers.values().filter(|work| self.activity.as_ref().is_none_or(|id| id == *work)).count();
+                        if active > 0 { ui.label(RichText::new(format!("{active} working now")).small().color(p.ink(TEAL))); }
                     }
-                }
-            }
-        });
-        if let Some(Identity::Persona(id)) = scope.from.map(|n| &history.nodes[n]) {
-            if self.held.is_none() && scope.to.is_none() {
-                let lines = current_work(app, id);
-                if !lines.is_empty() {
-                    egui::CollapsingHeader::new(format!(
-                        "Participation and current work ({})",
-                        lines.len()
-                    ))
-                    .default_open(lines.len() <= 3)
-                    .id_salt(("society-current-work", id))
-                    .show(ui, |ui| {
-                        for line in lines {
-                            ui.horizontal_wrapped(|ui| {
-                                ui.strong(&line.state);
-                                if ui
-                                    .link(short_text(work_title(app, &line.work), 80))
-                                    .clicked()
-                                {
-                                    *action = Some(Action::Activity(line.work));
-                                }
-                            });
-                            if !line.note.is_empty() {
-                                ui.weak(short_text(&line.note, 240))
-                                    .on_hover_text(&line.note);
-                            }
-                        }
-                    });
-                }
-            }
-        }
-        if count == 0 {
-            ui.weak(if end == 0 {
-                "Contributions appear here when a persona or human takes part in an activity."
-            } else {
-                "No contributions for this selection by this point."
-            });
-            return;
-        }
-        const ROWS: usize = 5;
-        self.record_page = self.record_page.min((count - 1) / ROWS);
-        for offset in (self.record_page * ROWS..count).take(ROWS) {
-            let position = count - offset - 1;
-            let mark = history.entries[indices.map_or(position, |items| items[position])];
-            let event = &app.events[mark.event];
-            let author = &history.nodes[mark.from];
-            ui.separator();
-            ui.push_id(("society-event", mark.event), |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    if ui
-                        .link(format!("#{}", event["event"]))
-                        .on_hover_text("Open this event in its activity")
-                        .clicked()
-                    {
-                        *action = Some(Action::Event(mark.event));
-                    }
-                    ui.label(
-                        RichText::new(history.name(mark.from))
-                            .strong()
-                            .color(author.color(ui)),
-                    );
-                    if let Some(to) = mark.to {
-                        ui.weak("→");
-                        ui.strong(history.name(to));
-                    }
-                    ui.label(record_label(app, event));
-                    ui.small(s(event, "created_utc"));
-                });
-                let text = event_detail(event);
-                if !text.is_empty() {
-                    let preview = document::excerpt(
-                        &short_text(text, 780),
-                        if ui.available_width() > 650. { 165 } else { 92 },
-                    );
-                    ui.label(preview).on_hover_ui(|ui| {
-                        ui.label(document::excerpt(&short_text(text, 2000), 1200));
-                    });
-                }
-                let work = s(event, "work");
-                if ui
-                    .link(
-                        RichText::new(short_text(work_title(app, work), 100))
-                            .color(p.muted)
-                            .small(),
-                    )
-                    .on_hover_text(work_title(app, work))
-                    .clicked()
-                {
-                    *action = Some(Action::Activity(work.into()));
                 }
             });
-        }
-        let page = self.record_page;
-        home::pager(ui, &mut self.record_page, count, ROWS, "contributions");
-        if self.record_page > page && self.held.is_none() {
-            self.held = Some(end);
-        }
+            if let Some(a) = members {
+                ui.add(egui::Label::new(RichText::new(&a.title).small().color(p.muted)).truncate()).on_hover_text(&a.title);
+            }
+            self.map(ui, app, h, end, split)
+        }).inner
     }
+
+    fn person_visible(
+        &self,
+        h: &History,
+        n: usize,
+        id: &str,
+        activity: Option<&home_index::Activity>,
+        end: usize,
+    ) -> bool {
+        activity.is_none_or(|a| {
+            self.held.is_none() && a.members.iter().any(|m| m == id) || h.time.involved(n, end)
+        })
+    }
+}
+
+fn surface(ui: &Ui) -> egui::Frame {
+    let p = theme::palette(ui);
+    egui::Frame::new()
+        .fill(p.panel)
+        .corner_radius(8)
+        .stroke(Stroke::new(1., p.border))
+        .inner_margin(12)
 }

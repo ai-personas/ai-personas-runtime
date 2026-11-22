@@ -51,16 +51,30 @@ pub(super) struct Scope {
 }
 
 #[derive(Default)]
-pub(super) struct History {
-    pub nodes: Vec<Identity>,
+pub(super) struct Archive {
+    nodes: Vec<Identity>,
     names: Vec<String>,
     ids: BTreeMap<Identity, usize>,
+    workspace: Timeline,
+    activities: BTreeMap<String, Timeline>,
+    work_starts: Vec<usize>,
+}
+
+// One set of identities serves both the workspace and its individual activities.
+// The timelines contain only indices into the original, shared event stream.
+pub(super) struct History<'a> {
+    pub nodes: &'a [Identity],
+    names: &'a [String],
+    pub time: &'a Timeline,
+}
+
+#[derive(Default)]
+pub(super) struct Timeline {
     pub entries: Vec<Entry>,
     pub sent: BTreeMap<usize, Vec<usize>>,
     pub received: BTreeMap<usize, Vec<usize>>,
     pub routes: BTreeMap<(usize, usize), Vec<usize>>,
-    works: BTreeSet<String>,
-    pub work_starts: Vec<usize>,
+    pairs: BTreeMap<(usize, usize), Vec<usize>>,
     // Addressed, shared and individual contributions, in commit order.
     pub channels: [Vec<usize>; 3],
 }
@@ -69,7 +83,11 @@ pub(super) fn through(list: &[usize], end: usize) -> &[usize] {
     &list[..list.partition_point(|index| *index < end)]
 }
 
-impl History {
+impl Archive {
+    pub(super) fn persona_node(&self, id: &str) -> Option<usize> {
+        self.ids.get(&Identity::Persona(id.into())).copied()
+    }
+
     fn node(&mut self, identity: Identity) -> usize {
         *self.ids.entry(identity).or_insert_with_key(|key| {
             self.nodes.push(key.clone());
@@ -98,22 +116,26 @@ impl History {
             };
             let from = self.node(author);
             let to = address.map(|id| self.node(id));
-            let index = self.entries.len();
             let work = s(event, "work");
-            if !self.works.contains(work) {
-                self.works.insert(work.into());
-                self.work_starts.push(index);
+            let activity = self.activities.entry(work.to_owned()).or_default();
+            if activity.entries.is_empty() {
+                self.work_starts.push(self.workspace.entries.len());
             }
-            self.entries.push(Entry {
+            let mark = Entry {
                 event: start + offset,
                 from,
                 to,
+            };
+            let paired = to.is_some_and(|id| {
+                id != from && matches!(self.nodes[id], Identity::Persona(_) | Identity::Operator(_))
             });
-            self.channels[channel].push(index);
-            self.sent.entry(from).or_default().push(index);
-            if let Some(to) = to {
-                self.received.entry(to).or_default().push(index);
-                self.routes.entry((from, to)).or_default().push(index);
+            self.workspace.push(mark, channel, paired);
+            activity.push(mark, channel, paired);
+        }
+        // A newly opened activity can have a brief before anyone contributes.
+        for work in status["work"].as_array().into_iter().flatten() {
+            if let Some(id) = work["body"]["id"].as_str() {
+                self.activities.entry(id.into()).or_default();
             }
         }
         let mut counts = BTreeMap::new();
@@ -136,8 +158,73 @@ impl History {
             .collect();
     }
 
+    pub(super) fn history(&self, work: Option<&str>) -> History<'_> {
+        let time = work
+            .and_then(|id| self.activities.get(id))
+            .unwrap_or(&self.workspace);
+        History {
+            nodes: &self.nodes,
+            names: &self.names,
+            time,
+        }
+    }
+
+    pub(super) fn activity_count(&self, end: usize) -> usize {
+        through(&self.work_starts, end).len()
+    }
+}
+
+impl History<'_> {
     pub(super) fn name(&self, node: usize) -> &str {
         &self.names[node]
+    }
+
+    pub(super) fn is_pair(&self, scope: Scope) -> bool {
+        let person =
+            |n: usize| matches!(self.nodes[n], Identity::Persona(_) | Identity::Operator(_));
+        matches!((scope.from, scope.to), (Some(a), Some(b)) if a != b && person(a) && person(b))
+    }
+}
+
+impl Timeline {
+    pub(super) fn involved(&self, person: usize, end: usize) -> bool {
+        [self.sent.get(&person), self.received.get(&person)]
+            .into_iter()
+            .flatten()
+            .any(|rows| rows.first().is_some_and(|i| *i < end))
+    }
+
+    fn push(&mut self, mark: Entry, channel: usize, paired: bool) {
+        let n = self.entries.len();
+        self.entries.push(mark);
+        self.channels[channel].push(n);
+        self.sent.entry(mark.from).or_default().push(n);
+        if let Some(to) = mark.to {
+            self.received.entry(to).or_default().push(n);
+            self.routes.entry((mark.from, to)).or_default().push(n);
+            if paired {
+                self.pairs
+                    .entry((mark.from.min(to), mark.from.max(to)))
+                    .or_default()
+                    .push(n);
+            }
+        }
+    }
+
+    pub(super) fn end(&self, held_event: Option<usize>) -> usize {
+        held_event.map_or(self.entries.len(), |at| {
+            self.entries.partition_point(|e| e.event <= at)
+        })
+    }
+
+    pub(super) fn between(&self, a: usize, b: usize, end: usize) -> &[usize] {
+        through(
+            self.pairs
+                .get(&(a.min(b), a.max(b)))
+                .map(Vec::as_slice)
+                .unwrap_or_default(),
+            end,
+        )
     }
 
     pub(super) fn matches(&self, scope: Scope, end: usize) -> Option<&[usize]> {

@@ -54,10 +54,14 @@ const RECENT_ROWS: usize = 2;
 const ACTIVITY_ROWS: usize = 6;
 
 impl App {
+    pub(super) fn viewing_society(&self) -> bool {
+        self.layout.editor == Editor::Home && !self.home.work_desk
+    }
+
     pub(super) fn workspace_home(&mut self, ui: &mut Ui) {
         self.overview_composer(ui);
         egui::ScrollArea::vertical()
-            .id_salt(("workspace-overview", self.home.work_desk))
+            .id_salt(("workspace-overview", self.home.work_desk, !self.home.work_desk && self.society_reading()))
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 self.home_heading(ui);
@@ -77,6 +81,10 @@ impl App {
                 ui.horizontal_wrapped(|ui| {
                     ui.selectable_value(&mut self.home.work_desk, false, "Society");
                     ui.selectable_value(&mut self.home.work_desk, true, "Work desk");
+                    if !self.home.work_desk && !self.home_index.activities.is_empty() {
+                        ui.separator();
+                        self.society_activity_picker(ui);
+                    }
                     if !self.home.work_desk && !self.home_index.requests.is_empty() {
                         let requests = counted(self.home_index.requests.len() as u64, "open human request", "open human requests");
                         if ui.link(requests).clicked() {

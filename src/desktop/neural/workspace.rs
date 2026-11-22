@@ -1,4 +1,5 @@
 use super::*;
+mod ensemble;
 
 const COMPACT_ARTIFACT_PADDING: i8 = 7;
 const ARTIFACT_ROW_GAP: f32 = 4.;
@@ -145,6 +146,7 @@ impl App {
                                     file_desk::request(ctx, false);
                                     ui.close();
                                 }
+                                self.ensemble_shortcuts(ui, true);
                             });
                         })
                         .response;
@@ -341,6 +343,7 @@ impl App {
                 }
             }
             if design::rail_link(ui, Icon::Files, "File viewer", false).clicked() { file_desk::request(ctx, false); }
+            self.ensemble_shortcuts(ui, false);
         });
     }
 

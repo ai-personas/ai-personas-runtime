@@ -749,6 +749,7 @@ impl eframe::App for App {
             )
             .show(ctx, |ui| {
                 self.file_history_return(ui);
+                self.society_return(ui);
                 match self.layout.editor {
                 Editor::Home => self.workspace_home(ui),
                 Editor::Studio => self.studio(ui),

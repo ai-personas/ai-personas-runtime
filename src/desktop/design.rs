@@ -533,7 +533,7 @@ pub fn workspace_heading(ui: &mut Ui, title: &str, actions: impl FnOnce(&mut Ui)
     let title = |ui: &mut Ui| {
         ui.spacing_mut().item_spacing.y = 1.;
         ui.label(caption("Workspace", p.accent));
-        ui.add(egui::Label::new(display(title, if wide { 47. } else { 36. })).wrap());
+        ui.add(egui::Label::new(display(title, if wide { 38. } else { 32. })).wrap());
     };
     let picture = if ui.visuals().dark_mode {
         egui::Image::new(egui::include_image!("art/studio-glass-graphite.jpg"))
@@ -548,12 +548,12 @@ pub fn workspace_heading(ui: &mut Ui, title: &str, actions: impl FnOnce(&mut Ui)
                 picture
                     .uv(uv)
                     .maintain_aspect_ratio(false)
-                    .fit_to_exact_size(egui::vec2(111., 82.))
+                    .fit_to_exact_size(egui::vec2(82., 56.))
                     .corner_radius(8),
             );
             ui.add_space(6.);
             ui.vertical(|ui| {
-                ui.set_width((width - 420.).max(140.));
+                ui.set_width((width - 390.).max(140.));
                 title(ui);
             });
             action_at_right(ui, |ui| {

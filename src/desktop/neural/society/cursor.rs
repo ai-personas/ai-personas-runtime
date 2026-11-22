@@ -2,68 +2,95 @@ use super::*;
 
 impl View {
     pub(super) fn time_cursor(&mut self, ui: &mut Ui, app: &App, history: &History) -> usize {
-        let total = history.entries.len();
-        if total == 0 {
+        let timeline = history.time;
+        let total = timeline.entries.len();
+        if total == 0 && self.held.is_none() {
             return 0;
         }
-        let mut end = self.held.unwrap_or(total).min(total);
+        let mut end = timeline.end(self.held);
         let p = theme::palette(ui);
-        let narrow = ui.available_width() < 640.;
-        let stamp = |ui: &mut Ui, end: usize| {
-            if let Some(entry) = end.checked_sub(1).and_then(|i| history.entries.get(i)) {
-                let event = &app.events[entry.event];
-                ui.label(
-                    RichText::new(format!("#{}   {}", event["event"], s(event, "created_utc")))
-                        .size(12.)
-                        .color(p.muted),
-                );
-            }
+        let inks = [p.ink(TEAL), p.ink(PURPLE), p.muted];
+        let wide = ui.available_width() >= 920.;
+        let narrow = ui.available_width() < 620.;
+        let stamp = self
+            .held
+            .or_else(|| timeline.entries.last().map(|e| e.event));
+        let held = self.held.is_some();
+        let previous = |at: Option<usize>| {
+            let at = at.or_else(|| timeline.entries.last().map(|e| e.event))?;
+            let count = timeline.entries.partition_point(|e| e.event < at);
+            (count > 0).then_some(count)
         };
         let mut controls = |ui: &mut Ui| {
+            let earlier = previous(self.held);
             if ui
-                .add_enabled(end > 1, egui::Button::new("Earlier").small())
+                .add_enabled(earlier.is_some(), egui::Button::new("Earlier").small())
                 .clicked()
             {
-                self.held = Some(end - 1);
+                if let Some(n) = earlier {
+                    self.held = Some(timeline.entries[n - 1].event);
+                }
             }
             if ui
                 .add_enabled(end < total, egui::Button::new("Later").small())
                 .clicked()
             {
-                self.held = Some(end + 1);
+                self.held = Some(timeline.entries[end].event);
             }
-            let follow = if self.held.is_some() {
-                "Follow latest"
-            } else {
-                "Hold here"
-            };
             if ui
-                .add_enabled(total > 0, egui::Button::new(follow).small())
-                .on_hover_text("Follow arrivals, or hold the workspace at this contribution")
+                .small_button(if held { "Follow latest" } else { "Hold here" })
                 .clicked()
             {
-                self.held = if self.held.is_some() { None } else { Some(end) };
+                self.held = if held { None } else { stamp };
+            }
+        };
+        let legend = |ui: &mut Ui| {
+            for (label, ink) in ["Addressed", "Shared", "Individual work"]
+                .into_iter()
+                .zip(inks)
+            {
+                let (r, _) = ui.allocate_exact_size(egui::Vec2::splat(7.), egui::Sense::hover());
+                ui.painter().circle_filled(r.center(), 2.8, ink);
+                ui.label(RichText::new(label).size(12.).color(p.muted));
             }
         };
         ui.horizontal_wrapped(|ui| {
-            ui.label(design::caption("Workspace history", p.muted));
-            stamp(ui, end);
+            let label = if self.activity.is_some() {
+                "Activity history"
+            } else {
+                "Workspace history"
+            };
+            ui.label(design::caption(label, p.muted));
+            if let Some(i) = stamp {
+                let e = &app.events[i];
+                let at = if held { "Held at" } else { "Latest" };
+                ui.label(
+                    RichText::new(format!("{at} #{} · {}", e["event"], s(e, "created_utc")))
+                        .size(12.)
+                        .color(if held { p.accent } else { p.muted }),
+                );
+            }
             if !narrow {
-                ui.add_space(12.);
                 controls(ui);
+            }
+            if wide && total > 0 {
+                ui.add_space(6.);
+                legend(ui);
             }
         });
         if narrow {
             ui.horizontal_wrapped(|ui| controls(ui));
         }
-        end = self.held.unwrap_or(total);
+        if total == 0 {
+            return 0;
+        }
+        end = timeline.end(self.held);
         let (rect, response) = ui.allocate_exact_size(
-            egui::vec2(ui.available_width(), 26.),
+            egui::vec2(ui.available_width(), 21.),
             egui::Sense::click_and_drag(),
         );
-        response
-            .widget_info(|| egui::WidgetInfo::slider(true, end as f64, "Workspace history cursor"));
-        let strip = rect.shrink2(egui::vec2(5., 5.));
+        response.widget_info(|| egui::WidgetInfo::slider(true, end as f64, "History cursor"));
+        let strip = rect.shrink2(egui::vec2(4., 4.));
         let at_x = |x: f32| {
             let fraction = ((x - strip.left()) / strip.width().max(1.)).clamp(0., 1.);
             1 + (fraction * (total - 1) as f32).round() as usize
@@ -71,21 +98,24 @@ impl View {
         if response.clicked() || response.dragged() {
             if let Some(pos) = response.interact_pointer_pos() {
                 end = at_x(pos.x);
-                self.held = Some(end);
+                self.held = Some(timeline.entries[end - 1].event);
                 response.request_focus();
             }
         }
         if response.has_focus() {
             ui.input_mut(|input| {
                 for (key, dest) in [
-                    (egui::Key::ArrowLeft, end.saturating_sub(1).max(1)),
-                    (egui::Key::ArrowRight, (end + 1).min(total)),
-                    (egui::Key::Home, 1),
-                    (egui::Key::End, total),
+                    (egui::Key::ArrowLeft, previous(self.held)),
+                    (egui::Key::ArrowRight, (end < total).then_some(end + 1)),
+                    (egui::Key::Home, Some(1)),
+                    (egui::Key::End, Some(total)),
                 ] {
                     if input.consume_key(egui::Modifiers::NONE, key) {
+                        let Some(dest) = dest else {
+                            continue;
+                        };
                         end = dest;
-                        self.held = Some(end);
+                        self.held = Some(timeline.entries[dest - 1].event);
                     }
                 }
             });
@@ -94,13 +124,12 @@ impl View {
         paint.rect_filled(rect, 4, p.field);
         let bins = total.min((strip.width() / 5.).clamp(1., 180.) as usize);
         let step = strip.width() / bins as f32;
-        let inks = [p.ink(TEAL), p.ink(PURPLE), p.muted];
         for bin in 0..bins {
             let lo = total * bin / bins;
             let hi = total * (bin + 1) / bins;
             let left = strip.left() + step * bin as f32;
             let mut bottom = strip.bottom();
-            for (channel, ink) in history.channels.iter().zip(inks) {
+            for (channel, ink) in timeline.channels.iter().zip(inks) {
                 let count =
                     channel.partition_point(|i| *i < hi) - channel.partition_point(|i| *i < lo);
                 if count == 0 {
@@ -121,10 +150,12 @@ impl View {
                 bottom = top;
             }
         }
-        let fraction = if total == 1 {
+        let fraction = if end == 0 {
+            0.
+        } else if total == 1 {
             1.
         } else {
-            (end - 1) as f32 / (total - 1) as f32
+            end.saturating_sub(1) as f32 / (total - 1) as f32
         };
         let x = strip.left() + fraction * strip.width();
         paint.vline(x, rect.y_range(), Stroke::new(2., p.text));
@@ -135,7 +166,7 @@ impl View {
         let hover = response.hover_pos().map(|pos| at_x(pos.x));
         response.on_hover_ui(|ui| {
             if let Some(point) = hover {
-                let entry = history.entries[point - 1];
+                let entry = timeline.entries[point - 1];
                 let event = &app.events[entry.event];
                 ui.label(format!("#{} · {}", event["event"], s(event, "created_utc")));
                 ui.label(format!(
@@ -144,26 +175,11 @@ impl View {
                     app.event_heading(event)
                 ));
             }
-            ui.small("Click or drag to inspect this point in the workspace.");
+            ui.small("Click or drag to inspect this point in history.");
         });
-        ui.horizontal_wrapped(|ui| {
-            for (label, ink) in ["Addressed", "Shared", "Individual work"]
-                .into_iter()
-                .zip(inks)
-            {
-                let (dot, _) = ui.allocate_exact_size(egui::Vec2::splat(8.), egui::Sense::hover());
-                ui.painter().circle_filled(dot.center(), 3., ink);
-                ui.small(label);
-                ui.add_space(3.);
-            }
-            if self.held.is_some() {
-                ui.label(
-                    RichText::new(format!("Held · {end} of {total}"))
-                        .small()
-                        .color(p.accent),
-                );
-            }
-        });
+        if !wide {
+            ui.horizontal_wrapped(legend);
+        }
         end
     }
 }

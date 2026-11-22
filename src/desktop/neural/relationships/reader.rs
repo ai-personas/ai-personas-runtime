@@ -2,15 +2,7 @@
 use super::*;
 
 pub(super) fn event<'a>(events: &'a [Value], reference: &str) -> Option<&'a Value> {
-    let sequence = reference
-        .strip_prefix("experience:event-")?
-        .strip_suffix("@1")?
-        .parse::<i64>()
-        .ok()?;
-    let position = events
-        .binary_search_by_key(&sequence, |e| e["event"].as_i64().unwrap_or(-1))
-        .ok()?;
-    Some(&events[position])
+    Some(&events[super::super::home_navigation::event_position(events, reference)?])
 }
 
 pub(super) fn sender(status: &Value, e: &Value) -> String {
