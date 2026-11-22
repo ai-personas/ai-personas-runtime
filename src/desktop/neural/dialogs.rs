@@ -127,12 +127,27 @@ impl App {
         Dialog::Resume(resume::Form::new(self))
     }
 
+    fn can_address(&self, work: &str, action: Action, id: &str) -> bool {
+        let member = self.records("participation").iter().map(|r| &r["body"])
+            .find(|p| p["work"] == work && p["persona"] == id);
+        match action {
+            Action::Invite => member.is_none_or(|p| p["declined"] == true || p["departure"].is_string() || p["closed_by_activity"].is_string()),
+            Action::Message => member.is_some(),
+            Action::Amend => false,
+        }
+    }
+
     pub(super) fn participation_dialog(&self, action: Action) -> Dialog {
+        // Pick a starting address once. A live refresh may disable the draft,
+        // but must not decide that its text or attachments are for somebody else.
+        let person = self.records("personas").iter().map(|r| s(&r["body"], "id"))
+            .filter(|id| self.can_address(&self.work, action, id))
+            .min_by_key(|id| *id != self.persona).unwrap_or_default().to_owned();
         Dialog::Participation {
             work: self.work.clone(),
             title: self.task_title().into(),
             action,
-            person: self.persona.clone(),
+            person,
             text: String::new(),
             reply_to: None,
             sources: SourceFiles::default(),
@@ -246,7 +261,7 @@ impl App {
                             "Describe temperament, personality and tendencies…",
                         );
                         ui.strong("Use the provider settings of");
-                        self.choose_person(ui, provider, |_| true);
+                        let has_provider = self.choose_person(ui, provider, |_| true);
                         if let Some(p) = self
                             .records("personas")
                             .iter()
@@ -263,7 +278,7 @@ impl App {
                             .add_enabled(
                                 !name.trim().is_empty()
                                     && !seed.trim().is_empty()
-                                    && !provider.is_empty(),
+                                    && has_provider,
                                 theme::primary("Create persona"),
                             )
                             .clicked()
@@ -302,19 +317,12 @@ impl App {
                         sources,
                     } => {
                         ui.strong(title.as_str());
+                        let mut address_valid = true;
                         if let Some((_,quote))=reply_to.as_ref() {
                             ui.label(format!("Replying to {}",self.label(person)));
                             ui.add(egui::Label::new(egui::RichText::new(quote.as_str()).italics().weak()).wrap());
                         } else if *action != Action::Amend {
-                            self.choose_person(ui, person, |id| {
-                                let member = self.records("participation").iter().find(|r| {
-                                    r["body"]["work"] == *work && r["body"]["persona"] == id
-                                });
-                                match action {
-                                    Action::Invite => member.is_none_or(|r|r["body"]["declined"]==true || r["body"]["departure"].is_string() || r["body"]["closed_by_activity"].is_string()),
-                                    _ => member.is_some(),
-                                }
-                            });
+                            address_valid = self.choose_person(ui, person, |id| self.can_address(work, *action, id));
                         }
                         let (hint, label) = match action {
                             Action::Message => ("Write a message or attach a file…", "Send message"),
@@ -333,7 +341,7 @@ impl App {
                         }
                         let enabled = !sources.picker.busy()
                             && (!text.trim().is_empty() || (*action == Action::Message && !sources.files.is_empty()))
-                            && (*action == Action::Amend || !person.is_empty());
+                            && address_valid && (*action == Action::Amend || !person.is_empty());
                         if ui.add_enabled(enabled, theme::primary(label)).clicked() {
                             command = Some(match action {
                                 Action::Message => Command::Message {
@@ -436,30 +444,29 @@ impl App {
         }
     }
 
-    fn choose_person(&self, ui: &mut Ui, person: &mut String, include: impl Fn(&str) -> bool) {
+    fn choose_person(&self, ui: &mut Ui, person: &mut String, include: impl Fn(&str) -> bool) -> bool {
         let choices: Vec<_> = self
             .records("personas")
             .iter()
             .map(|r| &r["body"])
             .filter(|p| include(s(p, "id")))
             .collect();
-        if !choices.iter().any(|p| p["id"] == *person) {
-            *person = choices
-                .first()
-                .map(|p| s(p, "id").to_owned())
-                .unwrap_or_default();
-        }
         egui::ComboBox::from_id_salt("dialog-person")
             .selected_text(if person.is_empty() {
-                "No eligible personas"
+                if choices.is_empty() { "No eligible personas" } else { "Choose a persona…" }
             } else {
                 self.label(person)
             })
             .show_ui(ui, |ui| {
-                for p in choices {
+                for p in &choices {
                     ui.selectable_value(person, s(p, "id").into(), s(p, "label"));
                 }
             });
+        let eligible = choices.iter().any(|p| p["id"] == *person);
+        if !eligible && !person.is_empty() {
+            ui.colored_label(theme::ACCENT, "This person is no longer eligible. The draft has not been redirected.");
+        }
+        eligible
     }
 
     fn workspace_settings(&mut self, ui: &mut Ui, ctx: &egui::Context, connection: &mut connection::Form) -> Option<Command> {
