@@ -2,7 +2,7 @@
 
 **The first edition is suitable for requesting a turnkey prototype quote. It is not a demonstrated edit-free assembly order.** An accepted delivery, a manufacturer accepting an order and a working physical board are three different observations.
 
-For the stricter trial with only the request, installed tools and stock libraries—and for the same runtime doing non-electronics work—see [One brief, no starter project](brief-only-studio.md). The first edition below was a different trial with web access.
+For the stricter trial with only the request, installed tools and stock libraries—and for the same runtime doing non-electronics work—see [One brief, no starter project](brief-only-studio.md). That group later [resumed the same work](brief-only-studio.md#resuming-the-same-activity-with-no-engineering-hints) and improved the routed layout without reaching an assembled-order release. The first edition below was a different trial with web access.
 
 ## The hands-off design run
 
