@@ -1,0 +1,239 @@
+{
+  "numerical_path_checks": [
+    {
+      "call": "call-4c84bae476611b0594bd6304e81b5844",
+      "epoch": 2,
+      "previous": {
+        "change": "experience:event-64@1",
+        "epoch": 1
+      },
+      "supplied": "object:b6ae80a39f63018a7d33b515802193279900f5cee5922e00c2f148119009cecc",
+      "compared": "object:da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a",
+      "matches_explicit": true,
+      "changed_outputs": []
+    },
+    {
+      "call": "call-b52810c7f2cb7f390000b22a8505b6ac",
+      "no_comparison": "{\"automatic_retry\":false,\"error\":\"invalid application input: The first active epoch has no preceding active character\",\"status\":\"error\"}"
+    },
+    {
+      "call": "call-c84fcaa913fbbe88ec69d913e7956cc5",
+      "epoch": 3,
+      "previous": {
+        "change": "experience:event-86@1",
+        "epoch": 2
+      },
+      "supplied": "object:da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a",
+      "compared": "object:b6ae80a39f63018a7d33b515802193279900f5cee5922e00c2f148119009cecc",
+      "matches_explicit": true,
+      "changed_outputs": []
+    },
+    {
+      "call": "call-5473d8ca00cb8d8c33da3fa69961a649",
+      "epoch": 2,
+      "previous": {
+        "change": "experience:event-64@1",
+        "epoch": 1
+      },
+      "supplied": "object:b6ae80a39f63018a7d33b515802193279900f5cee5922e00c2f148119009cecc",
+      "compared": "object:da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a",
+      "matches_explicit": true,
+      "changed_outputs": []
+    }
+  ],
+  "altered_transition_checks": {
+    "duplicate": "invalid application input: A unique switch into the recorded epoch could not be established",
+    "missing": "invalid application input: A unique switch into the recorded epoch could not be established",
+    "wrong-revision-writer": "invalid application input: A unique switch into the recorded epoch could not be established",
+    "wrong-owner": "invalid application input: A unique switch into the recorded epoch could not be established"
+  },
+  "clipboard": {
+    "before": {
+      "bytes": 275,
+      "sha256": "bd93f6ba0f113a18eee2b8e821d554b429f60dbc3ddfa87c2743e38ea784cc83",
+      "native_matches_issuer": true
+    },
+    "crossover": {
+      "bytes": 210,
+      "sha256": "7b2bc1672f3c8e775be8033749524127b294f555f83d66a15cd547638a83c582",
+      "native_matches_issuer": true
+    }
+  },
+  "native_trace": {
+    "issue": "delivery:delivery-e7d97c75e03a5d930f3cd1ed4717c035@1",
+    "decision": "experience:call-4c84bae476611b0594bd6304e81b5844@1",
+    "switch": "experience:event-64@1",
+    "epoch": 2,
+    "compared": 1,
+    "changed_outputs": 0,
+    "photo_sha256": "738ed3edb6c027498b9f3e4dc9ae9303daaacf8fdab1f238794aa8cce3d6f580"
+  },
+  "prospective_practice_check": {
+    "live_outcome": "rejected",
+    "owner": "mara",
+    "original_response": "object:a4280733128182e27a8294e2f571d699ebd27081d7f2ab216502c3d37d33be5d",
+    "call": "call-75000892dfc38cb8e48dae998fccfcac",
+    "selected": [
+      "experience:call-8f4e1e7dce72eecdf8b3df6ce4fd4c47@1",
+      "experience:event-72@1"
+    ],
+    "tests_on_disposable_copies": {
+      "both": "Original response: one prospective practice accepted; no application, candidate or weight change",
+      "cue": "New invitation: two exact addresses, no carried-over feedback body",
+      "edited-return": "edited-return: The supplied experience does not match its original record",
+      "other-addressee": "other-addressee: Query returned no rows",
+      "other-activity": "other-activity: The supplied experience does not match its original record",
+      "different-issue": "different-issue: Delivery has no matching issue event",
+      "absent-issue": "absent-issue: Invalid exact reference experience:call-8f4e1e7dce72eecdf8b3df6ce4fd4c47@1: Delivery has no matching issue event",
+      "absent-issuing-effect": "absent-issuing-effect: missing decision_effects:call-8f4e1e7dce72eecdf8b3df6ce4fd4c47",
+      "substituted-choice": "substituted-choice: Invalid exact reference experience:call-8f4e1e7dce72eecdf8b3df6ce4fd4c47@1: The recorded effects do not belong to this decision"
+    },
+    "provider_dispatches": 0,
+    "real_state_modified": false
+  },
+  "nonzero_saved_appraisals": [
+    {
+      "owner": "ren",
+      "call": "call-65d161770a95889aaaedee076312e70b",
+      "basis": "contextual",
+      "scope": "Earlier appraisal mechanics, offline validator check only",
+      "epoch": 3,
+      "previous": {
+        "change": "experience:event-86@1",
+        "epoch": 2
+      },
+      "ambiguity": -0.9,
+      "supplied": "object:da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a",
+      "compared": "object:b6ae80a39f63018a7d33b515802193279900f5cee5922e00c2f148119009cecc",
+      "changed_outputs": [
+        {
+          "alternate": -0.6106768328168443,
+          "axis": "clarification",
+          "delta": -0.44229578694602956,
+          "supplied": -0.1683810458708147
+        }
+      ],
+      "exact_output": true,
+      "provider_receipt": "cca1d9b2a6993781be3b4fa75fefada11e1ab6c9fe16261dfeb44d73a810f8f3"
+    },
+    {
+      "owner": "ren",
+      "call": "call-91ccf032a2c39e4d1cc73b6880e3d74c",
+      "basis": "contextual",
+      "scope": "Earlier appraisal mechanics, offline validator check only",
+      "epoch": 3,
+      "previous": {
+        "change": "experience:event-86@1",
+        "epoch": 2
+      },
+      "ambiguity": 0.35,
+      "supplied": "object:da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a",
+      "compared": "object:b6ae80a39f63018a7d33b515802193279900f5cee5922e00c2f148119009cecc",
+      "changed_outputs": [
+        {
+          "alternate": 0.39270985964766836,
+          "axis": "clarification",
+          "delta": 0.1905341019509288,
+          "supplied": 0.20217575769673957
+        }
+      ],
+      "exact_output": true,
+      "provider_receipt": "63eeec7319069c16707de07c02f650990d018fd1134db5d164657cb8d7ae4c38"
+    },
+    {
+      "owner": "ren",
+      "call": "call-e8109023a2031512380cb410d5a167ec",
+      "basis": "contextual",
+      "scope": "Earlier appraisal mechanics, offline validator check only",
+      "epoch": 3,
+      "previous": {
+        "change": "experience:event-86@1",
+        "epoch": 2
+      },
+      "ambiguity": 0.35,
+      "supplied": "object:da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a",
+      "compared": "object:b6ae80a39f63018a7d33b515802193279900f5cee5922e00c2f148119009cecc",
+      "changed_outputs": [
+        {
+          "alternate": 0.39270985964766836,
+          "axis": "clarification",
+          "delta": 0.1905341019509288,
+          "supplied": 0.20217575769673957
+        }
+      ],
+      "exact_output": true,
+      "provider_receipt": "e0cf59db124c6e8d68d2d633d50aa0345cb8001856a9bb58a2f1e9015b2997d5"
+    }
+  ],
+  "legacy_rhea_projection": {
+    "scope": "Separate historical compatibility check, not an HG-42 score. These early inputs omit the inline contract field. For example one supplied assertiveness was 0.3969304320050775 while its forward trace records 0.39693043200507755. Neither inspector claims an exact reproduction. Original decisions and switch provenance are preserved.",
+    "uses": [
+      {
+        "call": "call-ea3a84d951292d87c2badf3d2b488ca7",
+        "epoch": 2,
+        "error": "invalid application input: Reconstructed outputs differ from the supplied character projection",
+        "also_without_comparator": true
+      },
+      {
+        "call": "call-1b9891843010151a3b288a2af556a047",
+        "epoch": 4,
+        "error": "invalid application input: Reconstructed outputs differ from the supplied character projection",
+        "also_without_comparator": true
+      },
+      {
+        "call": "call-79ee23b246db631ec37fde36267bd44b",
+        "epoch": 4,
+        "error": "invalid application input: Reconstructed outputs differ from the supplied character projection",
+        "also_without_comparator": true
+      },
+      {
+        "call": "call-9ad25f74f257202435b26a8e6638b990",
+        "epoch": 4,
+        "error": "invalid application input: Reconstructed outputs differ from the supplied character projection",
+        "also_without_comparator": true
+      },
+      {
+        "call": "call-af76c5d3f3af057db6065dc690a58cf7",
+        "epoch": 4,
+        "error": "invalid application input: Reconstructed outputs differ from the supplied character projection",
+        "also_without_comparator": true
+      },
+      {
+        "call": "call-bb135ebb5d35df2c04f61d204fa81a50",
+        "epoch": 4,
+        "error": "invalid application input: Reconstructed outputs differ from the supplied character projection",
+        "also_without_comparator": true
+      },
+      {
+        "call": "call-5e328d91ccbb40a05eec1d7aa6241a5b",
+        "epoch": 4,
+        "error": "invalid application input: Reconstructed outputs differ from the supplied character projection",
+        "also_without_comparator": true
+      },
+      {
+        "call": "call-9a4e861be33d375bce11331d9caec0c3",
+        "epoch": 6,
+        "error": "invalid application input: Reconstructed outputs differ from the supplied character projection",
+        "also_without_comparator": true
+      }
+    ]
+  },
+  "desktop_cross_activity": {
+    "edition": "delivery:delivery-f6d161232b743040623be9c737f0b6e3@1",
+    "issuing": {
+      "person": "cleo",
+      "work": "work-a3f3d19ef228041d1ac91c41c8a1214e",
+      "call": "call-8c70f956625cc89f050ab1b4beb5ee31"
+    },
+    "registered_file": {
+      "person": "arden",
+      "work": "work-5fc8fe2a8bab82eaf2436fcaa47fb64f",
+      "call": "call-6798821877b39160787dd43540c0b032"
+    },
+    "fresh_provider_calls": 0
+  },
+  "final_packaged_runtime": {
+    "personas-desktop": "82a4436fc7b9fc3f55bb6ba648ee6745aaf1078b7a16c22b67b1f9337009cbe8",
+    "ai-personas": "e2675378a12d0e185ec61f922228aeddfff60f67d8e474c9e8bacb8c268545a3"
+  }
+}

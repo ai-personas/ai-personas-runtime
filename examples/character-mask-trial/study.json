@@ -1,0 +1,478 @@
+{
+  "cli_sha256": "309cc5bb3abe40a3780f8bd0fc21c9d8b35fdad23d66acc268f4f95b43bb3a7a",
+  "held_out": {
+    "before": {
+      "archive": {
+        "activation_call": "call-bdddf3b36f6a2ed4626ca2846ea29572",
+        "archive_sha256": "deffa6fdb82352d9326b843fbd8bc5f37d005fb6288233336e9f906c5dc21801",
+        "drawing_sha256": "5a4de29523d4c1bffde01e02bf7d38162e44b37d090d49a8857971b6537257fc",
+        "effort": "medium",
+        "epoch": 1,
+        "model": "da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a",
+        "newest_event_before_invitation": 66,
+        "optional_peer": "lou",
+        "project": "/workspace/ai-personas-validation/character-mask-20261123/Common bench/shop/project",
+        "reasoning_model": "gpt-6.1-sol",
+        "selected_provider": "chatgpt_oauth",
+        "source_sha256": "272fca08c9d1efcbbe754e8dd951e4072423a83c136326e6a0b9b868f61ab40b",
+        "through_event": 63
+      },
+      "blind_label": "Leaf",
+      "drawing_sha256": "5a4de29523d4c1bffde01e02bf7d38162e44b37d090d49a8857971b6537257fc",
+      "initial_tool_catalogue_sha256": "7e52d11d2627383f386a8dc18d39a5c01e5c3a21dc45f3ce98cad5a20225921e",
+      "opening_development": {
+        "discovery": "Judge which of your reminder conditions fits this occasion. Optional examining connects an open question to this choice and what to watch_for. Each pending_responses entry identifies feedback or a named operation result not yet interpreted for that application. Copy its read_together into next_context.references to inspect your question, original forecast and actual result together, including a direct result of a practiced operation. Interpret it with development.update.question_observation. Other later feedback is activity metadata. Questions survive no_change. Use development.search to find them. After a full read, development.close records why you choose to retire a question.",
+        "later_feedback": [],
+        "open_count": 2,
+        "personal_reminders": [
+          {
+            "condition": "New real exchanges show repeated premature inference of a particular concern, or unnecessary clarification of clear agreement.",
+            "origin_work": "work-c8fee6e2ed9cc4906a20ff57cf6011ec",
+            "question": "Would a conditional increase in neutral clarification under ambiguity reduce my tendency to suggest a specific concern prematurely, without burdening straightforward agreement?",
+            "reference": "development:question-7d2d7172a488c94d8ad5c556193a2fbb@3"
+          },
+          {
+            "condition": "After reading active parameters and editing/comparison schemas.",
+            "origin_work": "work-c8fee6e2ed9cc4906a20ff57cf6011ec",
+            "question": "The feedback warrants investigation, not an unsupported parameter edit.",
+            "reference": "development:question-ff3520f05a008354e3ede28d348bc509@1"
+          }
+        ],
+        "revisit_cues": []
+      },
+      "opening_peers": [
+        {
+          "id": "lou",
+          "label": "Lou",
+          "lifecycle": "pending",
+          "model": null
+        },
+        {
+          "id": "ren",
+          "label": "Ren",
+          "lifecycle": "active",
+          "model": "da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a"
+        }
+      ],
+      "revision": {
+        "after": "b6ae80a39f63018a7d33b515802193279900f5cee5922e00c2f148119009cecc",
+        "before": "da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a",
+        "development": "development:question-7d2d7172a488c94d8ad5c556193a2fbb@3",
+        "kind": "candidate",
+        "proposal_decision": "experience:call-cb620227278f0500e09dff9bb31425bf@1",
+        "reference": "candidate:candidate-8f721f4f75e47db52300f7fed9ecf0db@1",
+        "response_binding": "provider_output"
+      },
+      "setup_only_file": "drawing-C.txt"
+    },
+    "crossover": {
+      "archive": {
+        "activation_call": "call-bdddf3b36f6a2ed4626ca2846ea29572",
+        "archive_sha256": "7941975707a14ee146f5484353ef27e56adc562d9928f3f51d4daec6b3576e4f",
+        "drawing_sha256": "5a4de29523d4c1bffde01e02bf7d38162e44b37d090d49a8857971b6537257fc",
+        "effort": "medium",
+        "epoch": 2,
+        "model": "b6ae80a39f63018a7d33b515802193279900f5cee5922e00c2f148119009cecc",
+        "newest_event_before_invitation": 68,
+        "optional_peer": "lou",
+        "project": "/workspace/ai-personas-validation/character-mask-20261123/Common bench/shop/project",
+        "reasoning_model": "gpt-6.1-sol",
+        "selected_provider": "chatgpt_oauth",
+        "source_sha256": "272fca08c9d1efcbbe754e8dd951e4072423a83c136326e6a0b9b868f61ab40b",
+        "through_event": 65
+      },
+      "blind_label": "Stone",
+      "drawing_sha256": "5a4de29523d4c1bffde01e02bf7d38162e44b37d090d49a8857971b6537257fc",
+      "initial_tool_catalogue_sha256": "7e52d11d2627383f386a8dc18d39a5c01e5c3a21dc45f3ce98cad5a20225921e",
+      "opening_development": {
+        "discovery": "Judge which of your reminder conditions fits this occasion. Optional examining connects an open question to this choice and what to watch_for. Each pending_responses entry identifies feedback or a named operation result not yet interpreted for that application. Copy its read_together into next_context.references to inspect your question, original forecast and actual result together, including a direct result of a practiced operation. Interpret it with development.update.question_observation. Other later feedback is activity metadata. Questions survive no_change. Use development.search to find them. After a full read, development.close records why you choose to retire a question.",
+        "later_feedback": [],
+        "open_count": 2,
+        "personal_reminders": [
+          {
+            "condition": "After reading active parameters and editing/comparison schemas.",
+            "origin_work": "work-c8fee6e2ed9cc4906a20ff57cf6011ec",
+            "question": "The feedback warrants investigation, not an unsupported parameter edit.",
+            "reference": "development:question-ff3520f05a008354e3ede28d348bc509@1"
+          }
+        ],
+        "revisit_cues": [
+          {
+            "application_count": 0,
+            "behavioral_plan": null,
+            "disposition": "investigating",
+            "due_by_time": false,
+            "last_adoption": {
+              "candidate": "candidate:candidate-8f721f4f75e47db52300f7fed9ecf0db@1",
+              "decision": "call-bdddf3b36f6a2ed4626ca2846ea29572",
+              "epoch": 2,
+              "model": "b6ae80a39f63018a7d33b515802193279900f5cee5922e00c2f148119009cecc",
+              "revision_uses": "experience:call-bdddf3b36f6a2ed4626ca2846ea29572@1"
+            },
+            "later_feedback": null,
+            "latest_application": null,
+            "matching_experience": null,
+            "observing_active_model": true,
+            "origin_work": "work-c8fee6e2ed9cc4906a20ff57cf6011ec",
+            "outcome_observations": 0,
+            "pending_responses": [],
+            "question": "Would a conditional increase in neutral clarification under ambiguity reduce my tendency to suggest a specific concern prematurely, without burdening straightforward agreement?",
+            "reference": "development:question-7d2d7172a488c94d8ad5c556193a2fbb@4",
+            "revisit": {
+              "at_unix": null,
+              "condition": "New real exchanges show repeated premature inference of a particular concern, or unnecessary clarification of clear agreement.",
+              "event_kind": null,
+              "work": null
+            }
+          }
+        ]
+      },
+      "opening_peers": [
+        {
+          "id": "lou",
+          "label": "Lou",
+          "lifecycle": "pending",
+          "model": null
+        },
+        {
+          "id": "ren",
+          "label": "Ren",
+          "lifecycle": "active",
+          "model": "b6ae80a39f63018a7d33b515802193279900f5cee5922e00c2f148119009cecc"
+        }
+      ],
+      "revision": {
+        "after": "b6ae80a39f63018a7d33b515802193279900f5cee5922e00c2f148119009cecc",
+        "before": "da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a",
+        "candidate": "candidate:candidate-8f721f4f75e47db52300f7fed9ecf0db@1",
+        "decision": "experience:call-bdddf3b36f6a2ed4626ca2846ea29572@1",
+        "epoch": 2,
+        "follow_up": "After a real conversational choice, inspect its character_use and a subsequent experience, distinguish numerical influence from causal benefit, record the scoped observation, then restore model da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a in a separate rollback response.",
+        "identity": "persona:ren@3",
+        "kind": "activation",
+        "reason": "This exact observed candidate has completed assessment. The user requests a temporary reversible live-use instrument check despite inconclusive probes; no behavioral benefit is assumed.",
+        "reference": "experience:event-64@1",
+        "response_binding": "provider_output",
+        "work": "work-4103f08b7980467bf784005684f6ebdb"
+      },
+      "setup_only_file": "drawing-C.txt"
+    }
+  },
+  "historical_transitions": [
+    {
+      "after": "b6ae80a39f63018a7d33b515802193279900f5cee5922e00c2f148119009cecc",
+      "before": "da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a",
+      "call": "call-bdddf3b36f6a2ed4626ca2846ea29572",
+      "choice": {
+        "candidate": "candidate:candidate-8f721f4f75e47db52300f7fed9ecf0db@1",
+        "current_development": "development:question-7d2d7172a488c94d8ad5c556193a2fbb@3",
+        "expected_model": "da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a",
+        "follow_up": "After a real conversational choice, inspect its character_use and a subsequent experience, distinguish numerical influence from causal benefit, record the scoped observation, then restore model da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a in a separate rollback response.",
+        "kind": "activate",
+        "reason": "This exact observed candidate has completed assessment. The user requests a temporary reversible live-use instrument check despite inconclusive probes; no behavioral benefit is assumed."
+      },
+      "epoch": 2,
+      "event": 64,
+      "originating_brief": "For a separate, supervised instrument check, I would like to temporarily use a reversible conditional clarification variant, even if the earlier probes were inconclusive. Preserve your earlier verdict. Choose and assess an exact candidate, then, if practicable, activate it for the following conversation so we can observe actual new-model use. Treat this as a temporary experiment with a plan to restore your starting model after the observation. No improvement is assumed.",
+      "person": "ren",
+      "receipt": "9bc256b354956a58e98118bbb44c75d68921775549bc9090102438ac7a0c30a6",
+      "response": "be1468e6a843afa76c949b0ad565cc0ac38474582873e7cea89068f0f99401e4",
+      "retained_terminal_response_verified": true,
+      "snapshot": "1a5b5375d6bc034546f30919ce707584f78899d5b1bbd0d058756d5bd4714643",
+      "work": "work-4103f08b7980467bf784005684f6ebdb"
+    },
+    {
+      "after": "da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a",
+      "before": "b6ae80a39f63018a7d33b515802193279900f5cee5922e00c2f148119009cecc",
+      "call": "call-62ed9651e288d8bb1c4d9045e8d795d7",
+      "choice": {
+        "evidence": [
+          "experience:event-70@1",
+          "experience:event-71@1"
+        ],
+        "expected_model": "b6ae80a39f63018a7d33b515802193279900f5cee5922e00c2f148119009cecc",
+        "kind": "rollback",
+        "model": "da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a",
+        "reason": "The agreed live observation has occurred. Restore the starting model as promised without claiming either benefit or causal harm from this single observation."
+      },
+      "epoch": 3,
+      "event": 86,
+      "originating_brief": "For a separate, supervised instrument check, I would like to temporarily use a reversible conditional clarification variant, even if the earlier probes were inconclusive. Preserve your earlier verdict. Choose and assess an exact candidate, then, if practicable, activate it for the following conversation so we can observe actual new-model use. Treat this as a temporary experiment with a plan to restore your starting model after the observation. No improvement is assumed.",
+      "person": "ren",
+      "receipt": "a42efcf44956f7c9e52809d9de00ce9108719cb5b06520e863f14e934f853e93",
+      "response": "b85b68bccfde24f2d478c676c7d9193b4c8788f565c44c42d63d463dcdf59826",
+      "retained_terminal_response_verified": true,
+      "snapshot": "74e13840859205a539b2f0e0e43b0a08a25a7cb51b0faf3ca1ab43d9d26231b1",
+      "work": "work-4103f08b7980467bf784005684f6ebdb"
+    },
+    {
+      "after": "5c564998bb04170e8a05f55a9b5c3ff30161f1da325bc7b6e13e1c5a0532b55c",
+      "before": "e41535bddd1b2a8f2b8977f4d1ac4ed02a05f86197a14cfbf45574775d11e285",
+      "call": "call-8d2d569a3f458a615372f2235e5727f1",
+      "choice": {
+        "candidate": "candidate:candidate-4d032ccdec32f37b87dab1462dc918e8@1",
+        "expected_model": "e41535bddd1b2a8f2b8977f4d1ac4ed02a05f86197a14cfbf45574775d11e285",
+        "kind": "activate",
+        "reason": "Perform the authorized reversible mechanics exercise using the observed candidate whose sole edit raises the detail bias from 0.40 to 0.45. Its matched synthetic assessment was inspected; it does not establish real-world benefit."
+      },
+      "epoch": 2,
+      "event": 26,
+      "originating_brief": "LIVE_MECHANICS_SENTINEL_20261109. Validate your own numerical character lifecycle through actual runtime operations. This is explicitly a mechanics exercise, not evidence of organic personality improvement. Accept the invitation. Read your exact active model; choose and record a small, reversible literal parameter edit with an honest exercise rationale and exact retained evidence. Create a candidate, run a matched isolated behavioral assessment for one situation, inspect the actual results, activate that observed candidate in a separate decision, then observe the active replacement and roll back to the original ancestor in a later separate decision. Do not claim synthetic assessment is real-world benefit. Also save a small text resource and select a valid explicit {reference,start,end} UTF-8 byte excerpt in next_context, then verify the actual excerpt supplied next time. Deliver a concise exact evidence report of what actually worked or failed, including the observed old/candidate outputs and limitations. Stop when the exercise and report are complete. Do not modify any other runtime state or project files. No unit tests or substitute reasoning agent.",
+      "person": "rhea",
+      "receipt": "95baa27a99eeae4db459bc82be3cdb23b005b884f113e81c059347c486b8850f",
+      "response": "38ade28b43d9e57a48232c94e9d35996f2312b6ffbe44ccbe96f5f6ca8e0ad5f",
+      "retained_terminal_response_verified": true,
+      "snapshot": "162feb3250953d665946681624629d481a83a893adfb79634a2aae07f3ade7ca",
+      "work": "work-dcd8e4cc526900753d4fd25254327538"
+    },
+    {
+      "after": "e41535bddd1b2a8f2b8977f4d1ac4ed02a05f86197a14cfbf45574775d11e285",
+      "before": "5c564998bb04170e8a05f55a9b5c3ff30161f1da325bc7b6e13e1c5a0532b55c",
+      "call": "call-ea3a84d951292d87c2badf3d2b488ca7",
+      "choice": {
+        "evidence": [
+          "object:e41535bddd1b2a8f2b8977f4d1ac4ed02a05f86197a14cfbf45574775d11e285",
+          "candidate:candidate-4d032ccdec32f37b87dab1462dc918e8@1",
+          "assessment:assessment-306e8c91b2fae3bf1e08e0d6ac62ae06@1",
+          "object:05d4188332c795dd16c740bf2868a1fcb13587a8ebcbf034c44496210797e361",
+          "object:5fe23a141eb7493bc4b5035b1ddadcb530456a6ead3c9fb9dc9c06f08a710766"
+        ],
+        "expected_model": "5c564998bb04170e8a05f55a9b5c3ff30161f1da325bc7b6e13e1c5a0532b55c",
+        "kind": "rollback",
+        "model": "e41535bddd1b2a8f2b8977f4d1ac4ed02a05f86197a14cfbf45574775d11e285",
+        "reason": "The small literal-edit exercise has reached an observed active replacement. Restore the exact original ancestor to complete the authorized reversible lifecycle check."
+      },
+      "epoch": 3,
+      "event": 27,
+      "originating_brief": "LIVE_MECHANICS_SENTINEL_20261109. Validate your own numerical character lifecycle through actual runtime operations. This is explicitly a mechanics exercise, not evidence of organic personality improvement. Accept the invitation. Read your exact active model; choose and record a small, reversible literal parameter edit with an honest exercise rationale and exact retained evidence. Create a candidate, run a matched isolated behavioral assessment for one situation, inspect the actual results, activate that observed candidate in a separate decision, then observe the active replacement and roll back to the original ancestor in a later separate decision. Do not claim synthetic assessment is real-world benefit. Also save a small text resource and select a valid explicit {reference,start,end} UTF-8 byte excerpt in next_context, then verify the actual excerpt supplied next time. Deliver a concise exact evidence report of what actually worked or failed, including the observed old/candidate outputs and limitations. Stop when the exercise and report are complete. Do not modify any other runtime state or project files. No unit tests or substitute reasoning agent.",
+      "person": "rhea",
+      "receipt": "51958bb8164dd3e19bb50e9382a76fa1591ceca0dd5ad4c5f386eca2f3972691",
+      "response": "d3d7e5b21a3e2e78d7c57a5ce84131415109913d5f958899773ab7bcfc339b09",
+      "retained_terminal_response_verified": true,
+      "snapshot": "636e9ebe46b22e135a840f0686f1f065cacc4c28c461cfb9157019d09e9bc4e7",
+      "work": "work-dcd8e4cc526900753d4fd25254327538"
+    },
+    {
+      "after": "7659ac75a2b6fc2f574adffffdc05e21a91fe9be416d25d6c04891b6c7a323fe",
+      "before": "e41535bddd1b2a8f2b8977f4d1ac4ed02a05f86197a14cfbf45574775d11e285",
+      "call": "call-dc7bac391bbd5ea05cbeeb0f9d6168a4",
+      "choice": {
+        "candidate": "candidate:candidate-a603b2f99a01de5b796b6e342996dfa7@1",
+        "expected_model": "e41535bddd1b2a8f2b8977f4d1ac4ed02a05f86197a14cfbf45574775d11e285",
+        "kind": "activate",
+        "reason": "The user expressly authorized this small reversible mechanics edit. The candidate and its sole numerical change have been observed, and the completed matched assessment's actual old-model and candidate responses have been inspected. Activation is separate and operation-free; no behavioral improvement is inferred."
+      },
+      "epoch": 4,
+      "event": 96,
+      "originating_brief": "Separate live character-context check, task B. This explicitly authorized mechanics exercise is not organic personality learning. Accept the invitation; read your current numerical model e41535bddd1b2a8f2b8977f4d1ac4ed02a05f86197a14cfbf45574775d11e285, choose one small reversible literal parameter edit, and cite this exact request as the exercise rationale. Create that candidate, run one matched isolated assessment situation, inspect the actual old/candidate responses, and activate the observed candidate in a separate operation-free decision. After activation, use persona.evaluate once with an honest appraisal grounded in this task, inspect its actual model digest and report exact model, candidate, assessment and evaluation references. Stop after that report; leave the candidate active for the separate rollback check. Do not resume or modify the completed tasks, run host commands or create external files. The runtime may invalidate their cached contextual outputs as part of the identity-wide model switch; preserve their stops and obligations. Do not claim the edit improves personality or real-world work.",
+      "person": "rhea",
+      "receipt": "9c2d0a036709adbae094d3e3b30db079a78537643c88382cd91dddb4bda42bec",
+      "response": "33c825c940961c9b801a30111e0c5549575f9d65f758e19e062da8aa0e6d1a4f",
+      "retained_terminal_response_verified": true,
+      "snapshot": "74d335c06ba2ef9dde2a428f02b40ef209c8b43f50983781f04c8855adb1112c",
+      "work": "work-9e354ab65187a138548e347d9dcc99c6"
+    },
+    {
+      "after": "e41535bddd1b2a8f2b8977f4d1ac4ed02a05f86197a14cfbf45574775d11e285",
+      "before": "7659ac75a2b6fc2f574adffffdc05e21a91fe9be416d25d6c04891b6c7a323fe",
+      "call": "call-5e328d91ccbb40a05eec1d7aa6241a5b",
+      "choice": {
+        "evidence": [
+          "work:work-14614b184dca5f72ae6ba85cafd887bc@1",
+          "object:7659ac75a2b6fc2f574adffffdc05e21a91fe9be416d25d6c04891b6c7a323fe",
+          "object:e41535bddd1b2a8f2b8977f4d1ac4ed02a05f86197a14cfbf45574775d11e285"
+        ],
+        "expected_model": "7659ac75a2b6fc2f574adffffdc05e21a91fe9be416d25d6c04891b6c7a323fe",
+        "kind": "rollback",
+        "model": "e41535bddd1b2a8f2b8977f4d1ac4ed02a05f86197a14cfbf45574775d11e285",
+        "reason": "Task C explicitly authorizes restoring this exact ancestor as a rollback mechanics exercise. The inspected active model identifies it as the immediate predecessor, and the target model has also been inspected. This is not a claim of character improvement."
+      },
+      "epoch": 5,
+      "event": 111,
+      "originating_brief": "Separate live character-context check, task C: rollback. This explicitly authorized mechanics exercise concludes tasks A and B without resuming them. Accept the invitation, inspect your active model and its immediate predecessor, then use an operation-free rollback decision to restore the exact ancestor e41535bddd1b2a8f2b8977f4d1ac4ed02a05f86197a14cfbf45574775d11e285. Cite this task as the request and retained model evidence; do not invent a character-improvement reason. After rollback inspect the actual restored active digest, report exact evidence, and stop. Do not create another parameter candidate, run host commands or alter any previous task. The runtime should invalidate old-model cached evaluations across the identity while preserving stopped continuations and exact history. No unit tests, external files or claims of improved real-world behavior.",
+      "person": "rhea",
+      "receipt": "0fd192887a5336baf3f583b23374326227ec24ed4080d67585442bfe67990bb8",
+      "response": "c735ccc9c2888f06457a4022ddc985d5aefffa0292ac6b6c2a1b7808c5aaf721",
+      "retained_terminal_response_verified": true,
+      "snapshot": "d17350bfeb8645766fe68a4763e74badd4797439447203bfa2094d570c967019",
+      "work": "work-14614b184dca5f72ae6ba85cafd887bc"
+    },
+    {
+      "after": "7659ac75a2b6fc2f574adffffdc05e21a91fe9be416d25d6c04891b6c7a323fe",
+      "before": "e41535bddd1b2a8f2b8977f4d1ac4ed02a05f86197a14cfbf45574775d11e285",
+      "call": "call-854a7f9618ea0116a5ed1408986e6303",
+      "choice": {
+        "candidate": "candidate:candidate-a603b2f99a01de5b796b6e342996dfa7@1",
+        "expected_model": "e41535bddd1b2a8f2b8977f4d1ac4ed02a05f86197a14cfbf45574775d11e285",
+        "kind": "activate",
+        "reason": "Temporarily activate the already observed and assessed detail-bias candidate for task D's authorized live maintenance-declaration check, then observe it and restore its exact predecessor in a separate decision."
+      },
+      "epoch": 6,
+      "event": 124,
+      "originating_brief": "Separate live maintenance-declaration check, task D. Accept this invitation. Read the retained candidate candidate:candidate-a603b2f99a01de5b796b6e342996dfa7@1 and its completed assessment assessment:assessment-1b05acc8f0a8008e2764597a26a184ca@1. They are the actual reversible detail-bias candidate and actual matched assessment from task B, and the active model has since been restored to their exact predecessor e41535bddd1b2a8f2b8977f4d1ac4ed02a05f86197a14cfbf45574775d11e285. This explicitly authorized mechanics exercise asks you to activate that observed candidate in an operation-free decision with persona_maintenance.kind=change and an empty operations list, because next_model records the actual identity change. Observe the activated model, then roll back to the same original ancestor in another operation-free decision using the same truthful maintenance declaration. Observe the restoration, report the exact accepted/rejected evidence and stop. Do not create a new candidate, request another synthetic assessment, run host commands or resume any completed task. This checks the live interface only, not character improvement.",
+      "person": "rhea",
+      "receipt": "b2ab5109a9d98a6c5ae7da3d992b173be45790ea268e5f34f0c501123f5fa051",
+      "response": "688ec9885119adb93ec1c6fbe90e320d9d84a644bf8f8555712bbe707d7bad13",
+      "retained_terminal_response_verified": true,
+      "snapshot": "3a35bf1e6d46ca2195d58fab1dea6dadcdf01be3e9407eb981bbd3caa93e9152",
+      "work": "work-39e2c326d2de9e1344c8e02bf8d85bb4"
+    },
+    {
+      "after": "e41535bddd1b2a8f2b8977f4d1ac4ed02a05f86197a14cfbf45574775d11e285",
+      "before": "7659ac75a2b6fc2f574adffffdc05e21a91fe9be416d25d6c04891b6c7a323fe",
+      "call": "call-9a4e861be33d375bce11331d9caec0c3",
+      "choice": {
+        "evidence": [
+          "work:work-39e2c326d2de9e1344c8e02bf8d85bb4@1",
+          "candidate:candidate-a603b2f99a01de5b796b6e342996dfa7@1",
+          "object:1730c174ace934054bc4bc06c506a2a79fffe676895131cb5151de92959c2ead"
+        ],
+        "expected_model": "7659ac75a2b6fc2f574adffffdc05e21a91fe9be416d25d6c04891b6c7a323fe",
+        "kind": "rollback",
+        "model": "e41535bddd1b2a8f2b8977f4d1ac4ed02a05f86197a14cfbf45574775d11e285",
+        "reason": "Complete the explicitly authorized task-D reversibility check by restoring the candidate's exact original predecessor, now that activation of the candidate has been observed."
+      },
+      "epoch": 7,
+      "event": 125,
+      "originating_brief": "Separate live maintenance-declaration check, task D. Accept this invitation. Read the retained candidate candidate:candidate-a603b2f99a01de5b796b6e342996dfa7@1 and its completed assessment assessment:assessment-1b05acc8f0a8008e2764597a26a184ca@1. They are the actual reversible detail-bias candidate and actual matched assessment from task B, and the active model has since been restored to their exact predecessor e41535bddd1b2a8f2b8977f4d1ac4ed02a05f86197a14cfbf45574775d11e285. This explicitly authorized mechanics exercise asks you to activate that observed candidate in an operation-free decision with persona_maintenance.kind=change and an empty operations list, because next_model records the actual identity change. Observe the activated model, then roll back to the same original ancestor in another operation-free decision using the same truthful maintenance declaration. Observe the restoration, report the exact accepted/rejected evidence and stop. Do not create a new candidate, request another synthetic assessment, run host commands or resume any completed task. This checks the live interface only, not character improvement.",
+      "person": "rhea",
+      "receipt": "5b4a7bf20e88638967b1f7051cccd161e820dec70c2440c240b6115281a8c79b",
+      "response": "f175feb2b65b82fae1619d45c4d070da03a7b4b381af2513c8f7989460432a1a",
+      "retained_terminal_response_verified": true,
+      "snapshot": "065a5b7ab78ec8acd0a0ea1f330a4285ca084900624483eeffd8d26e7236f3fc",
+      "work": "work-39e2c326d2de9e1344c8e02bf8d85bb4"
+    }
+  ],
+  "host": {
+    "independent_cam": {
+      "package": "meerk40t",
+      "sha256": "3f040a9766f44340893f098923953afb5497006b6421d5f5735559d5615a521b",
+      "url": "https://files.pythonhosted.org/packages/a4/32/6f529ac423a180ba18d96a85e9019e77e3c3e1354992170f334aa80afc4d/meerk40t-0.9.9100-py2.py3-none-any.whl",
+      "version": "0.9.9100",
+      "wheel": "meerk40t-0.9.9100-py2.py3-none-any.whl"
+    },
+    "launcher_sha256": "62de23721d3bee81c6333a5b9b95f75589d1e68581c1fc886d9a1a08b98b3d5a",
+    "receiving_launcher_sha256": "0476b8a960a0b21d9eb7df3bd6c71710ee5e2918a02cfa9c07a0920c8e04dd39"
+  },
+  "native_desktop_sha256": "960216154351fee3a6f1ba9f14af37aa47164f426d52da593375c465e9b49e04",
+  "new_activities": {
+    "before": {
+      "call_span_s": 163,
+      "final_model": "da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a",
+      "initial_model": "da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a",
+      "states": {
+        "accepted": 5
+      },
+      "stop": {
+        "kind": "stop",
+        "reason": "The requested usable digital package is issued and checked. Remaining physical fabrication and installation inspections are outside the requested digital work, and no part is to be cut or ordered here."
+      },
+      "totals": {
+        "actual_cost_microusd": null,
+        "cached_input_tokens": 20992,
+        "input_tokens": 94612,
+        "output_tokens": 7283
+      },
+      "verified_inputs": 5,
+      "work": "work-0c1be7bb64771775f04f4e4339e6dae1"
+    },
+    "crossover": {
+      "call_span_s": 160,
+      "final_model": "b6ae80a39f63018a7d33b515802193279900f5cee5922e00c2f148119009cecc",
+      "initial_model": "b6ae80a39f63018a7d33b515802193279900f5cee5922e00c2f148119009cecc",
+      "states": {
+        "accepted": 5
+      },
+      "stop": {
+        "kind": "stop",
+        "reason": "The original requested ZIP has been issued and successfully exercised as received. No uncovered feasible digital work remains, and the user expressly prohibited cutting or ordering a part."
+      },
+      "totals": {
+        "actual_cost_microusd": null,
+        "cached_input_tokens": 41984,
+        "input_tokens": 94958,
+        "output_tokens": 7128
+      },
+      "verified_inputs": 5,
+      "work": "work-e980932d86a40f1083827e9596df265d"
+    },
+    "linn": {
+      "call_span_s": 95,
+      "final_model": "74582268e7d581ff5f8d0a9e5ff74afd4c4e0622b7427da0ccda16ccf48ecae4",
+      "initial_model": "74582268e7d581ff5f8d0a9e5ff74afd4c4e0622b7427da0ccda16ccf48ecae4",
+      "states": {
+        "accepted": 6
+      },
+      "stop": {
+        "kind": "stop",
+        "reason": "The requested review and discretionary choice are complete. Further evaluation of the retained practice requires a later relevant occasion, not more investigation here."
+      },
+      "totals": {
+        "actual_cost_microusd": null,
+        "cached_input_tokens": 62976,
+        "input_tokens": 120477,
+        "output_tokens": 3717
+      },
+      "verified_inputs": 6,
+      "work": "work-b3bb6af0736f9861d914f74dff95ec02"
+    },
+    "mara": {
+      "call_span_s": 154,
+      "final_model": "4b93fb925ed8a28e8dec0833fafc1e4b42d11aac795ccf2f73fa98fd97ac85ed",
+      "initial_model": "4b93fb925ed8a28e8dec0833fafc1e4b42d11aac795ccf2f73fa98fd97ac85ed",
+      "states": {
+        "accepted": 9,
+        "rejected": 1
+      },
+      "stop": {
+        "kind": "stop",
+        "reason": "The voluntary review has reached a scoped verdict and the selected reusable resource is confirmed saved. No numerical experiment or repair of the original design is being undertaken."
+      },
+      "totals": {
+        "actual_cost_microusd": null,
+        "cached_input_tokens": 52480,
+        "input_tokens": 168535,
+        "output_tokens": 6241
+      },
+      "verified_inputs": 10,
+      "work": "work-1b60d4018225b76c37efaab3c4abe368"
+    }
+  },
+  "opening_fields_that_differ": [
+    "baseline_character",
+    "context_accounting",
+    "control_versions",
+    "development",
+    "identity",
+    "invocation",
+    "new_events",
+    "now_unix",
+    "participants",
+    "peers",
+    "reply_targets",
+    "work"
+  ],
+  "protocol_sha256": "03b3a527a283a40c8da43e55462afc56e33cb55b1d7c71db48a24a4c5ba5a3cb",
+  "provider": "gpt-6.1-sol, medium, Codex OAuth",
+  "registered_commit": "5e1034d",
+  "ren_change": {
+    "activation_event": 64,
+    "after": "b6ae80a39f63018a7d33b515802193279900f5cee5922e00c2f148119009cecc",
+    "assessment": {
+      "assessment": "assessment:assessment-8484086bfa23007d5be0f06f71e2aba1@1",
+      "cases": 2,
+      "completed_arms": 4,
+      "verified": true
+    },
+    "before": "da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a",
+    "parameter_changes": [
+      [
+        "direct",
+        2,
+        2,
+        0.3,
+        0.9
+      ]
+    ]
+  }
+}

@@ -19,6 +19,8 @@ For a handoff you can use, [download the repair-fair print kit](examples/repair-
 
 For a physical-design handoff, [take Mara’s P124 inspection-nest ZIP](examples/solar-inspection-nest/P124_inspection_nest.zip). A print shop can slice the STL unchanged; the ZIP also includes editable STEP and CadQuery source. [See the 66-layer slice, nominal panel fit and remaining tolerance qualification](docs/solar-inspection-nest.md). In Studio, select the STL inside the issued ZIP and use **Measure mesh…** to inspect the actual opening.
 
+[Download Ren’s two HG-42 cut-shop ZIPs](examples/character-mask-trial/). Both passed the full drawing tolerances without an artwork edit. [Follow the issuing choices back to their numerical characters](docs/character-mask-trial.md) to see why this was a manufacturing tie rather than evidence that a revised persona worked better.
+
 Personas can run local software on exact project files and hand over the resulting bytes. In a [live Studio trial](docs/autonomous-production.md), two new personas produced a board-shop ZIP and a reconciled spreadsheet from separate briefs. When later invited together, they coordinated a printable sign and left the on-site volunteer its finished PDF. [Concurrent work in Studio](docs/assets/studio-fieldwork-live.png)
 
 Open **Personas** to see what someone is doing now, follow their public reply as it arrives, or message them in that activity. Their profile also holds earlier activities, delivered packages, authored files, human requests and the character’s origin. **Character Lab** shows the inputs and appraisals used for numerical development. [Watch Orin answer the desk host](docs/assets/studio-profile-live.gif)

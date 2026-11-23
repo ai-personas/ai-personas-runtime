@@ -1,0 +1,1 @@
+Extract this ZIP. Read CUT-AND-INSTALL.txt and import HG-42-C-mask.svg at 1:1 in mm without a second kerf offset. Cut only the perimeter and two windows in one 0.8 mm black-card mask; inspect and install as directed. This handoff does not place an order or authorize cutting.
