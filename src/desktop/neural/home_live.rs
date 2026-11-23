@@ -826,6 +826,9 @@ fn observation_line(
                     muted(ui, s(tool, "tool").into());
                 }
             });
+            if let Some(reference) = live_board::foreground_details(ui, tool, now) {
+                *resource = Some(reference);
+            }
             if let Some(at) = tool["started"].as_i64() {
                 muted(
                     ui,

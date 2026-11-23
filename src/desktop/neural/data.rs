@@ -347,7 +347,9 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
         if call["state"] == "uncertain" { uncertain_calls.push(call); } else { active.push(call); }
     }
     let mut q = db.prepare(
-        "SELECT id,actor,work,state,operation FROM outbox WHERE state IN ('pending','dispatched','uncertain') ORDER BY rowid",
+        "SELECT o.id,o.actor,o.work,o.state,o.operation,i.id,i.updated FROM outbox o
+         LEFT JOIN invocations i ON i.id=o.invocation AND i.actor=o.actor AND i.work=o.work AND i.state='accepted'
+         WHERE o.state IN ('pending','dispatched','uncertain') ORDER BY o.rowid",
     )?;
     let effects = q
         .query_map([], |r| {
@@ -357,13 +359,26 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
                 r.get::<_, String>(2)?,
                 r.get::<_, String>(3)?,
                 r.get::<_, String>(4)?,
+                r.get::<_, Option<String>>(5)?,
+                r.get::<_, Option<i64>>(6)?,
             ))
         })?
         .collect::<Result<Vec<_>, _>>()?;
     let mut active_effects = Vec::new();
-    for (id, actor, work, state, digest) in effects {
+    for (id, actor, work, state, digest, choice, accepted) in effects {
         let operation: Value = store::object(&db, &digest)?;
-        active_effects.push(json!({"id":id,"actor":actor,"work":work,"state":state,"tool":operation["tool"],"operation":format!("object:{digest}")}));
+        let mut effect = json!({"id":id,"actor":actor,"work":work,"state":state,"tool":operation["tool"],"operation":format!("object:{digest}")});
+        if operation["tool"] == "command.local" {
+            let input = &operation["input"];
+            if let (Some(call), Some(at), Some(program)) = (choice, accepted, input["program"].as_str()) {
+                // This is the persona's accepted request. It may be queued behind
+                // another effect; the decision time is not the process start time.
+                effect["foreground"] = json!({"decision":format!("experience:{call}@1"),"accepted_at":at,
+                    "program":program,"directory":input["directory"].as_str().unwrap_or("scratch"),
+                    "timeout_seconds":input["timeout_seconds"]});
+            }
+        }
+        active_effects.push(effect);
     }
     for job in status["jobs"].as_array().into_iter().flatten() {
         let state = match job["state"].as_str() {

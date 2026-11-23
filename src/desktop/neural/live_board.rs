@@ -401,6 +401,29 @@ pub(super) fn age(seconds: i64) -> String {
     }
 }
 
+pub(super) fn foreground_details(ui: &mut Ui, effect: &Value, now: i64) -> Option<String> {
+    let request = &effect["foreground"];
+    let decision = request["decision"].as_str()?;
+    let accepted = request["accepted_at"].as_i64()?;
+    let program = request["program"].as_str()?;
+    let directory = match request["directory"].as_str() {
+        Some("workspace") => "Shared project",
+        Some("scratch") => "Scratch directory",
+        _ => "Local command",
+    };
+    ui.add(egui::Label::new(RichText::new(format!("{directory} · {program}")).small()).truncate())
+        .on_hover_text(program);
+    let deadline = match request["timeout_seconds"].as_u64() {
+        Some(s) => format!("Process deadline: {s} s from launch"),
+        None if request["timeout_seconds"].is_null() => "No process deadline selected".into(),
+        _ => "Process deadline unavailable".into(),
+    };
+    ui.weak(RichText::new(deadline).small());
+    ui.link(RichText::new(format!("Decision accepted {} ago", age(now.saturating_sub(accepted)))).small())
+        .on_hover_text(format!("Open the persona's decision at {}. The process may have started later.", time_label(accepted)))
+        .clicked().then(|| decision.to_owned())
+}
+
 fn has_recent_bytes(call: &Value, now: i64) -> bool {
     call["stream_bytes"].as_u64().is_some_and(|b| b > 0)
         && call["observed_at"]
@@ -969,6 +992,9 @@ impl App {
                 }
             } else {
                 small_text(ui, s(effect, "tool"));
+            }
+            if let Some(reference) = foreground_details(ui, effect, now) {
+                open = Some(reference);
             }
             if let Some(start) = effect["started"].as_i64() {
                 small_text(
