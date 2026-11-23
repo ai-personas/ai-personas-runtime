@@ -1,0 +1,55 @@
+{
+  "C6_dielectric": {
+    "Capacitance": "100nF",
+    "Temperature Coefficient": "X7R",
+    "Tolerance": "±10%",
+    "Voltage Rating": "50V"
+  },
+  "R3_current_limit_ohm": 64900.00000000001,
+  "R4_in_schematic": true,
+  "R4_min_preload_mA_at_4.8V_and_max_resistance": 5.795701521371649,
+  "R4_nominal_loss_mW": 30.48780487804878,
+  "R4_preload_ohm": 820.0,
+  "RC_only_Hz_limits": [
+    44.471075080113046,
+    55.45158744557305
+  ],
+  "U1_paste_rectangle_mm": [
+    70.8,
+    -44.55,
+    73.2,
+    -41.45
+  ],
+  "assumptions": [
+    "Issued target: 12.0 V measured at the board, 27 ohm resistive load rated at least 10 W.",
+    "Recomputed from the actual board pad/net groups and exact purchased timing and current-setting values.",
+    "Ideal symmetric square wave with constant total series resistance. Omits switching, hot-board, wiring and transient effects.",
+    "DRV8871 0.565 ohm typical and 0.680 ohm summed maximum are at 24 V, 1 A, 25 kHz, 25 C; they are examples here, not guaranteed bounds at 12 V on this PCB.",
+    "No bench power, cycle-to-cycle frequency, thermal rise or supplier process was measured."
+  ],
+  "datasheet_constant_and_R3_tolerance_Itrip_A": [
+    0.9000900090008999,
+    1.0739132464864358
+  ],
+  "drills_fully_inside_paste_xy_dia_mm": [],
+  "ideal_W": 5.333333333333333,
+  "illustrative_W_at_0.565ohm": 5.116939270136654,
+  "illustrative_W_at_0.680ohm": 5.074509672892512,
+  "load_min_W": 10,
+  "load_ohm": 27.0,
+  "maximum_total_series_ohm": 0.8854800926934026,
+  "output_Hz_ideal_RC_divide_by_two": 49.40736441400559,
+  "plated_and_nonplated_hits": {
+    "drill/NonPlated": 0,
+    "drill/Plated": 21
+  },
+  "requested_board_V": 12.0,
+  "required_Irms": 0.4303314829119352,
+  "required_load_Vrms": 11.61895003862225,
+  "target_W": 5,
+  "timing_network": [
+    10000.0,
+    68000.0,
+    1.0000000000000001e-07
+  ]
+}

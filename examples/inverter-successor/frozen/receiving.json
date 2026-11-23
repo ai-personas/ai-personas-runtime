@@ -1,0 +1,718 @@
+{
+  "bytes": 610734,
+  "decisions": {
+    "final_models": {
+      "arden": {
+        "before": "9a11685bc70a11c4968cbc2428af991d8e1a94c62f1e91d33c26e7189f16f717",
+        "before_epoch": 1,
+        "epoch": 1,
+        "model": "9a11685bc70a11c4968cbc2428af991d8e1a94c62f1e91d33c26e7189f16f717"
+      },
+      "bell": {
+        "before": "ed59ca018b3c029ab0a8eb937562f88aa39b42dc3d85bf8db76df5c21ab255f3",
+        "before_epoch": 1,
+        "epoch": 1,
+        "model": "ed59ca018b3c029ab0a8eb937562f88aa39b42dc3d85bf8db76df5c21ab255f3"
+      }
+    },
+    "local_commands": 161,
+    "local_exits": {
+      "0": 148,
+      "1": 10,
+      "137": 1,
+      "2": 1,
+      "3": 1
+    },
+    "new_assessments": 0,
+    "sha256_of_private_audit": "19b9521299a9adca1996ebcc55fd455f40abd99b5cc0c0249dc78d861af3d7c2",
+    "states": {
+      "accepted": 178,
+      "rejected": 1
+    },
+    "tokens": {
+      "actual_cost_microusd": {
+        "complete": false,
+        "missing": 179,
+        "reported": 0,
+        "sum": null
+      },
+      "cached_input_tokens": {
+        "complete": true,
+        "missing": 0,
+        "reported": 179,
+        "sum": 1658368
+      },
+      "input_tokens": {
+        "complete": true,
+        "missing": 0,
+        "reported": 179,
+        "sum": 4003144
+      },
+      "output_tokens": {
+        "complete": true,
+        "missing": 0,
+        "reported": 179,
+        "sum": 120542
+      },
+      "total_tokens": {
+        "complete": true,
+        "missing": 0,
+        "reported": 179,
+        "sum": 4123686
+      }
+    },
+    "verified_provider_inputs": 179,
+    "voluntary_new_candidates": 0
+  },
+  "delivery": "delivery:delivery-0ee32fb5ecb4a8f433bb8ef570dac005@1",
+  "dispatches": [],
+  "fabrication": {
+    "duplicate_functions": [],
+    "gerbonara": "1.5.0",
+    "layers": {
+      "Copper,L1,Top": {
+        "bounds_mm": [
+          [
+            35.7,
+            -68.14909999999999
+          ],
+          [
+            91.38,
+            -34.7
+          ]
+        ],
+        "issued": "inverter-F_Cu.gtl",
+        "matching_except_dates": true,
+        "objects": 223,
+        "regenerated": "inverter-F_Cu.gtl",
+        "sha256": "80592b1ba249a21c2b5fca3faf6fdfa48e9c4c7b79666f717401b64d16b3c761"
+      },
+      "Copper,L2,Bot": {
+        "bounds_mm": [
+          [
+            35.7,
+            -65.40259999999999
+          ],
+          [
+            91.38,
+            -35.7
+          ]
+        ],
+        "issued": "inverter-B_Cu.gbl",
+        "matching_except_dates": true,
+        "objects": 49,
+        "regenerated": "inverter-B_Cu.gbl",
+        "sha256": "641731775f04d14f33413cf1bdedd4674924d56b32cb6770ace3347027ac8281"
+      },
+      "Legend,Bot": {
+        "issued": "inverter-B_Silkscreen.gbo",
+        "matching_except_dates": true,
+        "objects": 0,
+        "regenerated": "inverter-B_Silkscreen.gbo",
+        "sha256": "eaa728f578b86b268b070aa166f5b260c0c296e513abacaa719b2cf89d44c983"
+      },
+      "Legend,Top": {
+        "bounds_mm": [
+          [
+            32.261779,
+            -72.625057
+          ],
+          [
+            92.8,
+            -27.3322
+          ]
+        ],
+        "issued": "inverter-F_Silkscreen.gto",
+        "matching_except_dates": true,
+        "objects": 875,
+        "regenerated": "inverter-F_Silkscreen.gto",
+        "sha256": "a09e397135f76fc2230321ace4152ed802bd9bcb090a3e87e127e26385e7c315"
+      },
+      "Paste,Bot": {
+        "issued": "inverter-B_Paste.gbp",
+        "matching_except_dates": true,
+        "objects": 0,
+        "regenerated": "inverter-B_Paste.gbp",
+        "sha256": "bad2ad06c33516f662a05fa2a802a29312b1fbc906ff19ad04f278cc234ad433"
+      },
+      "Paste,Top": {
+        "bounds_mm": [
+          [
+            40.55,
+            -67.725
+          ],
+          [
+            75.975,
+            -35.2
+          ]
+        ],
+        "issued": "inverter-F_Paste.gtp",
+        "matching_except_dates": true,
+        "objects": 61,
+        "regenerated": "inverter-F_Paste.gtp",
+        "sha256": "c52e9fce60af3bc2e104fef6ec79c7ab00be5091ac8ce3f80e819b9c244feec5"
+      },
+      "Profile,NP": {
+        "bounds_mm": [
+          [
+            29.975,
+            -75.025
+          ],
+          [
+            95.025,
+            -29.975
+          ]
+        ],
+        "edge_coords": [
+          [
+            30.0,
+            -30.0,
+            95.0,
+            -30.0
+          ],
+          [
+            30.0,
+            -75.0,
+            30.0,
+            -30.0
+          ],
+          [
+            95.0,
+            -30.0,
+            95.0,
+            -75.0
+          ],
+          [
+            95.0,
+            -75.0,
+            30.0,
+            -75.0
+          ]
+        ],
+        "issued": "inverter-Edge_Cuts.gm1",
+        "matching_except_dates": true,
+        "objects": 4,
+        "regenerated": "inverter-Edge_Cuts.gm1",
+        "sha256": "8088a23a8aafcefa2361cea06f5f0af4fc87b2cac67278e82c08d99016c259b9"
+      },
+      "Soldermask,Bot": {
+        "bounds_mm": [
+          [
+            35.7,
+            -41.3
+          ],
+          [
+            91.38,
+            -35.7
+          ]
+        ],
+        "issued": "inverter-B_Mask.gbs",
+        "matching_except_dates": true,
+        "objects": 4,
+        "regenerated": "inverter-B_Mask.gbs",
+        "sha256": "984a74e919bceec0002010f0ce8a550c1256fc9c12d600e8786c2450b11105f7"
+      },
+      "Soldermask,Top": {
+        "bounds_mm": [
+          [
+            35.7,
+            -67.725
+          ],
+          [
+            91.38,
+            -35.2
+          ]
+        ],
+        "issued": "inverter-F_Mask.gts",
+        "matching_except_dates": true,
+        "objects": 62,
+        "regenerated": "inverter-F_Mask.gts",
+        "sha256": "3a4446e35d851c08eb960f553416424c2d39d8de50673a9b074cea9be8b15c85"
+      },
+      "drill/MixedPlating": {
+        "bounds_mm": [
+          [
+            36.2,
+            -65.253
+          ],
+          [
+            90.88,
+            -36.2
+          ]
+        ],
+        "issued": "inverter.drl",
+        "matching_except_dates": true,
+        "objects": 21,
+        "regenerated": "inverter.drl",
+        "sha256": "00f58eba88c42157bf93d641dcebe169352400a5c53dbcb84d0d8dfb84429719"
+      }
+    },
+    "missing": [],
+    "regenerated_separate_drill_hits": {
+      "drill/NonPlated": 0,
+      "drill/Plated": 21
+    },
+    "unrecognized": []
+  },
+  "issuing_decision": "call-32133b0b991bbd7ca4435f12d0630fcb",
+  "kicad": {
+    "board": "issued/bench-inverter-v5/design/inverter.kicad_pcb",
+    "board_only_pins": [],
+    "board_sha256": "3c3a4d89ce44315d1b709ca342f2c96ad1bd178a6f34d5c312b210479a264e3c",
+    "footprint_id_disagreements": {},
+    "pcb_numbered_pins": 62,
+    "physical_assignment_exceptions": [],
+    "positions_sha256": "f7b869a06a9ea8ee2eb1c06076a6ea57e1de172d7887bfc2f444b9f807785d75",
+    "regeneration": {
+      "drills": 0,
+      "geometry": 0,
+      "gerbers": 0,
+      "netlist": 0,
+      "positions": 0
+    },
+    "same_electrical_pin_groups": true,
+    "schematic": "issued/bench-inverter-v5/design/inverter.kicad_sch",
+    "schematic_numbered_pins": 62,
+    "schematic_only_pins": [],
+    "schematic_sha256": "db8e958e361dd3c50293b6e83ab9c43b72866e28b4bcdaafcc134add8b4c6ec2",
+    "stock_fresh_package_files": true,
+    "trials": {
+      "drc": {
+        "counts": {},
+        "exit": 0,
+        "report_sha256": "35531ffb73048df532a8923b6a49e49f631faea966dbd5a21aa17bc6f2199d91"
+      },
+      "erc": {
+        "counts": {},
+        "exit": 0,
+        "report_sha256": "857f46eca09657557b67499a8e95e0d6fd421a81eed665b1212ea1ff9434e9c0"
+      },
+      "parity": {
+        "counts": {
+          "schematic_parity/warning/net_conflict": 62
+        },
+        "exit": 5,
+        "report_sha256": "6d0c1111c886157d02b843791180b6ba649ff7f5bfcb2b74682c29d4415ae07a"
+      }
+    },
+    "unique_label_differences_after_root_slash": [
+      [
+        "U4:12",
+        "NC12",
+        "unconnected-(U4B-~{Q}-Pad12)"
+      ],
+      [
+        "U4:13",
+        "NC13",
+        "unconnected-(U4B-Q-Pad13)"
+      ]
+    ],
+    "unreadable_author_paths": true,
+    "version": "9.0.9"
+  },
+  "members": 65,
+  "nested_zips": {},
+  "notice": "Independent measurements of the unedited supplier file. Public catalog observations and library land patterns are not an order confirmation or a measured circuit.",
+  "original_download": "bench-inverter-v5-qualified-r3.zip",
+  "procurement": {
+    "duplicate_BOM": [],
+    "duplicate_CPL": [],
+    "extra_BOM": [],
+    "extra_CPL": [],
+    "missing_BOM": [],
+    "missing_CPL": [],
+    "parts_per_board": 18,
+    "per_reference_csv": "parts.csv",
+    "products": {
+      "C13527": {
+        "MPN": "CD4013BM96",
+        "catalog_mode": "smtWeld",
+        "land_pattern_url": "https://easyeda.com/api/products/C13527/components?version=6.5.22",
+        "listing": "https://jlcpcb.com/partdetail/C13527",
+        "parts_on_board": 1,
+        "public_mode": "smtWeld",
+        "published_MPN": "CD4013BM96",
+        "published_loss": 0,
+        "published_loss_ratio": 0.002,
+        "published_minimum": 0,
+        "snapshot_attributes": {
+          "Clock Frequency": "24MHz",
+          "Current - Output High(IOH)": "6.8mA",
+          "Current - Output Low(IOL)": "6.8mA",
+          "Function": "Set and Reset",
+          "Hold Time": "2ns",
+          "Input Capacitance": "5pF",
+          "Number of Bits per Element": "1",
+          "Number of Elements": "2",
+          "Operating Temperature": "-55℃~+125℃",
+          "Output Type": "Complementary",
+          "Propagation Delay": "90ns@15V,50pF",
+          "Quiescent Current": "4uA",
+          "Series": "4000B Series",
+          "Setup Time": "10ns",
+          "Synchronous/Asynchronous": "Asynchronous",
+          "Trigger Type": "Rising Edge",
+          "Type": "D-Type",
+          "Voltage - Supply": "3V~18V"
+        },
+        "snapshot_attrition": {
+          "leastNumber": 1,
+          "leastPatchNumber": 0,
+          "lossNumber": 0,
+          "minPurchaseNum": 1
+        }
+      },
+      "C1710": {
+        "MPN": "CL21B103KBANNNC",
+        "catalog_mode": "smtWeld",
+        "land_pattern_url": "https://easyeda.com/api/products/C1710/components?version=6.5.22",
+        "listing": "https://jlcpcb.com/partdetail/C1710",
+        "parts_on_board": 1,
+        "public_mode": "smtWeld",
+        "published_MPN": "CL21B103KBANNNC",
+        "published_loss": 10,
+        "published_loss_ratio": 0.004,
+        "published_minimum": 20,
+        "snapshot_attributes": {
+          "Capacitance": "10nF",
+          "Temperature Coefficient": "X7R",
+          "Tolerance": "±10%",
+          "Voltage Rating": "50V"
+        },
+        "snapshot_attrition": {
+          "leastNumber": 20,
+          "leastPatchNumber": 20,
+          "lossNumber": 10,
+          "minPurchaseNum": 1
+        }
+      },
+      "C1711": {
+        "MPN": "CL21B104KBCNNNC",
+        "catalog_mode": "smtWeld",
+        "land_pattern_url": "https://easyeda.com/api/products/C1711/components?version=6.5.22",
+        "listing": "https://jlcpcb.com/partdetail/C1711",
+        "parts_on_board": 4,
+        "public_mode": "smtWeld",
+        "published_MPN": "CL21B104KBCNNNC",
+        "published_loss": 10,
+        "published_loss_ratio": 0.004,
+        "published_minimum": 20,
+        "snapshot_attributes": {
+          "Capacitance": "100nF",
+          "Temperature Coefficient": "X7R",
+          "Tolerance": "±10%",
+          "Voltage Rating": "50V"
+        },
+        "snapshot_attrition": {
+          "leastNumber": 20,
+          "leastPatchNumber": 20,
+          "lossNumber": 10,
+          "minPurchaseNum": 1
+        }
+      },
+      "C1713": {
+        "MPN": "CL21A106KOQNNNE",
+        "catalog_mode": "smtWeld",
+        "land_pattern_url": "https://easyeda.com/api/products/C1713/components?version=6.5.22",
+        "listing": "https://jlcpcb.com/partdetail/C1713",
+        "parts_on_board": 1,
+        "public_mode": "smtWeld",
+        "published_MPN": "CL21A106KOQNNNE",
+        "published_loss": 10,
+        "published_loss_ratio": 0.004,
+        "published_minimum": 20,
+        "snapshot_attributes": {
+          "Capacitance": "10uF",
+          "Temperature Coefficient": "X5R",
+          "Tolerance": "±10%",
+          "Voltage Rating": "16V"
+        },
+        "snapshot_attrition": {
+          "leastNumber": 20,
+          "leastPatchNumber": 20,
+          "lossNumber": 10,
+          "minPurchaseNum": 1
+        }
+      },
+      "C1740": {
+        "MPN": "0805B334K500NT",
+        "catalog_mode": "smtWeld",
+        "land_pattern_url": "https://easyeda.com/api/products/C1740/components?version=6.5.22",
+        "listing": "https://jlcpcb.com/partdetail/C1740",
+        "parts_on_board": 1,
+        "public_mode": "smtWeld",
+        "published_MPN": "0805B334K500NT",
+        "published_loss": 10,
+        "published_loss_ratio": 0.004,
+        "published_minimum": 20,
+        "snapshot_attributes": {
+          "Capacitance": "330nF",
+          "Temperature Coefficient": "X7R",
+          "Tolerance": "±10%",
+          "Voltage Rating": "50V"
+        },
+        "snapshot_attrition": {
+          "leastNumber": 20,
+          "leastPatchNumber": 20,
+          "lossNumber": 10,
+          "minPurchaseNum": 1
+        }
+      },
+      "C17414": {
+        "MPN": "0805W8F1002T5E",
+        "catalog_mode": "smtWeld",
+        "land_pattern_url": "https://easyeda.com/api/products/C17414/components?version=6.5.22",
+        "listing": "https://jlcpcb.com/partdetail/C17414",
+        "parts_on_board": 1,
+        "public_mode": "smtWeld",
+        "published_MPN": "0805W8F1002T5E",
+        "published_loss": 10,
+        "published_loss_ratio": 0.004,
+        "published_minimum": 20,
+        "snapshot_attributes": {
+          "Operating Temperature": "-55℃~+155℃",
+          "Power(Watts)": "125mW",
+          "Resistance": "10kΩ",
+          "Temperature Coefficient": "±100ppm/℃",
+          "Tolerance": "±1%",
+          "Type": "Thick Film Resistor",
+          "Voltage-Supply(Max)": "150V"
+        },
+        "snapshot_attrition": {
+          "leastNumber": 20,
+          "leastPatchNumber": 20,
+          "lossNumber": 10,
+          "minPurchaseNum": 1
+        }
+      },
+      "C17788": {
+        "MPN": "0805W8F6492T5E",
+        "catalog_mode": "smtWeld",
+        "land_pattern_url": "https://easyeda.com/api/products/C17788/components?version=6.5.22",
+        "listing": "https://jlcpcb.com/partdetail/C17788",
+        "parts_on_board": 1,
+        "public_mode": "smtWeld",
+        "published_MPN": "0805W8F6492T5E",
+        "published_loss": 10,
+        "published_loss_ratio": 0.004,
+        "published_minimum": 20,
+        "snapshot_attributes": {
+          "Operating Temperature": "-55℃~+155℃",
+          "Power(Watts)": "125mW",
+          "Resistance": "64.9kΩ",
+          "Temperature Coefficient": "±100ppm/℃",
+          "Tolerance": "±1%",
+          "Type": "Thick Film Resistor",
+          "Voltage-Supply(Max)": "150V"
+        },
+        "snapshot_attrition": {
+          "leastNumber": 20,
+          "leastPatchNumber": 20,
+          "lossNumber": 10,
+          "minPurchaseNum": 1
+        }
+      },
+      "C17801": {
+        "MPN": "0805W8F6802T5E",
+        "catalog_mode": null,
+        "land_pattern_url": "https://easyeda.com/api/products/C17801/components?version=6.5.22",
+        "listing": "https://jlcpcb.com/partdetail/C17801",
+        "parts_on_board": 1,
+        "public_mode": "smtWeld",
+        "published_MPN": "0805W8F6802T5E",
+        "published_loss": 10,
+        "published_loss_ratio": 0.004,
+        "published_minimum": 20,
+        "snapshot_attributes": {
+          "Operating Temperature": "-55℃~+155℃",
+          "Power(Watts)": "125mW",
+          "Resistance": "68kΩ",
+          "Temperature Coefficient": "±100ppm/℃",
+          "Tolerance": "±1%",
+          "Type": "Thick Film Resistor",
+          "Voltage-Supply(Max)": "150V"
+        },
+        "snapshot_attrition": {}
+      },
+      "C17837": {
+        "MPN": "0805W8F8200T5E",
+        "catalog_mode": "smtWeld",
+        "land_pattern_url": "https://easyeda.com/api/products/C17837/components?version=6.5.22",
+        "listing": "https://jlcpcb.com/partdetail/C17837",
+        "parts_on_board": 1,
+        "public_mode": "smtWeld",
+        "published_MPN": "0805W8F8200T5E",
+        "published_loss": 10,
+        "published_loss_ratio": 0.004,
+        "published_minimum": 20,
+        "snapshot_attributes": {
+          "Operating Temperature": "-55℃~+155℃",
+          "Power(Watts)": "125mW",
+          "Resistance": "820Ω",
+          "Temperature Coefficient": "±100ppm/℃",
+          "Tolerance": "±1%",
+          "Type": "Thick Film Resistor",
+          "Voltage-Supply(Max)": "150V"
+        },
+        "snapshot_attrition": {
+          "leastNumber": 20,
+          "leastPatchNumber": 20,
+          "lossNumber": 10,
+          "minPurchaseNum": 1
+        }
+      },
+      "C3338": {
+        "MPN": "RVT1E101M0607",
+        "catalog_mode": "smtWeld",
+        "land_pattern_url": "https://easyeda.com/api/products/C3338/components?version=6.5.22",
+        "listing": "https://jlcpcb.com/partdetail/C3338",
+        "parts_on_board": 1,
+        "public_mode": "smtWeld",
+        "published_MPN": "RVT1E101M0607",
+        "published_loss": 1,
+        "published_loss_ratio": 0.004,
+        "published_minimum": 5,
+        "snapshot_attributes": {
+          "Capacitance": "100uF",
+          "Diameter": "6.3mm",
+          "Height - Seated (Max)": "7.7mm",
+          "Lifetime": "2000hrs@105℃",
+          "Operating Temperature": "-55℃~+105℃",
+          "Tolerance": "±20%",
+          "Voltage Rating": "25V"
+        },
+        "snapshot_attrition": {
+          "leastNumber": 5,
+          "leastPatchNumber": 5,
+          "lossNumber": 1,
+          "minPurchaseNum": 1
+        }
+      },
+      "C474881": {
+        "MPN": "KF301-5.0-2P",
+        "catalog_mode": "manualWeld",
+        "land_pattern_url": "https://easyeda.com/api/products/C474881/components?version=6.5.22",
+        "listing": "https://jlcpcb.com/partdetail/C474881",
+        "parts_on_board": 2,
+        "public_mode": "manualWeld",
+        "published_MPN": "KF301-5.0-2P",
+        "published_loss": 1,
+        "published_loss_ratio": 0.004,
+        "published_minimum": 2,
+        "snapshot_attributes": {
+          "Color": "Blue",
+          "Current Rating": "17A",
+          "Height Above Board": "10mm",
+          "Mounting Type": "Through Hole",
+          "Number of PINs Per Row": "2",
+          "Number of Pins": "2P",
+          "Number of Positions or Pins": "1x2P",
+          "Number of Rows": "1",
+          "Operating Temperature": "-30℃~+120℃",
+          "Pitch": "5mm",
+          "Screw Specification": "M2.5",
+          "Voltage Rating (Max)": "250V",
+          "Wire Gauge - AWG": "14~22",
+          "Wire Gauge - mm2": "1.5"
+        },
+        "snapshot_attrition": {
+          "leastNumber": 2,
+          "leastPatchNumber": 2,
+          "lossNumber": 1,
+          "minPurchaseNum": 1
+        }
+      },
+      "C6987": {
+        "MPN": "TLC555IDR",
+        "catalog_mode": "smtWeld",
+        "land_pattern_url": "https://easyeda.com/api/products/C6987/components?version=6.5.22",
+        "listing": "https://jlcpcb.com/partdetail/C6987",
+        "parts_on_board": 1,
+        "public_mode": "smtWeld",
+        "published_MPN": "TLC555IDR",
+        "published_loss": 0,
+        "published_loss_ratio": 0.002,
+        "published_minimum": 0,
+        "snapshot_attributes": {
+          "Features": "Reset function",
+          "Operating Temperature": "-40℃~+85℃",
+          "Output Current": "100mA",
+          "Supply Current": "170uA",
+          "Timer Number": "1",
+          "Voltage - Supply": "3V~15V"
+        },
+        "snapshot_attrition": {
+          "leastNumber": 1,
+          "leastPatchNumber": 0,
+          "lossNumber": 0,
+          "minPurchaseNum": 1
+        }
+      },
+      "C75864": {
+        "MPN": "DRV8871DDAR",
+        "catalog_mode": "smtWeld",
+        "land_pattern_url": "https://easyeda.com/api/products/C75864/components?version=6.5.22",
+        "listing": "https://jlcpcb.com/partdetail/C75864",
+        "parts_on_board": 1,
+        "public_mode": "smtWeld",
+        "published_MPN": "DRV8871DDAR",
+        "published_loss": 0,
+        "published_loss_ratio": 0.002,
+        "published_minimum": 0,
+        "snapshot_attributes": {
+          "Features": "Interleaved conduction protection, Current sensing/regulation function, Active braking function",
+          "Interface": "PWM",
+          "Number of H-bridges": "1",
+          "Operating Temperature": "-40℃~+125℃",
+          "Peak Current": "3.6A",
+          "Quiescent Current(Iq)": "10uA",
+          "RDS(on)": "565mΩ",
+          "Technology": "Yes"
+        },
+        "snapshot_attrition": {
+          "leastNumber": 1,
+          "leastPatchNumber": 0,
+          "lossNumber": 0,
+          "minPurchaseNum": 1
+        }
+      },
+      "C86206": {
+        "MPN": "L7805ABD2T-TR",
+        "catalog_mode": "smtWeld",
+        "land_pattern_url": "https://easyeda.com/api/products/C86206/components?version=6.5.22",
+        "listing": "https://jlcpcb.com/partdetail/C86206",
+        "parts_on_board": 1,
+        "public_mode": "smtWeld",
+        "published_MPN": "L7805ABD2T-TR",
+        "published_loss": 0,
+        "published_loss_ratio": 0.002,
+        "published_minimum": 5,
+        "snapshot_attributes": {
+          "Features": "Over Current Protection, Short Circuit Protection, Thermal shutdown",
+          "Number of Outputs": "1",
+          "Operating Temperature": "-40℃~+125℃@(Tj)",
+          "Output Configuration": "Positive",
+          "Output Current": "1.5A",
+          "Output Type": "Fixed",
+          "Output Voltage": "5V",
+          "Power Supply Rejection Ratio (PSRR)": "68dB@(120Hz)",
+          "Voltage - Supply": "35V",
+          "Voltage Dropout": "2V@(1A)",
+          "standby current": "4.3mA"
+        },
+        "snapshot_attrition": {
+          "leastNumber": 5,
+          "leastPatchNumber": 5,
+          "lossNumber": 0,
+          "minPurchaseNum": 1
+        }
+      }
+    },
+    "quantities_note": "Screen for five boards per exact catalog code against observed stock, including listed minimum assembly quantity and fixed or proportional loss where published. These figures are not a checkout allocation.",
+    "rotations_note": "Top-side orientation is measured by aligning numbered pad centers of the part-specific public EasyEDA land pattern to the issued PCB in the Gerber XY frame. This tests compatibility with a public reference, not the undocumented pick-and-place machine zero. Origin offsets are not all component-centroid offsets.",
+    "stock_reference_sha256": "080b01786a73850ce546a049053dbcf2c15fc41b029bd69b6c942d1848b56632"
+  },
+  "scope": "partial",
+  "sha256": "67c19bb46215dfe4776bbcafacac446657a5cb0384fe1ba518a6a876510766c3",
+  "work": "work-8527263d92112542f9e4070d5277f5f7"
+}

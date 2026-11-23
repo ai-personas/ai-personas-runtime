@@ -1,0 +1,249 @@
+{
+  "actual_external_input_events": [
+    "invitation"
+  ],
+  "brief_sha256": "acd9d9b55110aacfe0b5ef7f1134791a6f30ba892b8fcf0cfea309e48bfc1d84",
+  "calls": [
+    {
+      "final_response": "07a4758efc7b2fbfe84fb07f7da87a38bb87d86d049f98d78f3ae91ec2d840b5",
+      "frozen_input": "e641e221a17f97da15c28a52671cf950ff73bce32a81ed538e67229888c460c0",
+      "id": "call-c606a64f30b970e65e3c0f8a48c5fbf6",
+      "mode": "initialization",
+      "receipt": "96073d15b01dd7a6c6d2337280503b262f6cb2e7d79553d08667c661f0679582",
+      "receiving_cue": false,
+      "request_hash": "1aed5dcc4e67dc45f7fa6497b89ccdbf4309a50b32ee0ac9321f9078a5005603"
+    },
+    {
+      "final_response": "8e7008ac38e333e0b2ee08d3af5877f6e3f9794b9e49635007c2974a1d66e8f4",
+      "frozen_input": "fab032770b78c1476d2317b6bac574d7b133a9b18781b72107bf2f6e2e52bf1a",
+      "id": "call-c0a14ffd5acfbf2b0347b5ed4a950489",
+      "mode": "initialization",
+      "receipt": "0317fa79ea076f1649c460af3afb695193035f71fe881e0d8289be386c07bb41",
+      "receiving_cue": false,
+      "request_hash": "631043a70f955b55bc299774ac995494ca8f1f246a76bbb5d3193f4ccd5234d9"
+    },
+    {
+      "basis": "baseline",
+      "final_response": "079158634f1002647842c6b198a46edc3a8bc9bda4a26eba0c01186300b0c7dd",
+      "frozen_input": "0e9d45a0df6db547481a7db8c51c767f0f5053a63b2b9a890d2523bb17b0c77b",
+      "id": "call-814cc39850ee3171af3deaaa07fe6e1e",
+      "mode": "decision",
+      "model": "1ed02641324252fa9c6986ff923af13a33d7ecf8173345aed2f5729f87d0b9dc",
+      "numerical": "e6cb4971d00427d80e12e6f604336416be426b6dc091e5383b5d4deb85538743",
+      "receipt": "420c91856eeaf748d65a5b7e623fc46b494dfd265a41f89189a7ad7a66b2a060",
+      "receiving_cue": true,
+      "request_hash": "deed5b5651ed64cbaa06cc0e572c7bd4c1a9f6d1492f1d3cc7a1fd529375a260"
+    },
+    {
+      "basis": "baseline",
+      "final_response": "5fb897b4b9066a6428dd103bcc1958efdd9773c0b0a2de73a22fc533cbb758b3",
+      "frozen_input": "71d3ccc473b4e1052acbddd2c05c197c83fb3ed0d3d8d927f79ec16391201271",
+      "id": "call-fb9e375d120bfca34235c9fab924a0bc",
+      "mode": "decision",
+      "model": "1ed02641324252fa9c6986ff923af13a33d7ecf8173345aed2f5729f87d0b9dc",
+      "numerical": "e6cb4971d00427d80e12e6f604336416be426b6dc091e5383b5d4deb85538743",
+      "receipt": "cff5869c7c9a2cd3b82de6bb57cfd1f85a1db55f584139fff7819df8ad0cae5d",
+      "receiving_cue": true,
+      "request_hash": "9abd9ab56ef710cfb077e6b191138f025f3d927d521520acc50ae82c7cb043a9"
+    },
+    {
+      "basis": "baseline",
+      "final_response": "8ddce3593d4846fee5033d3f0ad4951baea5c006bf7f7c8e1570ed89320a0d24",
+      "frozen_input": "4051fdaff27a993f54bacd690d70c1e90909372f3f60ffc8edc9ca5081ee1e4a",
+      "id": "call-fcb6e23658cd62272395bbca58b38107",
+      "mode": "decision",
+      "model": "1ed02641324252fa9c6986ff923af13a33d7ecf8173345aed2f5729f87d0b9dc",
+      "numerical": "e6cb4971d00427d80e12e6f604336416be426b6dc091e5383b5d4deb85538743",
+      "receipt": "60ce09f3074099b3e2683a49b632268bc36d3442a639ce8ab362b5f718685e4f",
+      "receiving_cue": true,
+      "request_hash": "656609c9cb3fcb3620560f51ad0a3cc854e5d84db0ced1e9b163ea0e456d09a1"
+    },
+    {
+      "basis": "baseline",
+      "final_response": "11accbad230301830ea14fa8a843db73457780203931bc7e31e2a8c5280a496a",
+      "frozen_input": "c3ca19b9e4b4c44b5a380e417e7772d46093140cc3b1483c0a5a1ffdc36e1e1c",
+      "id": "call-68eb9bbc59bbdde355e9c7a53c56e1ac",
+      "mode": "decision",
+      "model": "1ed02641324252fa9c6986ff923af13a33d7ecf8173345aed2f5729f87d0b9dc",
+      "numerical": "e6cb4971d00427d80e12e6f604336416be426b6dc091e5383b5d4deb85538743",
+      "receipt": "b03c8343586fe3f2c1bb52745baf3821e08c8960a58c908caa5930d0dd3fa495",
+      "receiving_cue": true,
+      "request_hash": "48d4b8d5f2041fd509a78a55f35cedb178d92aaeffbcfd8d93c445bf51ec6c8d"
+    },
+    {
+      "basis": "baseline",
+      "final_response": "adc74b4b8457a154c198dda874c377b40562f75d6cf0ddabd9fac9657aa30ab8",
+      "frozen_input": "620843074422c530d9ddcded051b0ea4c9dfeb5b7ba84d4761fb25dc399a9eb1",
+      "id": "call-3228b72ad32c718923238c53b5b5fdad",
+      "mode": "decision",
+      "model": "1ed02641324252fa9c6986ff923af13a33d7ecf8173345aed2f5729f87d0b9dc",
+      "numerical": "e6cb4971d00427d80e12e6f604336416be426b6dc091e5383b5d4deb85538743",
+      "receipt": "2afb8d42c6bf541bf130a2bcacd283db78e3085048da682c0a4496e1f1f34433",
+      "receiving_cue": true,
+      "request_hash": "5a0a5edcff39e4db406706052115522526d43ecaef53f01dd45ed05c56c6eeba"
+    },
+    {
+      "basis": "baseline",
+      "final_response": "9c8008995e1f9faaa3957c4fe33378807240a520f048232cdaff3d7fc0415900",
+      "frozen_input": "2ca1dbc8930b1c6c525f75807894b4e3aac87249b87b76c1ad99d00ab1569131",
+      "id": "call-8fa936f7a0c424e429aae95768016d0d",
+      "mode": "decision",
+      "model": "1ed02641324252fa9c6986ff923af13a33d7ecf8173345aed2f5729f87d0b9dc",
+      "numerical": "e6cb4971d00427d80e12e6f604336416be426b6dc091e5383b5d4deb85538743",
+      "receipt": "bf1ee99b877d5204cb674654aeae76f2a22d6542b8b3d692452d7cefc6524f89",
+      "receiving_cue": true,
+      "request_hash": "510f621f2a4a2eb0fc815ac81d53ee354db56067be56d2a20685a6e7bbce7ca5"
+    },
+    {
+      "basis": "baseline",
+      "final_response": "86a0cc90fa5442ad390e8c67a651b654805afb3487d2fbdd1c188bfef44b7c94",
+      "frozen_input": "f320f6c6215aa4b25efd841b1d2739eee93ce9a0bf02f6bb164db713cfa9f23a",
+      "id": "call-82a8b72f4eaf2f4dc898c8f56b363254",
+      "mode": "decision",
+      "model": "1ed02641324252fa9c6986ff923af13a33d7ecf8173345aed2f5729f87d0b9dc",
+      "numerical": "e6cb4971d00427d80e12e6f604336416be426b6dc091e5383b5d4deb85538743",
+      "receipt": "241caa92ead2961d8593bd1bb449b9f6e1fd78e6169e6ce7f3676b9977c1df12",
+      "receiving_cue": true,
+      "request_hash": "f53fe2b19d81d10710e4879c6e827197b00278006bb187662b408293c9d707b6"
+    },
+    {
+      "basis": "baseline",
+      "final_response": "da66bf5b9faacb81d3567f9a9309ebd8c0c4987ea628b3d74d71509d0c8ce3a5",
+      "frozen_input": "25215a950a4031dd38bb1de8ee1a3cbf607a33f2b20d4e4e185af5f4d9d031dc",
+      "id": "call-924394a452ba67567fa3b673a5d09c88",
+      "mode": "decision",
+      "model": "1ed02641324252fa9c6986ff923af13a33d7ecf8173345aed2f5729f87d0b9dc",
+      "numerical": "e6cb4971d00427d80e12e6f604336416be426b6dc091e5383b5d4deb85538743",
+      "receipt": "97661c0fe0f31f08a0399f66c1ae88d37c03c22bb018f5d046ee853e89ac5bf0",
+      "receiving_cue": true,
+      "request_hash": "e0026747513b67de6dc87193dbdaa36e09231fff71f8476fb872924eb285ae7d"
+    }
+  ],
+  "dispatch": [
+    {
+      "artifacts": [
+        "asset:asset-b13c26ef1dd1983540b2b368b41b438e@1"
+      ],
+      "instructions": "Read the receiving note. Refer the library-binding findings to the issuer before treating this package as cleanly rechecked. No order is authorized.",
+      "recipient": "Receiving shop"
+    }
+  ],
+  "edition": "delivery:delivery-245a1f2401c5a274defa99202e261ff8@1",
+  "independently_linked_to_issuance": [
+    {
+      "checking_call": "call-fb9e375d120bfca34235c9fab924a0bc",
+      "command_receipt": "command_run:local-6dc62ec187163d8c9ac1285b627b58ce26348fa3b7d41d77576b4835c156cd34@1",
+      "event": 555,
+      "issuing_decision": "experience:call-b4bd568ccc37b04d7edb0ffdcdded648@1",
+      "issuing_operation": "issue_v4"
+    },
+    {
+      "checking_call": "call-fcb6e23658cd62272395bbca58b38107",
+      "command_receipt": "command_run:local-7d7ca2b527aa2233a301310259092aefe70cc6893ce07ed8b5d9b3ddcf8cb8b9@1",
+      "event": 557,
+      "issuing_decision": "experience:call-b4bd568ccc37b04d7edb0ffdcdded648@1",
+      "issuing_operation": "issue_v4"
+    },
+    {
+      "checking_call": "call-68eb9bbc59bbdde355e9c7a53c56e1ac",
+      "command_receipt": "command_run:local-dcdb03a4d2d5a015c3c44e08cf3aa3ee5c95d9de9a356c85b31b5610c3a2886f@1",
+      "event": 559,
+      "issuing_decision": "experience:call-b4bd568ccc37b04d7edb0ffdcdded648@1",
+      "issuing_operation": "issue_v4"
+    }
+  ],
+  "issued_by": "cleo",
+  "issuing_call": "call-82a8b72f4eaf2f4dc898c8f56b363254",
+  "old_engineering_participations": "unchanged",
+  "predeclared_protocol_sha256": "9ce6533dc28410fbfeb82e9fa957a58390d66089a5925ac40fe42901de7cc885",
+  "public_note_sha256": "89b079a75a1ca8f12a37a7fd94df8a0bfb534734ea9e19a19d13f74f41845b8f",
+  "purpose": "Separate live product check on original v4. Neither successor branch was contacted.",
+  "receiving_runs": [
+    {
+      "call": "call-fb9e375d120bfca34235c9fab924a0bc",
+      "exit": 0,
+      "observed_files": {
+        "inverter/engineering-review-v4.zip": "a1598e60b44e08c1f2e2e180a504fb307571e9a334aa40e3dcc21bb6d8c74da7"
+      },
+      "outer_launcher_sha256": "7699587a75fb056c9ffb80bd27c1ae6fbd2085398bca4d5619d66b3571ff0ab3",
+      "outputs": {},
+      "purpose": "Inspect exact delivered files and identify stock KiCad version before schematic recheck.",
+      "receipt": "command_run:local-6dc62ec187163d8c9ac1285b627b58ce26348fa3b7d41d77576b4835c156cd34@1",
+      "receiving_launcher_sha256": "b9d1e05965b5a533b1afedc870f1ca6d4e863bb28d2d1903dffd1118c671fff3",
+      "result_sha256": "add15469f0f4ae81865594577d88936d8b1dff1d62c9204aa95e84fb625dca85"
+    },
+    {
+      "call": "call-fcb6e23658cd62272395bbca58b38107",
+      "exit": 0,
+      "observed_files": {
+        "inverter/engineering-review-v4.zip": "a1598e60b44e08c1f2e2e180a504fb307571e9a334aa40e3dcc21bb6d8c74da7"
+      },
+      "outer_launcher_sha256": "7699587a75fb056c9ffb80bd27c1ae6fbd2085398bca4d5619d66b3571ff0ab3",
+      "outputs": {
+        "receiving-erc.rpt": {
+          "bytes": 2958,
+          "object": "object:e885ce79f0b9f424a4a1ea8428cfae2dc898667f8c606b322103e514dbc6d074"
+        },
+        "receiving.net": {
+          "bytes": 25373,
+          "object": "object:f6055e6d47adb4a9634be1384a0a691e193a8e8b46244afd70ebc229b70f5a07"
+        },
+        "receiving.pdf": {
+          "bytes": 93852,
+          "object": "object:8127fd42c09e2cab96e5f44493765cded4781b2577005fed03e1daad8887a166"
+        }
+      },
+      "purpose": "Open/recheck exact delivered schematic through stock KiCad 9 PDF, netlist and ERC commands, without design edits.",
+      "receipt": "command_run:local-7d7ca2b527aa2233a301310259092aefe70cc6893ce07ed8b5d9b3ddcf8cb8b9@1",
+      "receiving_launcher_sha256": "b9d1e05965b5a533b1afedc870f1ca6d4e863bb28d2d1903dffd1118c671fff3",
+      "result_sha256": "e4cf71b05def58c4568da7e4a57ed094b0b62838c7dca7624e20b3beed3b2d50"
+    },
+    {
+      "call": "call-68eb9bbc59bbdde355e9c7a53c56e1ac",
+      "exit": 0,
+      "observed_files": {
+        "inverter/engineering-review-v4.zip": "a1598e60b44e08c1f2e2e180a504fb307571e9a334aa40e3dcc21bb6d8c74da7"
+      },
+      "outer_launcher_sha256": "7699587a75fb056c9ffb80bd27c1ae6fbd2085398bca4d5619d66b3571ff0ab3",
+      "outputs": {},
+      "purpose": "Verify delivered library table targets on the stock receiving host without editing design files.",
+      "receipt": "command_run:local-dcdb03a4d2d5a015c3c44e08cf3aa3ee5c95d9de9a356c85b31b5610c3a2886f@1",
+      "receiving_launcher_sha256": "b9d1e05965b5a533b1afedc870f1ca6d4e863bb28d2d1903dffd1118c671fff3",
+      "result_sha256": "7941477506ccb732c9a2f3dfb2326ea7bf4e971b846fece842450cfddf1abf84"
+    }
+  ],
+  "shared_project": "remained empty",
+  "usage": {
+    "actual_cost_microusd": {
+      "complete": false,
+      "missing": 10,
+      "reported": 0,
+      "sum": null
+    },
+    "cached_input_tokens": {
+      "complete": true,
+      "missing": 0,
+      "reported": 10,
+      "sum": 73472
+    },
+    "input_tokens": {
+      "complete": true,
+      "missing": 0,
+      "reported": 10,
+      "sum": 176986
+    },
+    "output_tokens": {
+      "complete": true,
+      "missing": 0,
+      "reported": 10,
+      "sum": 7750
+    },
+    "total_tokens": {
+      "complete": true,
+      "missing": 0,
+      "reported": 10,
+      "sum": 184736
+    }
+  },
+  "work": "work-7af43e185b20f5e8144bdddb86bd4682"
+}
