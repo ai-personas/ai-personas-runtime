@@ -5,14 +5,19 @@ use ai_personas::neural::live::{RunScope, RunnerObservation};
 pub(in crate::desktop::neural) struct Roster {
     pub(super) selected: BTreeSet<String>,
     query: String,
+    focus_search: bool,
 }
 
 impl Roster {
     fn show(&mut self, ui: &mut Ui, app: &App) {
         ui.strong("Invite personas");
-        ui.add(egui::TextEdit::singleline(&mut self.query)
+        let search = ui.add(egui::TextEdit::singleline(&mut self.query)
             .hint_text("Find a name or starting profile…")
             .desired_width(f32::INFINITY));
+        if std::mem::take(&mut self.focus_search) {
+            search.request_focus();
+            search.scroll_to_me(Some(egui::Align::Min));
+        }
         let query = self.query.trim().to_lowercase();
         let people: Vec<_> = app.records("personas").iter().map(|r| &r["body"])
             .filter(|p| query.is_empty() || ["id", "label", "seed"].iter()
@@ -60,12 +65,35 @@ impl Roster {
                 self.selected.remove(id);
             }
         }
-        if self.selected.is_empty() {
-            ui.small("Choose who receives this invitation.");
+    }
+
+    fn address_line(&mut self, ui: &mut Ui, app: &App) {
+        let names: Vec<_> = self.selected.iter().map(|id| app.label(id)).collect();
+        let summary = match names.as_slice() {
+            [] => "No invitees yet".to_owned(),
+            [one] => one.to_string(),
+            _ => format!("{} invitees · {}", names.len(), names.join(", ")),
+        };
+        let detail = if names.is_empty() {
+            "Choose who receives this invitation.".to_owned()
         } else {
-            let names: Vec<_> = self.selected.iter().map(|id| app.label(id)).collect();
-            ui.add(egui::Label::new(format!("{} selected: {}", names.len(), names.join(", "))).wrap());
-        }
+            self.selected.iter().map(|id| format!("{} · {id}", app.label(id)))
+                .collect::<Vec<_>>().join("\n")
+        };
+        ui.horizontal(|ui| {
+            eyebrow(ui, "To");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let edit = if names.is_empty() { "Choose invitees…" } else { "Edit invitees…" };
+                if ui.small_button(edit).clicked() {
+                    self.focus_search = true;
+                    ui.ctx().request_repaint();
+                }
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.add(egui::Label::new(RichText::new(summary).strong()).truncate())
+                        .on_hover_text(detail);
+                });
+            });
+        });
     }
 }
 
@@ -121,8 +149,9 @@ pub(super) fn form(
         roster.show(ui, app);
     };
     if ui.ctx().content_rect().height() >= 370. {
-        let height = (ui.available_height() - 82.)
-            .clamp(82., (ui.ctx().content_rect().height() - 185.).max(82.));
+        let address_height = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
+        let height = (ui.available_height() - 82. - address_height)
+            .clamp(82., (ui.ctx().content_rect().height() - 185. - address_height).max(82.));
         egui::ScrollArea::vertical()
             .id_salt("invitation-body")
             .max_height(height)
@@ -133,6 +162,7 @@ pub(super) fn form(
         body(ui);
     }
     ui.separator();
+    roster.address_line(ui, app);
     let held = app
         .records("controls")
         .iter()
