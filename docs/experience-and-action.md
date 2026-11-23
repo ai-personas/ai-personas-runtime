@@ -84,3 +84,16 @@ All three preparations used Mara’s same epoch-one package, twelve baseline inc
 | 3.10 × 52.00 mm | 1.10 mm | 3.20 mm | **0.10 mm** | 0.15 mm | **Fail by 0.05 mm** |
 
 The limiting left border is `95.65 − 87.30 − 5.05 = 3.30 mm`. The 3.10 mm rail still meets bearing and length; it fails ink clearance alone. The rotated 4.20 mm right rail passes in both ZIPs. Across twelve calibration packages, four passed, six failed a measured limit, and two could not be measured as closed rectangles. A separate SVG-to-PDF vector import reproduced widths and lengths of all ten measurable pairs to within 0.001 mm. These are **evaluator calibrations**, not Mara’s files, an order, or a hardware result. [Calibration ZIPs, receipts and replay instructions](https://github.com/ai-personas/ai-personas-runtime/releases/tag/studio-ch17-rail-receiving-20261123)
+
+### What happened when Studio actually ran both CH-17 invitations?
+
+**Both first calls returned `insufficient_quota` on the existing OpenAI Platform key at 22:50:44 UTC on November 23.** They were separate, direct `gpt-6.1-sol` / medium attempts from the native **Run activity** control. Each stream opened with HTTP 200 and then reported an error at its third event. Neither returned a decision.
+
+| Saved history | Studio admission | Verified prompt bytes | Mara’s clearance practice in the sent input | Issued CH-17 ZIPs |
+|---|---:|---:|---|---:|
+| With practice | 52 | 66,868 | All five fields from her original decision | 0 |
+| Without practice | 55 | 65,179 | None; her saved methods file was not selected | 0 |
+
+Before starting, we restored the two real invitations into separate empty project folders. Their work IDs, requester, brief, previous stops, provider settings and epoch-one character package survived. On the study host, each station’s runtime and local tool launcher could write and read its own marker; checks in both directions denied access to the other station’s marker, scratch and private workspace. After both listeners closed, an operator fixture also exercised Studio’s real `command.local`, `workspace.list` and `workspace.open` tools: each returned its own marker and none could read the other. Both projects were left empty. The third, practice-hidden opening above remained an offline diagnostic.
+
+We reconstructed each sent prompt and checked it against the digest in that call’s provider receipt. This establishes **transmission**, not application: no CH-17 decision, practice application, character change or deliverable followed. There was no rail to measure. Both listeners were finished with Mara paused, without a retry. [Native windows, isolation checks and verified call records](https://github.com/ai-personas/ai-personas-runtime/releases/tag/studio-ch17-isolated-platform-20261123)
