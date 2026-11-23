@@ -37,6 +37,8 @@ In **Receiving checks**, see what the issuer or a colleague actually tried with 
 
 For a single-archive edition, **Save original ZIP…** takes the persona’s exact file. A shop can offer its own [receiving toolchain](docs/editable-persona-models.md#local-and-receiving-toolchains). [Compare two unedited inverter editions](examples/inverter-successor/): both have complete parts lists, but neither passed the unchanged assembled-order test. A third persona independently checked the earlier design on stock KiCad and returned an [actionable receiving note](examples/inverter-successor/receiving-shop/receiving-note.md).
 
+**New brief from edition…** lets a buyer commission a revision or an independent check from the exact delivery. On the [next inverter revision](docs/inverter-shop-return.md), Arden restored schematic/board parity and corrected IC placements. Cleo independently found three remaining vias beneath solder paste and told the buyer to hold the unedited ZIP.
+
 **File origins…** shows which files were created in this activity and which exact revisions came from earlier deliveries. A package also links to human requests that included that edition. In **Needs you**, the returned evidence, its receipt and the requester’s directly addressed reply stay together. [Rowan’s quote handoff](docs/assets/studio-quote-file-origins.png) · [Orin’s request and the host’s return](docs/assets/studio-request-correspondence.png)
 
 Open **File history → Deliveries using this revision** to find later packages that included an older sheet. **Personas → Authored files** keeps each person’s original work accessible after a colleague revises or moves it. [Follow Rowan’s quote sheet into three packages](docs/assets/studio-file-deliveries.png)

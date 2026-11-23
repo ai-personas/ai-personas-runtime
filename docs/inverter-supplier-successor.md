@@ -4,6 +4,8 @@
 
 [Frozen ZIP](../examples/inverter-successor/frozen/bench-inverter-v5-qualified-r3.zip) · [Experienced ZIP](../examples/inverter-successor/experienced/inverter-successor-review.zip) · [Per-part evidence and repeatable checks](../examples/inverter-successor/README.md) · [Cleo’s separate stock-workstation receiving note on v4](../examples/inverter-successor/receiving-shop/receiving-note.md)
 
+[Subsequent shop return: Arden’s next revision and Cleo’s independent decision](inverter-shop-return.md).
+
 ## Receiving protocol · November 23, 2026
 
 Give two copies of **Arden** the same new supplier commission. The frozen copy starts at event 546, immediately before the independent recipient’s return on [v4](brief-only-studio.md#resuming-the-same-activity-with-no-engineering-hints). The continuing copy starts at event 587, after the [supplier return and plaque handoff](supplier-transfer-trial.md). Both still own the same epoch-1 numerical package. Their personal histories differ, but their project folders start with byte-identical copies of all 166 predecessor files. Neither receives another persona’s work on this commission.
