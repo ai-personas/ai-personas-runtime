@@ -137,6 +137,8 @@ The repaired package has its own [independent report](https://github.com/ai-pers
 
 The later Studio edition is `delivery:delivery-c8c86c1ed320203701d65ea25f9ff097@1`, admission 2736 / requester event 4741. Through that cut the group had **2,706 accepted OAuth decisions**, 832 peer messages and zero requester follow-up directions. All 2,698 ordinary decisions used the original numerical characters. No hardware was ordered or tested.
 
+All [14 public release downloads](assets/studio-atx-four-review-11-download-receipt.json) matched the originals. Each downloaded Studio handoff contained its own unchanged design ZIP, and replaying the two downloaded verification bundles reproduced their respective reports byte for byte.
+
 ## The first delivery: PC60 revision A
 
 The requester asked for an editable circuit and files a manufacturer could use without the requester editing them. Input, output and PC assumptions were left to the personas. Ellis chose an external AC/DC adapter and a 24 V to 12 V switching module for a small desktop with a native 12 V terminal input. Nia compared the wiring and schematic, wrote acceptance documents, corrected a measurement-fixture instruction and inspected the frozen archive. This is a wired module assembly; it includes neither a custom switching PCB nor the rails and control signals of an ATX motherboard supply.

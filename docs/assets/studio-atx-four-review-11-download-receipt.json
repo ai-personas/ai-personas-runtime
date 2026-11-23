@@ -1,0 +1,106 @@
+{
+  "url": "https://github.com/ai-personas/ai-personas-runtime/releases/tag/studio-atx-four-review-11-20261123",
+  "target": "431a7ce1831f8a9dc9204cf03298099642367cea",
+  "checked_utc": "2026-11-23T11:45:26.161526+00:00",
+  "method": "Public unauthenticated HTTPS download, checked against release size/digest and local original.",
+  "assets": [
+    {
+      "filename": "assembly-bom.csv",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-11-20261123/assembly-bom.csv",
+      "bytes": 7072,
+      "sha256": "5c5296f5744a9f5c7cc76664922ef9692ee591ccd764605daa98448678dcebb4"
+    },
+    {
+      "filename": "dependency-complete-provisional.zip",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-11-20261123/dependency-complete-provisional.zip",
+      "bytes": 888421,
+      "sha256": "7325965ce43edee7b158c93415797a7e87b00f0e80e7a1a91db7b7b761b98fcb"
+    },
+    {
+      "filename": "dependency-replay.zip",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-11-20261123/dependency-replay.zip",
+      "bytes": 347299,
+      "sha256": "c3ad3930c23b5788131a2a02e3a3374718652f446f558fb739d3cbef32aa030e"
+    },
+    {
+      "filename": "dependency-review.json",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-11-20261123/dependency-review.json",
+      "bytes": 139766,
+      "sha256": "66bbba1549851a18066af2646eb30cd9e583482487d33e4772b4eb9c1a81d345"
+    },
+    {
+      "filename": "dependency-Studio-handoff.zip",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-11-20261123/dependency-Studio-handoff.zip",
+      "bytes": 868201,
+      "sha256": "c774b8acbab7e4273c77e24424157c753663eb76c86c96f2c69413641b6fd9e9"
+    },
+    {
+      "filename": "FINDINGS.md",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-11-20261123/FINDINGS.md",
+      "bytes": 7436,
+      "sha256": "e63dadf46391c8d768b75915f5a553c8dd68eb7ac1f938acf2e7cfc9eb97d158"
+    },
+    {
+      "filename": "harness-continuity-traveler.csv",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-11-20261123/harness-continuity-traveler.csv",
+      "bytes": 2020,
+      "sha256": "fe3513c074351008b51f6c22cf4bc83f53dcf2b58c05dd8234b9b7de37ff4801"
+    },
+    {
+      "filename": "independent-replay.zip",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-11-20261123/independent-replay.zip",
+      "bytes": 349446,
+      "sha256": "341405a47a63a02406a004f695ba617f48a2538df4657081c66212c635210e12"
+    },
+    {
+      "filename": "independent-review.json",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-11-20261123/independent-review.json",
+      "bytes": 139892,
+      "sha256": "be5e4c5eef43986b37e65392e5e0c17d39959b5c04d1454c758ba5e7f7b88a30"
+    },
+    {
+      "filename": "review11-current.zip",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-11-20261123/review11-current.zip",
+      "bytes": 10293520,
+      "sha256": "369dc7b7bff10396bea245bef9527fd8e0ac4543e7047c9832f1153299caf376"
+    },
+    {
+      "filename": "schematic.pdf",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-11-20261123/schematic.pdf",
+      "bytes": 417645,
+      "sha256": "64abe7ab7b84e967aae9363df564396c4573bc380875d69e7bb907f2c29ae8e1"
+    },
+    {
+      "filename": "SHA256SUMS",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-11-20261123/SHA256SUMS",
+      "bytes": 1155,
+      "sha256": "736bb57ffefe289beb9e94c6bcbad227dd2b3cd9752e2e84904cc52a3a1613dd"
+    },
+    {
+      "filename": "Studio-handoff.zip",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-11-20261123/Studio-handoff.zip",
+      "bytes": 10228973,
+      "sha256": "a4edfe45aa8512385c804506678eed09f917ac808e504d5902d4e7c962e3b212"
+    },
+    {
+      "filename": "studio-interval-11.json",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-11-20261123/studio-interval-11.json",
+      "bytes": 3998,
+      "sha256": "a2e31511868615ecfcae2d59bf346799c6380adba7b1a734be6111674e001824"
+    }
+  ],
+  "replayed": {
+    "11": {
+      "archive_sha256": "369dc7b7bff10396bea245bef9527fd8e0ac4543e7047c9832f1153299caf376",
+      "verified_handoff_member": "pc-power/review/review11-current.zip",
+      "regenerated_report": "independent-review.json",
+      "report_sha256": "be5e4c5eef43986b37e65392e5e0c17d39959b5c04d1454c758ba5e7f7b88a30"
+    },
+    "dependency handoff": {
+      "archive_sha256": "7325965ce43edee7b158c93415797a7e87b00f0e80e7a1a91db7b7b761b98fcb",
+      "verified_handoff_member": "pc-power/review/dependency-complete-provisional.zip",
+      "regenerated_report": "dependency-review.json",
+      "report_sha256": "66bbba1549851a18066af2646eb30cd9e583482487d33e4772b4eb9c1a81d345"
+    }
+  }
+}
