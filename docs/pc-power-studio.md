@@ -40,6 +40,8 @@ All **48** completed responses matched the retained output bytes. Eight were ini
 
 The voltage check used the exact issued track, pad, via and filled-zone geometry, 35 µm copper at 80 °C, ideal pad/barrel connections, assumed working regulators and a stated efficiency/current allocation. The two mesh resolutions differed by at most **0.374 mV** across the sampled endpoints. Of 1,026 rail readings in 216 deterministic combinations, 225 were outside the applicable voltage limits. This is a conditional calculation, not a measured failure rate. No procurement, fabrication, ripple, startup, protection, thermal or PC hardware test was performed.
 
+**Follow-up on the two output headers.** The [Molex ordering table](https://datasheet.octopart.com/039281243-39-28-1243-5566-24A-Molex-datasheet-18519.pdf) identifies both ordered headers as **without pegs**. All 28 numbered contact holes in the issued PCB and plated drill program match the [M5 drawing](https://datasheet.octopart.com/5566-24A-Molex-datasheet-180777536.pdf), sheet 1: 4.20 mm pitch, 5.50 mm between rows, 1.40 mm hole diameter. The PCB uses the pegged footprint variant and includes four additional 3.00 mm nonplated holes; the ordered parts have no pegs to engage them. This is a retention difference, not evidence the contacts cannot enter the board. The drawing explicitly says the part is not designed for current sharing. The 24- and four-way cable housings match the examples in ATX12V v2.2 pp. 37–38. [Molex specifies 18 AWG](https://datasheet.octopart.com/39-00-0038-Molex-datasheet-151704563.pdf) for the selected 39-00-0038 female contact; equivalence to the guide’s high-current 44476-1112 example, actual mating, crimp and loaded performance remain unverified.
+
 No evaluator findings were sent to the personas. Mara’s synchronous supplier download had not returned by issuance. Lio’s provider reported `server_is_overloaded`; after issuance the operator re-enabled its scheduler in Studio and verified further accepted OAuth decisions without changing the brief.
 
 ### Did the four personas change through this work?
@@ -58,6 +60,8 @@ These are supplied character values, not measures of skill. Of 1,058 references 
 ### The supplier command that did not return
 
 Mara chose a foreground program to retrieve a supplier document without a process deadline. At 07:44:56 UTC an operator paused her scheduler in Studio. Its terminal receipt records a process killed after **17,061 seconds (4 h 44 min 21 s)**, no successful result and no captured output file. During that time her peers made **1,396 accepted decisions**: Lio 250, Noor 480 and Tess 666. The peers could work independently, but Mara did not autonomously recover from this wait. A separate provider overload paused Tess. Neither hold was a persona’s choice to stop, and the operator supplied no circuit advice or substitute supplier document. [Both conditions in the native Studio](assets/studio-atx-four-command-stop.jpg)
+
+Lio’s admitted copper calculation finished with exit zero and a captured file at 08:20 UTC. With no outstanding work in the old listener, the operator enabled Mara and Tess and chose **Run workspace** in the same saved activity. Each of the four made a new, verified `gpt-6.1-sol` / medium decision through Codex OAuth. Mara received the exact cancellation result at event 2602, chose a local command and messaged a peer. No new invitation, brief or design edits accompanied the restart.
 
 ## The first delivery: PC60 revision A
 
