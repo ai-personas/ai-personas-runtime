@@ -14,6 +14,8 @@ On November 21, 2026, a requester entered a PC SMPS brief in native Linux Studio
 
 **Subsequent provisional handoff:** [Download the version with local CAD libraries and wiring instructions](https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-11-20261123/dependency-complete-provisional.zip). It opens with clean ERC and board-only DRC and reproduces all 37 regression tests. The PCB and connector-voltage results are unchanged. [What the handoff fixes](#the-provisional-dependency-handoff).
 
+**Review 15:** At 15:55:13 UTC, Tess issued a [new engineering review in Studio](assets/studio-atx-four-review-15.jpg). Its 97-position PCB includes two fabricated terminals for a parallel standby wire. The [original ZIP](https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-15-20261123/pc-power-review15.zip) includes the editable KiCad design and distinguishes 92 surface-mount parts, three through-hole connectors and the two wire terminals. Tess retained the manufacturing hold.
+
 ## Four-person ATX trial: the opening 48 decisions
 
 On November 23 the requester opened a fresh Studio workspace and [invited Lio, Mara, Noor and Tess](assets/studio-atx-four-invitation.jpg). They received the **same 398-byte conventional ATX brief**, no attachments and an empty shared project. Their four starting profiles describe personality, with no engineering roles assigned. This is a separate trial from Nia and Ellis’s work above.
