@@ -419,16 +419,39 @@ impl App {
                 });
                 ui.add_space(5.);
                 ui.horizontal_wrapped(|ui| {
+                    // A persona may have packed the entire edition into one file.
+                    // Let the recipient take those bytes directly from the heading.
+                    let single = match p.files.as_slice() {
+                        [file] => Some(file),
+                        _ => None,
+                    };
+                    if let Some(file) = single {
+                        let label = if file.format.archive() { "Save original ZIP…" } else { "Save original file…" };
+                        if ui
+                            .add_enabled(file.digest.is_some(), theme::primary(label))
+                            .on_hover_text(format!("Save {} exactly as issued.", file.path))
+                            .on_disabled_hover_text("This edition’s byte reference is unavailable.")
+                            .clicked()
+                        {
+                            if let Some(digest) = &file.digest {
+                                self.save_package_member(&p.reference, &file.reference, &file.path, digest, None);
+                            }
+                        }
+                    }
                     if ui
-                        .add(theme::primary("Save handoff…"))
+                        .add(if single.is_some() {
+                            egui::Button::new("Save handoff…")
+                        } else {
+                            theme::primary("Save handoff…")
+                        })
                         .on_hover_text("Save the printable delivery sheet and its files together.")
                         .clicked()
                     {
                         self.save_delivery_handoff(&p.reference, title, p.files.len());
                     }
-                    if ui
+                    if p.files.len() > 1 && ui
                         .button("Save files ZIP…")
-                        .on_hover_text("Save the files in this exact package.")
+                        .on_hover_text("Collect all the issued files into a ZIP.")
                         .clicked()
                     {
                         self.export_package(&p.reference, title);

@@ -64,7 +64,7 @@ pub(in crate::neural) fn publish(
     let owner = edition.body["owner"]
         .as_str()
         .ok_or_else(|| failure("Missing issuing persona"))?;
-    let notice = json!({
+    let mut notice = json!({
         "delivery":subject.delivery, "dispatch":subject.dispatch, "purpose":subject.purpose,
         "checking_work":run["work"], "effect":effect, "receipt":result["receipt"],
         "result":format!("object:{digest}"), "program":run["argv0"],
@@ -73,6 +73,9 @@ pub(in crate::neural) fn publish(
         "success":run["success"], "timed_out":run["timed_out"], "cancelled":run["cancelled"],
         "missing_outputs":run["missing_outputs"], "error":run["error"]
     });
+    if let Some(route) = run["host"].get("receiving_environment") {
+        notice["receiving_environment"] = route.clone();
+    }
     store::event(
         db,
         work,
@@ -105,11 +108,15 @@ pub(in crate::neural) fn latest(db: &Connection, work: &str) -> Result<BTreeMap<
             .ok_or_else(|| failure("Receiving event has no edition"))?;
         let sequence: i64 = row.get(0)?;
         let actor: String = row.get(1)?;
-        checks.insert(edition.to_owned(), json!({
+        let mut view = json!({
             "event":format!("experience:event-{sequence}@1"), "actor":actor,
             "receipt":body["receipt"], "dispatch":body["dispatch"],
             "process_started":body["process_started"], "exit_code":body["exit_code"], "run_succeeded":body["success"]
-        }));
+        });
+        if let Some(route) = body.get("receiving_environment") {
+            view["receiving_environment"] = route.clone();
+        }
+        checks.insert(edition.to_owned(), view);
     }
     Ok(checks)
 }

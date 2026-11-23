@@ -993,6 +993,9 @@ pub(super) fn prepare_when(
         if let Some(notice)=output_recovery {data["output_recovery"]=notice;}
         if let Some(files)=open_files {data["participation"]["selection"]["open_files"]=files;}
         if !bootstrap {
+            if super::commands::local::receiving_launcher().is_some() {
+                data["receiving_toolchain"] = json!("A receiving launcher is configured for command.local with receiving; it resolves your program in that environment.");
+            }
             let requests = super::human_requests::packet::open_index(db, work_id, actor)?;
             if !requests.is_empty() { data["open_human_requests"] = json!(requests); }
             if data["work"]["record"]["kind"] != "social" && participation.accepted {

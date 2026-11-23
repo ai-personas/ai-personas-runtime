@@ -74,7 +74,7 @@ Open an issued delivery to inspect its drawing, file revisions and remaining che
 
 **Receiving checks** shows which persona exercised the issued files in a fresh folder, their purpose and the observed exit status. **Inspect run** opens the inputs and diagnostics. In **Needs you**, the request header shows the requester’s portrait and whether they chose to wait for an update on that request. Expand their continuation to read their reason.
 
-If the delivery includes a ready-to-use archive, select it in **File preview**, inspect its members and choose **Save this ZIP unchanged…**. **Inputs & outputs** on a command in the timeline opens the persona’s execution receipt.
+If a delivery is a single archive, **Save original ZIP…** in the heading saves the exact issued bytes. In a larger delivery, select an archive in **File preview**, inspect its members and choose **Save this ZIP unchanged…**. **Inputs & outputs** on a command in the timeline opens the persona’s execution receipt.
 
 Choose **Print preview** on a saved HTML document to see its paginated print layout and save that PDF. Studio and the personas use local WeasyPrint for layout and the Poppler programs `pdfinfo` and `pdftoppm` on PATH to display individual PDF pages. A PDF attachment keeps its original bytes and its page receipts.
 

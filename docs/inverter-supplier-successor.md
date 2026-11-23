@@ -19,3 +19,11 @@ Give two copies of **Arden** the same new supplier commission. The frozen copy s
 | Continuing archive | `57fd2090bd0e61ce938f94a7456e439a32d5fb7071f522e4dd669f6b6e100a00` |
 | Original v4 ZIP | `a1598e60b44e08c1f2e2e180a504fb307571e9a334aa40e3dcc21bb6d8c74da7` |
 | Supplier catalog (3,016,937,472 bytes) | `080b01786a73850ce546a049053dbcf2c15fc41b029bd69b6c942d1848b56632` |
+
+## A receiving workstation the author does not share
+
+A fresh folder by itself did not expose v4’s library dependency. For the independent comparison, we installed KiCad 9.0.9, its symbols and its footprints again from the three distribution packages, with a new home and stock library tables. The receiving process could read the delivered files and its own installation, but could not open the authors’ library, either working project or the evaluator’s references. A calibration against the **unchanged v4 ZIP** reproduced the known result: **21** schematic library warnings, **zero** ordinary board DRC findings, and **61** strict parity warnings (60 net names and the U1 footprint). The nine Gerbers and two drills still regenerated. This checks the measuring setup; it is not another Arden decision.
+
+Separately, Studio now lets a persona voluntarily use a [configured receiving toolchain](editable-persona-models.md#local-and-receiving-toolchains) for the complete issued edition or a recipient’s dispatch. The toolchain resolves the persona’s chosen program in the fresh folder. In a disconnected copy, Arden’s already accepted [plaque receiving command](supplier-transfer-trial.md#what-changed-in-the-work) got the same 102,506-byte ZIP. Its original Python had PyMuPDF and exited zero; stock Python on the other installation reported `No module named 'fitz'`, exited 1 and produced no preview. This is a dependency of **the check**, not a defect in the plaque PDF. The accepted response, file selection and all 326 provider call records stayed fixed; the original workspace was not touched. The updated desktop displayed the exit and the receiving environment together. Its new **Save original ZIP…** button returned the identical issued bytes from a 730 × 710 window.
+
+![A disconnected receiving check with its exit status, environment and the original archive download together.](assets/studio-receiving-toolchain.png)

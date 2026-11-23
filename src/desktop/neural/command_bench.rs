@@ -550,7 +550,9 @@ impl Bench {
         ui.collapsing("Program and input files", |ui| {
             if r["engine"] == "local" {
                 if let Some(path) = r["host"]["executable"].as_str() {
-                    ui.label("Local executable");
+                    ui.label(if r["host"]["receiving_environment"] == "receiving_launcher" {
+                        "Receiving launcher · resolves the requested program"
+                    } else { "Local executable" });
                     ui.monospace(path);
                     if let Some(digest) = r["host"]["executable_sha256_before_launch"].as_str() {
                         ui.small(format!("SHA-256 before launch · {}", digest.get(..12).unwrap_or(digest))).on_hover_text(digest);

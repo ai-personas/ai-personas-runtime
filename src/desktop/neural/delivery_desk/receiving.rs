@@ -87,6 +87,11 @@ impl App {
                     counted(count, "file", "files"),
                     s(check, "program")
                 ));
+                match s(check, "receiving_environment") {
+                    "receiving_launcher" => { ui.small("· Receiving toolchain").on_hover_text("A receiving launcher was selected. Inspect the run for its identity and result."); }
+                    "local_toolchain" => { ui.small("· Local toolchain").on_hover_text("Fresh files with the ordinary local toolchain."); }
+                    _ => {}
+                }
                 ui.weak(RichText::new(s(event, "created_utc")).small());
                 if ui
                     .add_enabled(!self.busy, egui::Link::new("Inspect run"))
