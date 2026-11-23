@@ -96,6 +96,13 @@ pub enum Command {
     /// Use an existing Codex ChatGPT login for future calls in this saved workspace.
     /// Keeps each persona's selected model and effort. Finish the current run first.
     ConnectCodex(AuthRoute),
+    /// Use a private OpenAI API key file for future calls in this saved workspace.
+    /// Keeps the personas' models and efforts. Finish the current run first.
+    ConnectPlatform {
+        /// Private text key or Studio provider-credentials.json, outside the shared project.
+        #[arg(long)]
+        platform_key_file: PathBuf,
+    },
     /// Continue eligible decisions and accepted effects. Never resumes an explicit stop.
     Run {
         #[arg(long)]
@@ -511,10 +518,10 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
     if request_id.is_some() && !matches!(&command,Command::RunCommand{..}) { return Err(failure("--request-id applies to operator actions and portable command runs")); }
     if request_id.is_some_and(|id|id.trim().is_empty()) {return Err(failure("Supply a nonblank operator request ID"));}
     match command {
-        Command::ConnectCodex(route) => {
-            let (root, operator) = (root.to_owned(), operator.to_owned());
-            tokio::task::spawn_blocking(move || super::connection::connect_codex(&root, &operator, route)).await?
-        }
+        Command::ConnectCodex(route) =>
+            super::connection::change(root, operator, super::connection::Route::Codex(route)).await,
+        Command::ConnectPlatform { platform_key_file } =>
+            super::connection::change(root, operator, super::connection::Route::PlatformKeyFile(platform_key_file)).await,
         Command::ExperienceSearch{persona,search}=>super::experience::search(&store::open_inspection(root)?,&persona,&search),
         Command::RecallChoice{persona,decision,event}=>super::experience::recall::read(&store::open_inspection(root)?,&persona,&decision,&event),
         Command::IntakeHistory{work,page}=>super::intake::inspect(&store::open_inspection(root)?,&work,&page),
@@ -546,10 +553,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
             if !working_directory.is_dir() {
                 return Err(failure("working directory must exist"));
             }
-            let platform_key_file=platform_key_file.map(|p|p.canonicalize()).transpose()?;
-            if platform_key_file.as_ref().is_some_and(|p|p.starts_with(&working_directory)) {
-                return Err(failure("Keep the private key file outside the shared working directory"));
-            }
+            let platform_key_file=platform_key_file.map(|p|super::platform_key::canonical(&p,&working_directory)).transpose()?;
             let (provider, auth_route) = if let Some(executable) = codex_executable {
                 let route = AuthRoute {
                     codex_executable: executable,

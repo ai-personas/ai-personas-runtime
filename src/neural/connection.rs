@@ -1,11 +1,17 @@
 //! Change the credential source of a saved workspace without changing its work.
 use super::{
-    failure, protocol::Persona, runner::{AuthRoute, Config, RunnerLock},
+    failure, platform_key, protocol::Persona, runner::{AuthRoute, Config, RunnerLock},
     store::{self, Store}, Result,
 };
+use crate::provider::CredentialReference;
 use rusqlite::Connection;
 use serde_json::{json, Value};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+pub(super) enum Route {
+    Codex(AuthRoute),
+    PlatformKeyFile(PathBuf),
+}
 
 fn settled(db: &Connection) -> Result<()> {
     let outstanding: bool = db.query_row(
@@ -20,24 +26,40 @@ fn settled(db: &Connection) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn connect_codex(root: &Path, operator: &str, route: AuthRoute) -> Result<Value> {
+pub(super) async fn change(root: &Path, operator: &str, route: Route) -> Result<Value> {
+    let (root, operator) = (root.to_owned(), operator.to_owned());
+    tokio::task::spawn_blocking(move || bind(&root, &operator, route)).await?
+}
+
+fn bind(root: &Path, operator: &str, route: Route) -> Result<Value> {
     let mut store = Store::open(root)?;
     let _owner = RunnerLock::acquire(&store.root)?;
     settled(&store.db)?;
-    let route = route.canonical()?;
+    let prior = store::required(&store.db, "config", "runtime")?;
+    let mut cfg: Config = serde_json::from_value(prior.body)?;
     let first = store::list(&store.db, "persona")?.into_iter().next()
         .ok_or_else(|| failure("This workspace has no personas"))?;
     let first: Persona = serde_json::from_value(first.body)?;
-    // Authenticate once, outside the write transaction. Only account-bound
-    // settings come back from the helper; the bearer stays in the adapter.
-    let bound = route.settings(&first.provider.model, &first.provider.effort)?;
+    let (model, effort) = (&first.provider.model, &first.provider.effort);
+    // Resolve and bind the chosen credential once. The database only receives
+    // its route and account-bound settings, never key bytes or an OAuth bearer.
+    let (name, auth_route, key_file, bound) = match route {
+        Route::Codex(route) => {
+            let route = route.canonical()?;
+            let bound = route.settings(model, effort)?;
+            ("codex_oauth", Some(route), None, bound)
+        }
+        Route::PlatformKeyFile(path) => {
+            let path = platform_key::canonical(&path, &cfg.working_directory)?;
+            let bound = platform_key::settings(&path, model, effort)?;
+            ("platform_key_file", None, Some(path), bound)
+        }
+    };
+    let same_route = cfg.auth_route == auth_route && cfg.platform_key_file == key_file;
+    cfg.auth_route = auth_route;
+    cfg.platform_key_file = key_file;
     store.transaction(|db| {
         settled(db)?;
-        let prior = store::required(db, "config", "runtime")?;
-        let mut cfg: Config = serde_json::from_value(prior.body)?;
-        let same_route = cfg.platform_key_file.is_none() && cfg.auth_route.as_ref() == Some(&route);
-        cfg.platform_key_file = None;
-        cfg.auth_route = Some(route);
         let config = if same_route { prior.reference.clone() } else {
             store::write(db, "config", "runtime", prior.reference.revision, &cfg, None)?
         };
@@ -46,10 +68,17 @@ pub(super) fn connect_codex(root: &Path, operator: &str, route: AuthRoute) -> Re
             let mut p: Persona = serde_json::from_value(record.body)?;
             let previous_mode = p.provider.mode;
             let next = bound.selection(&p.provider.model, &p.provider.effort)?;
-            // A refreshed expiry alone is not a new connection. The call itself
-            // obtains a fresh token and checks the pinned account and its expiry.
+            // An OAuth expiry refresh alone is not a new connection. A different
+            // API key in the same file, however, has a different account binding.
+            let same_source = match (&p.provider.credentials, &next.credentials) {
+                (CredentialReference::EphemeralAuthOnly { grant: a, .. },
+                 CredentialReference::EphemeralAuthOnly { grant: b, .. }) => a == b,
+                (CredentialReference::ApiKey { key_env: a, account_env: b },
+                 CredentialReference::ApiKey { key_env: c, account_env: d }) => a == c && b == d,
+                _ => false,
+            };
             if same_route && previous_mode == next.mode
-                && matches!(p.provider.credentials, crate::provider::CredentialReference::EphemeralAuthOnly { .. })
+                && same_source && p.provider.evidence.account_env == next.evidence.account_env
                 && p.provider.evidence.account_sha256 == next.evidence.account_sha256 {
                 continue;
             }
@@ -59,7 +88,7 @@ pub(super) fn connect_codex(root: &Path, operator: &str, route: AuthRoute) -> Re
             changes.push(json!({"persona":p.id,"from":source.handle(),"to":new.handle(),
                 "previous_mode":previous_mode,"model":p.provider.model,"effort":p.provider.effort}));
         }
-        let result = json!({"workspace_connection":"codex_oauth","mode":bound.mode,
+        let result = json!({"workspace_connection":name,"mode":bound.mode,
             "transport_profile":bound.evidence.transport_profile,"prior_config":prior.reference.handle(),
             "config":config.handle(),"operator":operator,"personas_changed":changes,
             "changed":!same_route || !changes.is_empty(),"inference_started":false});

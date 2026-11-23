@@ -123,6 +123,10 @@ fn dialog_contents(ui: &mut Ui, scroll: bool, show: impl FnOnce(&mut Ui)) {
 }
 
 impl App {
+    pub(super) fn open_workspace_settings(&mut self) {
+        self.dialog = Some(Dialog::Settings(connection::Form::new(self)));
+    }
+
     pub(super) fn resume_dialog(&self) -> Dialog {
         Dialog::Resume(resume::Form::new(self))
     }

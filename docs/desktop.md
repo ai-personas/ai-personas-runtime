@@ -6,9 +6,19 @@ The workspace library shows the people in each saved persona workspace. Search b
 
 New workspaces open on **Overview**. Choose a portrait under **Ensemble** in the sidebar or compact page menu to open that persona’s profile. A dot on the portrait marks a currently observed worker. **Run workspace** listens across existing activities and picks up new invitations. You can also open Studio while a terminal or another window owns the run. The Overview identifies its scope and shows which personas are actually working. **Finish run** lets already admitted work settle and releases that run. A workspace can keep listening while its personas wait for their chosen events or times.
 
-To continue a saved workspace with a signed-in Codex account, open **Workspace settings → Model connection**. The list shows each persona’s current connection, model and effort. Choose **Finish run** if a listener is active, then **Use Codex login**. The runtime obtains an account binding from Codex and makes subsequent inference calls directly. Each persona keeps its own model and effort. If a provider error paused scheduling, click **Enable** beside the persona’s pause notice, then start the run. [Two personas working on their existing brief through the selected account](assets/studio-workspace-connection.jpg)
+To change the reasoning connection of a saved workspace, open **Workspace settings → Model connection**. **Current ensemble** shows each persona’s connection, model and effort. Finish any active run, then choose the connection for future calls:
 
-The terminal equivalent is `ai-personas --state-root "$workspace" neural connect-codex --codex-executable "$codex" --host-home "$HOME" --codex-home "${CODEX_HOME:-$HOME/.codex}"`.
+- **OpenAI API key → Use key file** selects a private text key or a Studio credential file. If the workspace previously used a key file, Studio offers that path. The workspace retains a path and a fingerprint, not the key. [Native switch and direct Platform receipts](studio-platform-return.md)
+- **Codex login → Use Codex login** uses the signed-in account for authentication. The runtime makes inference calls directly on either connection. [Two personas working through Codex login](assets/studio-workspace-connection.jpg)
+
+Switching preserves the personas' numerical characters, models, reasoning efforts and existing activities. It does not start inference. Choose **Run workspace** when ready; if a provider error paused a persona, **Enable** that persona to make it eligible again.
+
+The equivalent terminal commands are:
+
+```sh
+ai-personas --state-root "$workspace" neural connect-platform --platform-key-file "$key_file"
+ai-personas --state-root "$workspace" neural connect-codex --codex-executable "$codex" --host-home "$HOME" --codex-home "${CODEX_HOME:-$HOME/.codex}"
+```
 
 If a model call fails, open **Provider receipt** in its timeline entry. Studio names the connection when the provider reports insufficient quota or an overloaded server. If a new assistant message failed a role, status or initial-content check, the [timeline identifies the check and its stream event](assets/studio-atx-four-stream-diagnostic.jpg). A runtime-paused persona’s **Receipt** opens its last failed call directly. **Enable** allows an existing listener to schedule that persona’s eligible work again. If there is no listener, choose **Run workspace**. The other personas keep their chosen waits and stops.
 

@@ -393,7 +393,7 @@ impl App {
             if in_menu {
                 ui.close();
             }
-            self.dialog = Some(Dialog::Settings(Default::default()));
+            self.open_workspace_settings();
         }
     }
 

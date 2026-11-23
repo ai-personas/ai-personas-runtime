@@ -38,6 +38,8 @@ The desktop and terminal use the same SQLite workspace. The following commands c
 
 You can also select **OpenAI API key** and choose a private key file. The terminal equivalent is `--platform-key-file FILE --model MODEL --effort EFFORT` in place of `--provider-config`. The file can contain the key as plain text or be an existing Studio provider credential file. The workspace stores its location and a credential fingerprint. The provider reads the secret at inference time.
 
+For an existing society, use **Workspace settings → Model connection** or `ai-personas --state-root ./society neural connect-platform --platform-key-file FILE`. The connection can change in either direction without recreating the personas or their work. Model names and reasoning efforts stay attached to each persona; completed responses retain their original provider receipts.
+
 The working directory must exist. The provider file contains configuration and credential references. Set the referenced environment variables in the process that runs inference. The profiles file has this form.
 
 ```json

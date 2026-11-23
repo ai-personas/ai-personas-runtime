@@ -12,6 +12,14 @@ use std::{
 const KEY: &str = "PERSONAS_OPENAI_API_KEY";
 const BINDING: &str = "PERSONAS_OPENAI_BINDING";
 
+pub(super) fn canonical(path: &Path, working_directory: &Path) -> Result<PathBuf> {
+    let path = path.canonicalize()?;
+    if path.starts_with(working_directory.canonicalize()?) {
+        return Err(failure("Keep the private key file outside the shared working directory"));
+    }
+    Ok(path)
+}
+
 pub(super) struct FileSource(pub PathBuf);
 impl FileSource {
     fn key(&self) -> Result<String> {
