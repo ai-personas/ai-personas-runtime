@@ -66,9 +66,15 @@ pub fn deliveries(
         };
         let body = &issue.issue.record.body;
         let total = issue.members.iter().collect::<BTreeSet<_>>().len();
+        let dispatches: Vec<_> = body["dispatches"].as_array().into_iter().flatten().enumerate()
+            .filter_map(|(index, slip)| {
+                let files = slip["artifacts"].as_array()?;
+                files.iter().any(|file| file.as_str() == Some(reference)).then(||
+                    json!({"number":index + 1, "recipient":slip["recipient"], "files":files.len()}))
+            }).collect();
         rows.push((issue.issue.sequence, json!({"reference":handle, "title":body["title"],"owner":body["owner"],
             "work":body["work"],"scope":body["scope"],"sequence":issue.issue.sequence,"issued_at":issue.issue.time,
-            "files":total})));
+            "files":total,"dispatches":dispatches})));
     }
     rows.sort_by_key(|(seq, _)| std::cmp::Reverse(*seq));
     let total = rows.len();

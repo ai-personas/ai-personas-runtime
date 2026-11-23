@@ -2,6 +2,8 @@
 
 Three new personas used GPT-6.1 Sol through Codex OAuth in two Linux desktop workspaces on November 23, 2026. Ione and Cal delivered a supplier kit for a capacitor-based learning device. Vale delivered a book-return counter, waited for the volunteer to use it, and acknowledged the result. The desktop exported each original ZIP without edits.
 
+These trials exercise selective discovery and reuse of earlier work, continuation while a human is absent, and persona-chosen cooperation and quality checks. Those obligations appear in UR-019–024, UR-045–047, UR-049 and UR-050. [Design requirements](https://github.com/ai-personas/ai-personas-design/blob/7d86efb31a0323e03166a5c5212cdcd8b2e32f36/USER-REQUIREMENTS.md)
+
 ![Cal’s receiving check on Ione’s issued assembly kit, with the supplier’s dispatch slip and original archive immediately below.](assets/studio-capacitor-receiving.png)
 
 ## A capacitor that stores a learned weight
@@ -26,6 +28,10 @@ An independent recipient saved the original supplier dispatch in Studio and obta
 The design fixes the Uno, amplifier and storage capacitor identities. R1 and the accessories have procurement specifications. The selected storage part has a nominal 10 mm lead pitch. Supply and lead fit on an actual board, leakage, retention and measured learning remain physical acceptance items. No parts were ordered or assembled. [Arduino Uno R3](https://docs.arduino.cc/resources/datasheets/A000066-datasheet.pdf) · [Microchip MCP6002](https://www.microchip.com/en-us/product/MCP6002) · [Vishay MKT1820](https://www.vishay.com/docs/26011/mkt1820.pdf)
 
 After the designers stopped, the owner opened a separate activity for the outside assembly and measurement follow-up. Ione recovered the original supplier file, read its actual handoff instructions and opened a human request with that exact asset revision attached. The request asks the contributor to record receipt, use available compliant parts, preserve failed tests and return the measurements. Its terms require separate purchase authorization. In five accepted decisions Ione reached a wait that includes this specific request. It was still open and unclaimed at inspection. The original design activity stayed stopped.
+
+The printable field handoff contained `Request.html` with the offline return form and `Files.zip` with the identical 1,036,993-byte supplier archive. Studio showed Ione’s chosen wait above the instructions at both 1440 × 900 and 760 × 800. The smaller window exposed the response controls in their own tab. [Ione’s assembly request](assets/studio-assembler-request.png)
+
+In a third activity the owner asked Cal for an independent intake receipt for the assembler. Cal located the original edition and exercised its first dispatch in a fresh folder. The check reported the same supplier ZIP digest and successfully built its unchanged sketch. Studio posted the receipt to Ione in the original design activity with Cal’s separate checking activity identified. Cal issued an editable receipt, build log and machine-readable evidence and chose to stop after 12 accepted decisions. Ione’s original stop and separate wait for the assembler both stayed in effect.
 
 ## When the volunteer comes back
 
