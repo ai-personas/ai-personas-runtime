@@ -1459,6 +1459,9 @@ impl App {
                                 .wrap(),
                         );
                     }
+                    if let Some(r) = self.message_editions(ui, text) {
+                        action = Some(if r.starts_with("delivery:") { EventAction::Package(r) } else { EventAction::Open(r) });
+                    }
                 }
                 if let Some(file) = result["file_reference"].as_str() {
                     let path = result["file_path"].as_str().unwrap_or(file);

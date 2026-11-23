@@ -393,6 +393,9 @@ impl View {
                     } else {
                         ui.label(reading_preview(text, limit));
                     }
+                    if let Some(r) = app.message_editions(ui, text) {
+                        *action = Some(if r.starts_with("delivery:") { Action::Package(r) } else { Action::File(r) });
+                    }
                 }
                 if self.activity.is_none() {
                     let work = s(event, "work");

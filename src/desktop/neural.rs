@@ -50,6 +50,7 @@ mod intake;
 mod overview;
 mod live_board;
 mod live_composer;
+mod message_links;
 mod message_receipt;
 mod activity_sources;
 mod people;
@@ -808,7 +809,7 @@ impl eframe::App for App {
         self.message_receipt_window(ctx);
         self.export_window(ctx);
         self.workspace_find_window(ctx);
-        if let Some(action)=self.requested_activities.show(ctx,&self.root,&self.snapshot.status,self.cursor) {
+        if let Some(action)=self.requested_activities.show(ctx,&self.root,&self.snapshot.status,&self.snapshot.assets,self.cursor) {
             match action {
                 requested_activities::Action::Inspect(r) if r.starts_with("delivery:")=>self.open_issued_package(ctx,&r),
                 requested_activities::Action::Inspect(r)=>self.open_resource(ctx,r),

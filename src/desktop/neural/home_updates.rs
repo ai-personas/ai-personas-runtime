@@ -566,7 +566,15 @@ impl App {
                     } else {
                         (215, 2)
                     };
-                    document::message_markdown(ui, &preview(text, limit, line_breaks));
+                    let short = preview(text, limit, line_breaks);
+                    if short == text {
+                        document::message_markdown(ui, text);
+                    } else {
+                        ui.label(document::excerpt(text, limit));
+                    }
+                    if let Some(r) = self.message_editions(ui, text) {
+                        open = Some(if r.starts_with("delivery:") { Open::Package(r) } else { Open::Resource(work.into(), r) });
+                    }
                 }
             }
         }

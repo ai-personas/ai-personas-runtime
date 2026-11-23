@@ -1085,9 +1085,11 @@ impl App {
                         card(&cols[0]).show(&mut cols[0], |ui| {
                             self.message_heading(ui, message);
                             ui.add_space(6.);
-                            ui.with_layout(egui::Layout::top_down(egui::Align::Min),|ui|{
-                                ui.add(egui::Label::new(excerpt(s(&message["body"], "text"), 230)).wrap());
-                            });
+                            let text = s(&message["body"], "text");
+                            ui.add(egui::Label::new(document::excerpt(text, 230)).wrap());
+                            if let Some(reference) = self.message_editions(ui, text) {
+                                self.open_message_edition(ui.ctx(), reference);
+                            }
                             if ui.small_button("Open conversation →").clicked() {
                                 self.layout.editor = Editor::Conversations;
                                 self.conversation_persona = s(message, "actor").into();
@@ -1509,6 +1511,9 @@ impl App {
                             if let Some(text) = event["body"]["text"].as_str().or_else(|| event["body"]["contribution"].as_str()).or_else(||event["body"]["reason"].as_str()) {
                                 if !text.trim().is_empty() {
                                     document::message_markdown(ui, text);
+                                    if let Some(reference) = self.message_editions(ui, text) {
+                                        self.open_message_edition(ui.ctx(), reference);
+                                    }
                                 }
                                 if event["kind"] == "user_message" && event["invocation"].is_null() {
                                     if let Some(sequence) = event["event"].as_i64() {

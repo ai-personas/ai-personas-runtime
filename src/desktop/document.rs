@@ -2,6 +2,7 @@
 use super::theme;
 use eframe::egui::{self, FontId, RichText, Ui};
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
+pub(crate) mod edition_links;
 
 /// A short reading preview, with Markdown formatting removed before truncation.
 /// The full source and formatted message remain available in the conversation.
@@ -288,7 +289,11 @@ fn render_markdown(ui: &mut Ui, text: &str, base: Option<&std::path::Path>, pres
             }
             Event::End(TagEnd::Link) => {
                 if let Some(item) = link.take() {
-                    links.push(item);
+                    // Studio draws exact file/package actions from the full message,
+                    // even when the reading preview ends before the link.
+                    if !preserve_lines || edition_links::target(&item.1).is_none() {
+                        links.push(item);
+                    }
                 }
             }
             Event::Text(t) | Event::Html(t) | Event::InlineHtml(t) => {

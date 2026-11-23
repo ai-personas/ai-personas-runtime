@@ -95,6 +95,7 @@ impl Window {
         ctx: &egui::Context,
         root: &Path,
         status: &Value,
+        assets: &[Value],
         cursor: i64,
     ) -> Option<Action> {
         let work = self.work.clone()?;
@@ -217,7 +218,7 @@ impl Window {
                     .show(ui,|ui|{
                         if total==0 {ui.weak("No correspondence has arrived on this route.");}
                         for exchange in correspondence["items"].as_array().into_iter().flatten(){
-                            ui.push_id(s(exchange,"experience"),|ui|draw_exchange(ui,status,exchange,&mut action));
+                            ui.push_id(s(exchange,"experience"),|ui|draw_exchange(ui,status,assets,exchange,&mut action));
                             ui.add_space(6.);
                         }
                     });
@@ -290,7 +291,7 @@ pub(super) fn label(kind: &str) -> Option<(&'static str, Color32)> {
         _ => None,
     }
 }
-fn draw_exchange(ui: &mut Ui, status: &Value, item: &Value, action: &mut Option<Action>) {
+fn draw_exchange(ui: &mut Ui, status: &Value, assets: &[Value], item: &Value, action: &mut Option<Action>) {
     let (name, color) = label(s(item, "kind")).unwrap_or(("Exchange", TEAL));
     let body = &item["body"];
     card(ui).show(ui, |ui| {
@@ -322,6 +323,9 @@ fn draw_exchange(ui: &mut Ui, status: &Value, item: &Value, action: &mut Option<
             .or_else(|| body["reason"].as_str())
         {
             document::message_markdown(ui, text);
+            if let Some(r) = message_links::show(ui, text, assets, status["deliveries"].as_array().map(Vec::as_slice).unwrap_or(&[])) {
+                *action = Some(Action::Inspect(r));
+            }
         }
         for gap in body["remaining"]
             .as_array()

@@ -307,6 +307,11 @@ impl App {
                         .selectable(true),
                 );
             }
+            if !row["field_report"].is_object() {
+                if let Some(r) = self.message_editions(ui, text) {
+                    self.open_message_edition(ui.ctx(), r);
+                }
+            }
             if long
                 && ui
                     .link(if full { "Show less" } else { "Read full text" })
