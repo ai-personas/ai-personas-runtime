@@ -36,7 +36,8 @@ impl App {
                         }
                         if design::rail_link(ui, Icon::Refresh, "Restore archive…", false).clicked()
                         {
-                            self.restore(ctx);
+                            self.error = None;
+                            self.restore_desk = Some(restore::Form::default());
                         }
                     });
                 },
@@ -65,7 +66,8 @@ impl App {
                                     ui.close();
                                 }
                                 if ui.button("Restore archive…").clicked() {
-                                    self.restore(ctx);
+                                    self.error = None;
+                                    self.restore_desk = Some(restore::Form::default());
                                     ui.close();
                                 }
                             });
@@ -106,12 +108,13 @@ impl App {
                                     ui.add_enabled_ui(!self.busy, |ui| self.setup(ui, ctx));
                                 } else {
                                     self.welcome(ui, ctx);
-                                    self.connection_status(ui);
+                                    if self.restore_desk.is_none() { self.connection_status(ui); }
                                 }
                             });
                         });
                     });
             });
+        self.show_restore_desk(ctx);
         if self.open_path {
             let mut open = true;
             egui::Window::new("Open workspace by path")
@@ -276,24 +279,8 @@ impl App {
         }
     }
 
-    fn restore(&mut self, ctx: &egui::Context) {
-        let Some(archive) = rfd::FileDialog::new()
-            .set_title("Choose a workspace archive")
-            .pick_file()
-        else {
-            return;
-        };
-        let Some(parent) = rfd::FileDialog::new()
-            .set_title("Choose a folder for the restored workspace")
-            .pick_folder()
-        else {
-            return;
-        };
-        let name = archive
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("workspace");
-        let root = parent.join(format!("{name}-restored"));
+    pub(super) fn restore(&mut self, ctx: &egui::Context, archive: PathBuf, root: PathBuf, working_directory: Option<PathBuf>) {
+        self.error = None;
         self.busy = true;
         self.cancellable = false;
         self.error = None;
@@ -308,6 +295,7 @@ impl App {
                         cli::Command::Restore {
                             archive,
                             sha256: None,
+                            working_directory,
                         },
                     ))
                     .map_err(|e| e.to_string())?;
