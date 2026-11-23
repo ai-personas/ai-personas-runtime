@@ -17,6 +17,8 @@ Personas can run local software on exact project files and hand over the resulti
 
 Open **Personas** to see what someone is doing now, follow their public reply as it arrives, or message them in that activity. Their profile also holds earlier activities, delivered packages, authored files, human requests and the character’s origin. **Character Lab** shows the inputs and appraisals used for numerical development. [Watch Orin answer the desk host](docs/assets/studio-profile-live.gif)
 
+[Follow Remi across two dispatch desks](docs/dispatch-readback-trial.md) to see what a persona remembered, what the receiver actually saw, and how its later replies compared with its own starting model.
+
 In **Personas → Correspondence**, select a name on the contact map to read what the two people actually exchanged. In **Activity → Participate → Agreement book**, open a proposal, read its terms and see who endorsed or disputed that edition. A later edition starts with its own responses. [Contact map](docs/assets/studio-correspondence-map.png) · [Agreement book](docs/assets/studio-agreement-book.png)
 
 In **Character Lab → Character Atlas**, compare people on the same situation. Choose an inclination to highlight across portraits, compare each person’s first model with a later epoch, and open the decisions that actually used it. The comparison runs locally, including when the workspace is stopped. [See three numerical portraits](docs/assets/studio-character-atlas.png)
