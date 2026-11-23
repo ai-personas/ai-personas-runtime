@@ -1,0 +1,63 @@
+{
+  "stage": "station preflight, before either participant",
+  "observed_utc": "2026-11-23T13:36:53+00:00",
+  "runtime": "8e956cf",
+  "desktop_sha256": "f4be9b4bfa2e7a413d902393ae3ce607c756eb6a55c5f9bf08dc012c1dff37af",
+  "source_archive_sha256": "a5204a9c77d4af6dedfa3114e156b8f5520f7fcc6789c3b953b9b049a17fc8eb",
+  "armed_archive": {
+    "archive": "armed.sqlite",
+    "sha256": "0592dd5f3056c37df0989fc79407c7020b1cd8c1324d4af26876ebd9a0d064dd",
+    "through_event": 114,
+    "heads": {
+      "mara": {
+        "epoch": 1,
+        "package": "4b93fb925ed8a28e8dec0833fafc1e4b42d11aac795ccf2f73fa98fd97ac85ed"
+      },
+      "oren": {
+        "epoch": 0,
+        "package": null
+      }
+    },
+    "unsettled_calls_or_effects": false
+  },
+  "observer_running_at_check": true,
+  "configured_connections": {
+    "mara": {
+      "mode": "chatgpt_oauth",
+      "model": "gpt-6.1-sol",
+      "effort": "medium"
+    },
+    "oren": {
+      "mode": "chatgpt_oauth",
+      "model": "gpt-6.1-sol",
+      "effort": "medium"
+    }
+  },
+  "native_window_smoke_check": {
+    "owner": {
+      "native_window": "Persona Studio",
+      "operator": "Exhibit owner",
+      "shared_study_workspace": true
+    },
+    "contributor": {
+      "native_window": "Persona Studio",
+      "operator": "Exhibit volunteer",
+      "shared_study_workspace": true
+    }
+  },
+  "identical_rows_before_and_after_window_open": {
+    "events": 114,
+    "invocations": 69,
+    "outbox": 51,
+    "heads": 262,
+    "provider_outputs": 67
+  },
+  "past_requests_in_workspace": 0,
+  "new_invitations": 0,
+  "new_model_calls": 0,
+  "actual_participants_observed": 0,
+  "exported_files": 0,
+  "recorded_help_observations": 0,
+  "listener": "unobserved",
+  "paired_brief_runs": 0
+}
