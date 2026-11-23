@@ -1,0 +1,3 @@
+*.zip binary
+*.csv -text
+next-clerk.txt -text

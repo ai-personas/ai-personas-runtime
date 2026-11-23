@@ -1,0 +1,55 @@
+[
+  {
+    "edition": "delivery:delivery-495351e4ef90feefc9e7f74e9a56fbb5@1",
+    "slip": 1,
+    "recipient": "Volunteer machine operator via Textile desk",
+    "packet": "01-Volunteer-machine-operator-via-Textile-desk-packet.zip",
+    "bytes": 12132,
+    "sha256": "e3d8a359b0e40f371526b5c574b2a2ebaf42d790cbf286d5a9a00d1e0b8ca803",
+    "files": {
+      "Files/embroidery/right_return_operator.zip": "cdb75ec37efb34be8fdfa32a87027f1a5085c4ded338799c8f5851d3b93a1ecb"
+    },
+    "exact_instructions": "Extract the ZIP, read README.txt and compare front_preview.png. Load RIGHT_RETURN.dst without scaling or mirroring and follow the sample acceptance checks before stitching the apron.",
+    "print_pages": 1,
+    "use": "Inner ZIP matches the original 9113-byte download.",
+    "separate_native_and_cli_identical": true,
+    "local_link_targets_match_files": true
+  },
+  {
+    "edition": "delivery:delivery-36efcddbce5e8c2cbbf87c75847e76bc@1",
+    "slip": 1,
+    "recipient": "Relief volunteer",
+    "packet": "01-Relief-volunteer-packet.zip",
+    "bytes": 5666,
+    "sha256": "3855a2e2e3be6a895360a915cb6d2a727f0ae1e995d4c49aba038ede12c4a299",
+    "files": {
+      "Files/relief/relief-card.txt": "cd40df7a990dcc8f33b6469dc1d381b9f85f0f032eea8b3d159a62571cf9eb28",
+      "Files/relief/example.csv": "75091ed34c93911bc5e7b33656120c4b679f9b8029a0c031ff19168fd24ee223",
+      "Files/relief/count_returns.py": "b65aa7364a7708ec2d2f987f0ff6d9a06bee8c67f63d0170ed51dc3bcec1b8a5"
+    },
+    "exact_instructions": "Extract the three separate files into one folder. Open relief-card.txt in a text editor and follow START / CHECK before entering actual shift batches. Python 3 is required. Run the supplied example first: the expected result is 14 books and 3 records. Keep the example unchanged and use a separate CSV for shift data.",
+    "print_pages": 2,
+    "use": "Total returned books: 14\nRecords counted: 3",
+    "separate_native_and_cli_identical": true,
+    "local_link_targets_match_files": true
+  },
+  {
+    "edition": "delivery:delivery-36efcddbce5e8c2cbbf87c75847e76bc@1",
+    "slip": 2,
+    "recipient": "Desk lead",
+    "packet": "02-Desk-lead-packet.zip",
+    "bytes": 4380,
+    "sha256": "31cd72874e21b07ec75c17bb441e936635c4b313e511991e16ae2aef61383d76",
+    "files": {
+      "Files/relief/desk-lead-summary.pdf": "02c31edb5ad384ae53d3ac2a4af72b03805eb92eca29e0613333c1aca5f86da4"
+    },
+    "exact_instructions": "Open desk-lead-summary.pdf and print one copy using Fit to printable area. This single-page summary is the only file needed for this slip. Use its startup check, control points and shift sign-off.",
+    "print_pages": 1,
+    "use": {
+      "pages": 1,
+      "words": 215
+    },
+    "separate_native_and_cli_identical": true,
+    "local_link_targets_match_files": true
+  }
+]

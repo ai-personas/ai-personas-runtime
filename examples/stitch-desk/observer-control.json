@@ -1,0 +1,51 @@
+{
+  "before": {
+    "archive": "switch-64-before.sqlite",
+    "sha256": "203cc63d9b3b990c8e2a3f1b32172ad2e2ad80950beb5f87e0aed4f93847bafb",
+    "through_event": 63,
+    "heads": {
+      "ren": {
+        "epoch": 1,
+        "package": "da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a"
+      }
+    },
+    "unsettled_calls_or_effects": false
+  },
+  "after": {
+    "archive": "switch-64-after.sqlite",
+    "sha256": "0d9dec8cedfe49804f48557ce7630a88bd2e4eb5769a66bb42c7f5836a65251d",
+    "through_event": 65,
+    "heads": {
+      "ren": {
+        "epoch": 2,
+        "package": "b6ae80a39f63018a7d33b515802193279900f5cee5922e00c2f148119009cecc"
+      }
+    },
+    "unsettled_calls_or_effects": false
+  },
+  "switches": [
+    {
+      "event": 64,
+      "actor": "ren",
+      "work": "work-4103f08b7980467bf784005684f6ebdb",
+      "decision": "call-bdddf3b36f6a2ed4626ca2846ea29572",
+      "choice": {
+        "candidate": "candidate:candidate-8f721f4f75e47db52300f7fed9ecf0db@1",
+        "current_development": "development:question-7d2d7172a488c94d8ad5c556193a2fbb@3",
+        "expected_model": "da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a",
+        "follow_up": "After a real conversational choice, inspect its character_use and a subsequent experience, distinguish numerical influence from causal benefit, record the scoped observation, then restore model da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a in a separate rollback response.",
+        "kind": "activate",
+        "reason": "This exact observed candidate has completed assessment. The user requests a temporary reversible live-use instrument check despite inconclusive probes; no behavioral benefit is assumed."
+      },
+      "epoch": 2,
+      "invalidated_contextual_evaluations": [],
+      "model": "b6ae80a39f63018a7d33b515802193279900f5cee5922e00c2f148119009cecc",
+      "numerical": "d9d9bbdc7b9fac6fa4d4da5e27997dcb2398d10fd6f9e0ada6aaa432b0c64854",
+      "numerical_change": true,
+      "previous_package": "da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a",
+      "prior_numerical": "0eaf2bcbd1a4f3140268a97424b422a922037343181226e40a021ad175a7de26",
+      "observed_both_heads": true
+    }
+  ],
+  "meaning": "Observed database boundaries. Check the actual choice, invitation, qualifications and intervening history. No voluntary or causal classification is automatic."
+}

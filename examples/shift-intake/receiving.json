@@ -1,0 +1,57 @@
+{
+  "register_bytes": 1230,
+  "register_sha256": "f7d5e2a9aa54c10ef31c9b8517fc9ec11da2fc435a53d93faf03029935cf1223",
+  "data_rows": 2,
+  "packets": [
+    {
+      "actual_submitter": "Relief counter",
+      "received_file": "01-Relief-volunteer-packet.zip",
+      "packet_bytes": 5666,
+      "outer_sha256": "3855a2e2e3be6a895360a915cb6d2a727f0ae1e995d4c49aba038ede12c4a299",
+      "members": {
+        "Files/relief/count_returns.py": "b65aa7364a7708ec2d2f987f0ff6d9a06bee8c67f63d0170ed51dc3bcec1b8a5",
+        "Files/relief/example.csv": "75091ed34c93911bc5e7b33656120c4b679f9b8029a0c031ff19168fd24ee223",
+        "Files/relief/relief-card.txt": "cd40df7a990dcc8f33b6469dc1d381b9f85f0f032eea8b3d159a62571cf9eb28",
+        "Dispatch.html": "ec9e72a3e151087c83b78e8e5a21370ef66c22ecac7df295d73e3236a47f520b"
+      },
+      "checks": {
+        "one_row_with_exact_filename": true,
+        "outer_sha256": true,
+        "issuer_and_submitter": true,
+        "recipient": true,
+        "exact_file_list": true,
+        "dispatch_sheet_identified_separately": true
+      },
+      "status_as_written": {
+        "receipt_status": "Shift close: digitally received; ZIP inspected; CRC clean",
+        "missing_or_outstanding": "No expected relief packet files missing. Python 3 availability on actual workstation unconfirmed.",
+        "physical_status": "Digital receipt only; physical desk work and printing not confirmed"
+      }
+    },
+    {
+      "actual_submitter": "Desk lead",
+      "received_file": "02-Desk-lead-packet.zip",
+      "packet_bytes": 4380,
+      "outer_sha256": "31cd72874e21b07ec75c17bb441e936635c4b313e511991e16ae2aef61383d76",
+      "members": {
+        "Files/relief/desk-lead-summary.pdf": "02c31edb5ad384ae53d3ac2a4af72b03805eb92eca29e0613333c1aca5f86da4",
+        "Dispatch.html": "1594a2db5348a49f7266b6e56b3eb271f144f1ec2b40886529dddafad0113cc1"
+      },
+      "checks": {
+        "one_row_with_exact_filename": true,
+        "outer_sha256": true,
+        "issuer_and_submitter": true,
+        "recipient": true,
+        "exact_file_list": true,
+        "dispatch_sheet_identified_separately": true
+      },
+      "status_as_written": {
+        "receipt_status": "Shift close: digitally received; ZIP inspected; CRC clean",
+        "missing_or_outstanding": "No expected desk lead packet files missing. Both expected digital packets received at close; listening station reported offline.",
+        "physical_status": "Physical printing not performed per dispatch; no on-site work reported. Digital receipt is not physical completion"
+      }
+    }
+  ],
+  "inventory_matches": true,
+  "scope": "Digital file intake. Read the quoted missing and physical-status fields against the dispatches and actual shift-close message."
+}

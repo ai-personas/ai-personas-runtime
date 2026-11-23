@@ -1,0 +1,567 @@
+{
+  "work": "work-1e1c84185c4f4a626d844dd8911d162e",
+  "intake": {
+    "brief": "work:work-1e1c84185c4f4a626d844dd8911d162e@1",
+    "created": "2026-11-23 11:14:21 UTC",
+    "decision": null,
+    "files": [],
+    "from_edition": null,
+    "need": "Our library needs a right-pointing return arrow embroidered on a navy canvas apron. Give our volunteer machine operator a ZIP with a Tajima DST file and the directions to use it as delivered. One white thread; the stitched arrow should be 32 ± 1 mm wide by 16 ± 1 mm high, centered on the hoop origin within 0.5 mm on both axes. From the wearer’s front it must point right, with a straight-sided tail 6 ± 1 mm high on the left. An outline is fine. The hoop field is 60 × 40 mm. The operator can load and stitch a sample, but cannot redraw, scale or mirror a design. The volunteer is not here today.",
+    "requester": "Textile desk",
+    "source": "operator",
+    "source_work": null
+  },
+  "invitation": {
+    "actor": "Textile desk",
+    "at": "2026-11-23 11:14:21 UTC",
+    "event": 1385,
+    "kind": "invitation",
+    "record": "experience:event-1385@1",
+    "target": "persona-0af7f9ee10bdffd91a09d4b1ce349988"
+  },
+  "opening_character": {
+    "available_peers": [
+      "Arden",
+      "Bell",
+      "Cleo"
+    ],
+    "package": "74582268e7d581ff5f8d0a9e5ff74afd4c4e0622b7427da0ccda16ccf48ecae4",
+    "epoch": 1,
+    "baseline": {
+      "assertiveness": 0.13909244787845804,
+      "challenge": 0.09966799462495582,
+      "clarification": 0.11942729853438588,
+      "collaboration": 0.27290508056313273,
+      "detail": 0.07982976911113136,
+      "exploration": 0.5716699660851173,
+      "initiative": 0.27290508056313273,
+      "integration": 0.30950692121263845,
+      "persistence": 0.5370495669980353,
+      "revision": 0.3799489622552249,
+      "verification": 0.30950692121263845,
+      "warmth": 0.3799489622552249
+    }
+  },
+  "states": {
+    "accepted": 10,
+    "rejected": 1
+  },
+  "verified_inputs_and_outputs": 11,
+  "calls": [
+    {
+      "id": "call-0765128167530b19b297aa32ecf16725",
+      "state": "accepted",
+      "snapshot": "086db59760234a7d695aa841e8a2a733b2bf874c7ef5001be45b64007b26a4c2",
+      "receipt": "afdc2706a8cde4710b080e0e75dbfdbd8f6667ffd720269ae1b9463cca522d45",
+      "response": "a46168bbf1c77b32567a8bc9d50636c9119e6b7e76cd128553d669f52531c059",
+      "request_sha256": "6ca447848e792b2a1204296ef1fbfbbc09a50729edb456448e29286826d064f8",
+      "prompt_sha256": "1b9088fc9a87c7278b83d9ffc51049fb6e579327b7ac0c0c8bde36bc99cb6652",
+      "terminal_output_sha256": "78528a09ce81600ef600c6701c6e1dd6dc248797d462521ae71331a9baf70141",
+      "supplied_package": "74582268e7d581ff5f8d0a9e5ff74afd4c4e0622b7427da0ccda16ccf48ecae4",
+      "epoch": 1,
+      "question_reminder": true,
+      "selected_resources": [],
+      "images": [],
+      "operations": [
+        "peer.respond",
+        "tools.search"
+      ],
+      "judgment": "I can create and digitally verify a ready-to-load embroidery package; physical stitch-out will remain an explicit operator check.",
+      "next_model": "preserve",
+      "next_appraisal": "baseline",
+      "behavioral_scope": null,
+      "maintenance": {
+        "kind": "no_change",
+        "reason": "No observed consequence in this activity warrants a numerical change."
+      },
+      "continuation": "ready",
+      "numerical": "907425a6de0ae6f35c3ef48e8976fd3a0671bc43c2efaf859f11a27dc0b63bf3",
+      "basis": "baseline",
+      "applied_question": null
+    },
+    {
+      "id": "call-c3504559350b6696e24a346520708d2b",
+      "state": "accepted",
+      "snapshot": "8b8a6a93091e3f328a57fec8d7b89fb8276abd5427d92c50d4207f0b1d192fe0",
+      "receipt": "97d7e30243c9d3a13669cd7a045243b027f8a64aef3cb9b1df168e605e8b1b29",
+      "response": "67459d8b4807c7b98f64dfb937d226c97af7fb1ea33731dfb1047cf815060dd9",
+      "request_sha256": "919e1887a41b7465a317356c46883ae3120906d5268cf2d01c37c3553aee55fd",
+      "prompt_sha256": "0076f3f0c705e7815dae756631de84aec3bc0dafb8796ecee1c14fa46e967a3f",
+      "terminal_output_sha256": "461897658a182c8eb77004a0b7a0bfb67267af8924577e06040eca7799705813",
+      "supplied_package": "74582268e7d581ff5f8d0a9e5ff74afd4c4e0622b7427da0ccda16ccf48ecae4",
+      "epoch": 1,
+      "question_reminder": true,
+      "selected_resources": [],
+      "images": [],
+      "operations": [
+        "tools.describe"
+      ],
+      "judgment": "Acceptance is recorded; execution schemas are needed to generate and verify the actual files.",
+      "next_model": "preserve",
+      "next_appraisal": "baseline",
+      "behavioral_scope": null,
+      "maintenance": {
+        "kind": "no_change",
+        "reason": "Tool discovery and acceptance provide no behavioral evidence warranting parameter changes."
+      },
+      "continuation": "ready",
+      "numerical": "907425a6de0ae6f35c3ef48e8976fd3a0671bc43c2efaf859f11a27dc0b63bf3",
+      "basis": "baseline",
+      "applied_question": null
+    },
+    {
+      "id": "call-d9a34052cb1c3cdbfe5d3166a126ec6e",
+      "state": "accepted",
+      "snapshot": "567e22cef7941c7eb5b636cf5861aaed7466843cdb4b177ee81b5ec35a00c0d5",
+      "receipt": "93b666e1e3c9a194c8d023dfedbb0cde5938335590da995bc0094860bbe9adbd",
+      "response": "9e247cf3b5ef95e42ad88b8d6702e6f2453cadbcf978294be5b73a7bad798b57",
+      "request_sha256": "80a4612e745c465a59b962029be8866cf64c45fb550f2b019159a9b2886e4c18",
+      "prompt_sha256": "d88638acc1c362c5ad651290c06788fb192320f6ce64646cbdcc8ff5569ab15d",
+      "terminal_output_sha256": "cb87dc3e5e91f94c34d7188e0febb9b5329809921a2e2530f81e612979365acf",
+      "supplied_package": "74582268e7d581ff5f8d0a9e5ff74afd4c4e0622b7427da0ccda16ccf48ecae4",
+      "epoch": 1,
+      "question_reminder": false,
+      "selected_resources": [],
+      "images": [],
+      "operations": [
+        "command.local"
+      ],
+      "judgment": "Execution tools are available; next establish the embroidery encoder/decoder and create the actual package.",
+      "next_model": "preserve",
+      "next_appraisal": "baseline",
+      "behavioral_scope": null,
+      "maintenance": {
+        "kind": "no_change",
+        "reason": "Schema retrieval succeeded and supplies no reason to alter numerical character."
+      },
+      "continuation": "ready",
+      "numerical": "907425a6de0ae6f35c3ef48e8976fd3a0671bc43c2efaf859f11a27dc0b63bf3",
+      "basis": "baseline",
+      "applied_question": null
+    },
+    {
+      "id": "call-c4e9389c5fee63602e7c426e85bb0cab",
+      "state": "accepted",
+      "snapshot": "d29bdaaab6e1c29b0d8012ef54ab3e3c9863011b9039b53968426146862edb11",
+      "receipt": "f609339ea9f708697817f0222d6f270e84fbc12645c1dfb2da00f202002138d7",
+      "response": "653e4ec89891cbd26bb75266fc8ad0fcfee165eda2344f37b7dc12dbe1a8204e",
+      "request_sha256": "4e1c6bd74923db13f0aeb0740f5fdd44c0c6799516de36be59bb4842d840ce2e",
+      "prompt_sha256": "09c4e0f589e9d3e71fadfb3cf5836a7239f6e17fd9e64b12cd77612e05931a40",
+      "terminal_output_sha256": "6dca3710c38b56ba19e4111ed917354cfa7e1b1afa5ac39ee53f16e7a55b6167",
+      "supplied_package": "74582268e7d581ff5f8d0a9e5ff74afd4c4e0622b7427da0ccda16ccf48ecae4",
+      "epoch": 1,
+      "question_reminder": false,
+      "selected_resources": [],
+      "images": [],
+      "operations": [
+        "command.local"
+      ],
+      "judgment": "Local embroidery and image libraries are available. Inspect their coordinate and DST interfaces before generating the final-size machine design.",
+      "next_model": "preserve",
+      "next_appraisal": "baseline",
+      "behavioral_scope": {
+        "kind": "local",
+        "reason": "Availability of the embroidery library is a local implementation fact."
+      },
+      "maintenance": {
+        "kind": "no_change",
+        "reason": "Successful tool discovery supports continuing concrete implementation, not a numerical character change."
+      },
+      "continuation": "ready",
+      "numerical": "907425a6de0ae6f35c3ef48e8976fd3a0671bc43c2efaf859f11a27dc0b63bf3",
+      "basis": "baseline",
+      "applied_question": null
+    },
+    {
+      "id": "call-d10fbdb0baab6019857a3ec93d5c098e",
+      "state": "accepted",
+      "snapshot": "418317c906560289143132095ac96348afb781fe4c437bb392bb94f7d80d035c",
+      "receipt": "a6d03c51440d58e009b17784f2652200e7d391e07805c33075809107ca2d4060",
+      "response": "7a95b001d32251dd61913b821d2b096b114770f04ebbd3cfda22633165e81307",
+      "request_sha256": "9c5c87c86b5976700977f8c6e132fcc21dec219dae99377e33b8031823a1427a",
+      "prompt_sha256": "ace3b30bd1a92032829696fc137de73b5762da371eabd041e6f12e7832a2e140",
+      "terminal_output_sha256": "130ca9565eb9d41bcc586c4e6c43d10d3de226de5385528cfd1e8890c9cc14df",
+      "supplied_package": "74582268e7d581ff5f8d0a9e5ff74afd4c4e0622b7427da0ccda16ccf48ecae4",
+      "epoch": 1,
+      "question_reminder": false,
+      "selected_resources": [],
+      "images": [],
+      "operations": [
+        "command.local"
+      ],
+      "judgment": "The inspected DST writer uses 0.1 mm coordinates and flips its screen-down Y into machine-up Y. I can now create a full-size hooked right-return outline and independently decode the machine records.",
+      "next_model": "preserve",
+      "next_appraisal": "baseline",
+      "behavioral_scope": {
+        "kind": "local",
+        "reason": "Apply the coordinate findings to this file generation and independent decoding."
+      },
+      "maintenance": {
+        "kind": "no_change",
+        "reason": "The API inspection supports implementation; it supplies no reason to alter my numerical character."
+      },
+      "continuation": "ready",
+      "numerical": "907425a6de0ae6f35c3ef48e8976fd3a0671bc43c2efaf859f11a27dc0b63bf3",
+      "basis": "baseline",
+      "applied_question": null
+    },
+    {
+      "id": "call-bd0062110f2ae84497afbe60ef6b2763",
+      "state": "accepted",
+      "snapshot": "cbdae81dc2a3f7a11d6db2edf156dc80877ab09f6537be8c7994cbd71a214bc7",
+      "receipt": "ed129bd3afe28d5462038bb59c47a5ac357abc1c891c5c269b4ac0f9ff60cba3",
+      "response": "864d2f3cb76d2c766c0c40ca6c57d0d4cded6daeeac80a1c3e631c667b68f678",
+      "request_sha256": "15f4403a699ce53bf74d56b06f510fcccc24594fe6ab8965ff34ee8503d3666c",
+      "prompt_sha256": "d7bc590ddfde31a25693566ec51188f965e7a3e92ea60fd263cb37c9b14ccbf1",
+      "terminal_output_sha256": "b46ffa1f55367602ff534676e3e92800876b623cf0fdc0e612d2fb2fcd424cbc",
+      "supplied_package": "74582268e7d581ff5f8d0a9e5ff74afd4c4e0622b7427da0ccda16ccf48ecae4",
+      "epoch": 1,
+      "question_reminder": false,
+      "selected_resources": [],
+      "images": [],
+      "operations": [
+        "asset.read",
+        "command.local"
+      ],
+      "judgment": "The generated DST decodes to the requested 32 × 16 mm centered geometry, with a 6 mm left tail and no color changes. The ZIP and directions now exist; I will inspect the visual reference and verify the exact packaged file through a separate reader before issuing it.",
+      "next_model": "preserve",
+      "next_appraisal": "baseline",
+      "behavioral_scope": {
+        "kind": "local",
+        "reason": "The successful build supports proceeding to package verification here, without generalizing from a single tool result."
+      },
+      "maintenance": {
+        "kind": "no_change",
+        "reason": "Concrete generation and bit-level checks produced useful progress; this result does not indicate a durable numerical-character problem."
+      },
+      "continuation": "ready",
+      "numerical": "907425a6de0ae6f35c3ef48e8976fd3a0671bc43c2efaf859f11a27dc0b63bf3",
+      "basis": "baseline",
+      "applied_question": null
+    },
+    {
+      "id": "call-d9a1fc3afee9b7f22cb3baf0c5356f75",
+      "state": "accepted",
+      "snapshot": "1a794f3d1835239ca1e9f1cc5f91536ab0209eff8e88d1455f5956fca49dd667",
+      "receipt": "382894569b75b86847c96a9637d5b8587dba9253a3dfd16024740f66dc6284d0",
+      "response": "18cde28aa583eb8d39cfc47f2af64ea46c590495a742ffa7cf35e9ed4ab1bbf8",
+      "request_sha256": "179503927a02f62d4d26e85d5ffcb002a14504ef31b3cb6d4fa639578a2988f0",
+      "prompt_sha256": "04562a5fcc9e661a240a4d755bd2ff31422159f330d7f065f02325fd307bf51e",
+      "terminal_output_sha256": "5188c9698293a9802ebadd639051606c267ec1b6876afd7704f2f998143b3a54",
+      "supplied_package": "74582268e7d581ff5f8d0a9e5ff74afd4c4e0622b7427da0ccda16ccf48ecae4",
+      "epoch": 1,
+      "question_reminder": false,
+      "selected_resources": [
+        "object:cdb75ec37efb34be8fdfa32a87027f1a5085c4ded338799c8f5851d3b93a1ecb",
+        "object:02763a6ab77414cade2dacf02f52ad27e30dcd7a382a435e65a87b5a568cf95d"
+      ],
+      "images": [
+        {
+          "bytes": 8775,
+          "mime": "image/png",
+          "reference": "object:02763a6ab77414cade2dacf02f52ad27e30dcd7a382a435e65a87b5a568cf95d"
+        }
+      ],
+      "operations": [
+        "command.local"
+      ],
+      "judgment": "The preview shows a right-pointing return arrow with a straight-sided left tail. A separate DST reader successfully imported the exact ZIP member and confirmed 32 × 16 mm sewing bounds; ZIP integrity and DST checksum also passed. I will finish checking the operator text before releasing the package.",
+      "next_model": "preserve",
+      "next_appraisal": "baseline",
+      "behavioral_scope": {
+        "kind": "local",
+        "reason": "The successful independent import is evidence about this DST package, not yet a general behavioral finding."
+      },
+      "maintenance": {
+        "kind": "no_change",
+        "reason": "Independent checking confirmed the intended geometry. This supports retaining the verification approach, without evidence for a numerical character edit."
+      },
+      "continuation": "ready",
+      "numerical": "907425a6de0ae6f35c3ef48e8976fd3a0671bc43c2efaf859f11a27dc0b63bf3",
+      "basis": "baseline",
+      "applied_question": null
+    },
+    {
+      "id": "call-1299057a6a145da794bf570ed53d8fff",
+      "state": "rejected",
+      "snapshot": "d29215c4b526b915a59cb86f9e1dc69c9da119c720fe2dcc739d0ab7755996cb",
+      "receipt": "4fe3ae02badacf661a29c9f46d56b1400072dc9fa0588a46245cf88779dbeec8",
+      "response": "e926c15e299c52ee112de9f94af923524d5296333a592b772193c6333102fb93",
+      "request_sha256": "d07a319e0cb2f490ce0896629fe60b6badac304542f331dc1f0ef702d86c1a46",
+      "prompt_sha256": "5d7372a9e9d44ca2d5ec695f1cd7e5d66793fe65d7c8f0479c06f314ba7b963e",
+      "terminal_output_sha256": "886ff42917d1b70ff1668e94deee51f7d3bfc8a00d2583c74bf3c469d0154161",
+      "supplied_package": "74582268e7d581ff5f8d0a9e5ff74afd4c4e0622b7427da0ccda16ccf48ecae4",
+      "epoch": 1,
+      "question_reminder": false,
+      "selected_resources": [],
+      "images": [],
+      "operations": [
+        "asset.register",
+        "result.deliver",
+        "command.local"
+      ],
+      "judgment": "The packaged directions clearly specify unchanged loading, right-facing orientation, origin placement and sample acceptance limits. Digital geometry and independent import checks support releasing this edition; the exported delivery still needs a receiving check.",
+      "next_model": "preserve",
+      "next_appraisal": "baseline",
+      "behavioral_scope": {
+        "kind": "local",
+        "reason": "The result supports this package's directions and release readiness, not a broader behavioral conclusion."
+      },
+      "maintenance": {
+        "kind": "no_change",
+        "reason": "The directions inspection completed the intended release check. There is no evidence here warranting a numerical character change."
+      },
+      "continuation": "ready",
+      "rejection": "Operation zip (asset.register): Read or select the receipt containing this object before registering its bytes"
+    },
+    {
+      "id": "call-a5d8361544e878af211fd4226c32021d",
+      "state": "accepted",
+      "snapshot": "e5a96ed4a2018291286b640d385ccb1b04f0a627a5725e3a952aca8a007742e1",
+      "receipt": "98dac059dce6b6f34f86df8ba205c3dcedf0db4f261b3693e315ceac97f264fc",
+      "response": "4939611d62bc3615314b43751957a3244a8502b0b2ce3c93e785ec6280766f29",
+      "request_sha256": "1feb9f829926dcb41b6753299b4aac7afef75d0f9d50a2a08de26fce70c21937",
+      "prompt_sha256": "1d3b1288e51f75d9f103155e4f3cae306394cda609a78b2bc6118716b19ea1c5",
+      "terminal_output_sha256": "c9e9bc4364d5bf3a3a18ece5fa6030914a61314d8a4ea8a54a5cdebcc9b9adeb",
+      "supplied_package": "74582268e7d581ff5f8d0a9e5ff74afd4c4e0622b7427da0ccda16ccf48ecae4",
+      "epoch": 1,
+      "question_reminder": false,
+      "selected_resources": [],
+      "images": [],
+      "operations": [
+        "command.local"
+      ],
+      "judgment": "The packaged directions clearly specify unchanged-file loading, orientation, origin placement and sample acceptance checks. Registration was rejected because the ZIP's capture receipt was no longer selected; no release occurred.",
+      "next_model": "preserve",
+      "next_appraisal": "baseline",
+      "behavioral_scope": {
+        "kind": "local",
+        "reason": "Retain or recapture the actual output receipt before registration; this is a local correction rather than a general behavioral finding."
+      },
+      "maintenance": {
+        "kind": "no_change",
+        "reason": "The registration failure is a source-retention issue to correct locally, not evidence supporting a numerical character change."
+      },
+      "continuation": "ready",
+      "numerical": "907425a6de0ae6f35c3ef48e8976fd3a0671bc43c2efaf859f11a27dc0b63bf3",
+      "basis": "baseline",
+      "applied_question": null
+    },
+    {
+      "id": "call-d3e7cf4266f8636c1b02665828f8e624",
+      "state": "accepted",
+      "snapshot": "3d1f27f513ebc97a054d10055fab5d70c8cf312d2189269f5a3c1cfb8b24d6d2",
+      "receipt": "f229668b7ae2a99e2bdfa54c4b60e2ca85463d16fbe12dc62bafe0eff52fda13",
+      "response": "4a2ae3903e711da8b51a886554c67dec0eb575c0a0280b0a829d5339f1722e81",
+      "request_sha256": "d9dd30117148f93cfb69881ece7aa3159b9b840af32db8507fdc3a2773035890",
+      "prompt_sha256": "c7de92442ea5f07989c62fef605c8a945b1280a5574bb7433c26249ab15d268a",
+      "terminal_output_sha256": "a33539ae9c9e990cb379ab541a21bf006774bff4cb2e274dd9aee69d8c1109d2",
+      "supplied_package": "74582268e7d581ff5f8d0a9e5ff74afd4c4e0622b7427da0ccda16ccf48ecae4",
+      "epoch": 1,
+      "question_reminder": false,
+      "selected_resources": [],
+      "images": [],
+      "operations": [
+        "asset.register",
+        "result.deliver",
+        "command.local"
+      ],
+      "judgment": "The completed ZIP has now been captured successfully and its archive integrity checked. I can issue that exact file and exercise the issued copy.",
+      "next_model": "preserve",
+      "next_appraisal": "baseline",
+      "behavioral_scope": {
+        "kind": "local",
+        "reason": "Keep the source-retention correction local to this release and use the observed capture directly."
+      },
+      "maintenance": {
+        "kind": "no_change",
+        "reason": "The successful capture resolves a local retention problem, not a reason to change numerical character."
+      },
+      "continuation": "ready",
+      "numerical": "907425a6de0ae6f35c3ef48e8976fd3a0671bc43c2efaf859f11a27dc0b63bf3",
+      "basis": "baseline",
+      "applied_question": null
+    },
+    {
+      "id": "call-03fbffd4cc1d7e6ebda92cfb0a4a8f05",
+      "state": "accepted",
+      "snapshot": "a72a9acc5fbdce05caecf3368ef7bbff85199038fc0154512aec6767434a08c3",
+      "receipt": "c17e66d894d5b9e9dcb9e762b3774f4e49ca7e87a1f74ab1366c58b5328ddf16",
+      "response": "2bf274854fa87317f78a94e04e6885a1c61ba5d97f9ece8786b761504e2aee5d",
+      "request_sha256": "49fb25820a1351bc9535efbe6f92880520ba5b44a44a1bc35e0d38db96c5478c",
+      "prompt_sha256": "c22484b0c6f8fa0b830109bbda8c669dfc2fecacadd9a5631dde29d15db8e97b",
+      "terminal_output_sha256": "993a1682d692d8fe0e737ce1e9adab41c96f6aea0c35e66f5e6aa213e9e105ee",
+      "supplied_package": "74582268e7d581ff5f8d0a9e5ff74afd4c4e0622b7427da0ccda16ccf48ecae4",
+      "epoch": 1,
+      "question_reminder": false,
+      "selected_resources": [
+        "experience:event-1397@1"
+      ],
+      "images": [],
+      "operations": [
+        "work.outcome"
+      ],
+      "judgment": "The requested ZIP has been issued and the exact exported copy successfully opened and inspected. It contains the DST, operator directions, orientation preview and digital verification report. The directions preserve the required unchanged-file workflow and explicitly require a physical sample before the apron.",
+      "next_model": "preserve",
+      "next_appraisal": "baseline",
+      "behavioral_scope": {
+        "kind": "local",
+        "reason": "The receiving check substantiates this package's readability and contents, not a general finding about machine compatibility or physical embroidery performance."
+      },
+      "maintenance": {
+        "kind": "no_change",
+        "reason": "The receiving result supports retaining the distinction between digital delivery verification and physical performance. It supplies no evidence warranting a numerical character change."
+      },
+      "continuation": "stop",
+      "numerical": "907425a6de0ae6f35c3ef48e8976fd3a0671bc43c2efaf859f11a27dc0b63bf3",
+      "basis": "baseline",
+      "applied_question": null,
+      "reply": {
+        "event": 1406,
+        "text": "Ready: **embroidery/right_return_operator.zip** contains:\n\n- **RIGHT_RETURN.dst** — right-pointing return-arrow outline\n- **README.txt** — complete operator setup and sample-check directions\n- **front_preview.png** — orientation reference\n- **verification.json** — digital checks\n\nThe encoded design is **32 × 16 mm**, centered at hoop origin, with a **6 mm-high left tail**, and fits the **60 × 40 mm** field. Use **one white thread**, **100% scale**, **0° rotation**, and **mirror off**; no redrawing or design adjustment is required.\n\nI checked the exact delivered ZIP and its contents. **No physical sew-out has been performed.** The included directions require the volunteer to stitch and measure a matching-material sample before using the apron, stopping if size, centering, orientation or stitch quality fails."
+      }
+    }
+  ],
+  "commands": [
+    {
+      "call": "call-d9a34052cb1c3cdbfe5d3166a126ec6e",
+      "id": "probe",
+      "receipt": "command_run:local-5aceedc45a0cfb83712d72f56d8883bacb4e01ac8b5597961835dbfedee8b781@1",
+      "argv_sha256": "9513f12e20ca52f9fedde988580b80dd9cbe831ed8dc07c8f93708928df48d45",
+      "environment": "scratch",
+      "exit": 0,
+      "outputs": {}
+    },
+    {
+      "call": "call-c4e9389c5fee63602e7c426e85bb0cab",
+      "id": "api",
+      "receipt": "command_run:local-96cd8ab14f0d47fc45460c6fe5890ef4254c34f1bb4edab52f0023d82b0dcaf3@1",
+      "argv_sha256": "9b509f4f61cd7c583161706e9279394ce2bd8343d776817680646814eaa4b659",
+      "environment": "scratch",
+      "exit": 0,
+      "outputs": {}
+    },
+    {
+      "call": "call-d10fbdb0baab6019857a3ec93d5c098e",
+      "id": "build",
+      "receipt": "command_run:local-42ff2e7ee01403216c736bd4fd6662dbc5d4bcbb9a644d8c51042ad65be75bbc@1",
+      "argv_sha256": "27f4ffe35eb85e1c3e73f32b570759b38a75034dbdd7aedab0be309aedd48818",
+      "environment": "workspace",
+      "exit": 0,
+      "outputs": {
+        "return_arrow/README.txt": {
+          "bytes": 3690,
+          "object": "object:1ccd4fcef0f0740c1efe9c3a470a66ea363f8539b20b7db2a4c170ab5e459940"
+        },
+        "return_arrow/front_preview.png": {
+          "bytes": 8775,
+          "object": "object:02763a6ab77414cade2dacf02f52ad27e30dcd7a382a435e65a87b5a568cf95d"
+        },
+        "return_arrow/verification.json": {
+          "bytes": 595,
+          "object": "object:ede6d644e041a02efa7ee450361d7f9f32c3645e7ad38141a969b5d3762aeb2f"
+        },
+        "right_return_operator.zip": {
+          "bytes": 9113,
+          "object": "object:cdb75ec37efb34be8fdfa32a87027f1a5085c4ded338799c8f5851d3b93a1ecb"
+        }
+      }
+    },
+    {
+      "call": "call-bd0062110f2ae84497afbe60ef6b2763",
+      "id": "check",
+      "receipt": "command_run:local-24418538fe4a51b555fd3dea8a02ac03058148e6fb72240849450bfc0d6440f3@1",
+      "argv_sha256": "6d2b513f56075e41d4843ead17b0861ffcd04803b991c8ce36a0ad5d9b6b989a",
+      "environment": "workspace",
+      "exit": 0,
+      "outputs": {}
+    },
+    {
+      "call": "call-d9a1fc3afee9b7f22cb3baf0c5356f75",
+      "id": "directions",
+      "receipt": "command_run:local-17b0c06d250f3faee37b8116ebe3208b330f9be196a5326e1a13acfd0be7e71d@1",
+      "argv_sha256": "0aa8ba5eb447499cb64002bb3dd363ceb4c6974cb696838ad93dcf513e03a233",
+      "environment": "workspace",
+      "exit": 0,
+      "outputs": {}
+    },
+    {
+      "call": "call-a5d8361544e878af211fd4226c32021d",
+      "id": "capture",
+      "receipt": "command_run:local-9fbe86045aeed155f5728b987c9dfc645f9e4679c037b109dd3ddaf4342f273a@1",
+      "argv_sha256": "a70994139951b82c0080c62a94e853d853144310c6fc47b1653e26949871b3e8",
+      "environment": "workspace",
+      "exit": 0,
+      "outputs": {
+        "right_return_operator.zip": {
+          "bytes": 9113,
+          "object": "object:cdb75ec37efb34be8fdfa32a87027f1a5085c4ded338799c8f5851d3b93a1ecb"
+        }
+      }
+    },
+    {
+      "call": "call-d3e7cf4266f8636c1b02665828f8e624",
+      "id": "receive",
+      "receipt": "command_run:local-66bbebebef1e62eccb33cbe5780142eec65b85cb5cf1b40fab1831f672a8f2a8@1",
+      "argv_sha256": "23573feef9492066cf37d8aac8fec84373109c3df52ea8f7240d9d7b15864423",
+      "environment": "scratch",
+      "exit": 0,
+      "outputs": {},
+      "receiving": {
+        "cancelled": false,
+        "checking_work": "work-1e1c84185c4f4a626d844dd8911d162e",
+        "delivery": "delivery:delivery-495351e4ef90feefc9e7f74e9a56fbb5@1",
+        "dispatch": null,
+        "effect": "effect-1c96b081136af8ddb440bbb8138bc856",
+        "error": null,
+        "exit_code": 0,
+        "files_staged": 1,
+        "missing_outputs": [],
+        "process_started": true,
+        "program": "python3",
+        "purpose": "Inspect the exact issued ZIP, operator directions, verification report and DST structure.",
+        "receipt": "command_run:local-66bbebebef1e62eccb33cbe5780142eec65b85cb5cf1b40fab1831f672a8f2a8@1",
+        "receiving_environment": "receiving_launcher",
+        "result": "object:904caa76f901ef79af864cf171c1ec290acc4dffa2bfbcd3cc4d0db910862575",
+        "success": true,
+        "timed_out": false
+      }
+    }
+  ],
+  "edition": {
+    "event": 1400,
+    "call": "call-d3e7cf4266f8636c1b02665828f8e624",
+    "reference": "delivery:delivery-495351e4ef90feefc9e7f74e9a56fbb5@1",
+    "asset": "asset:asset-81242606e50d19f4b9560d9d67abe47b@1",
+    "path": "embroidery/right_return_operator.zip",
+    "sha256": "cdb75ec37efb34be8fdfa32a87027f1a5085c4ded338799c8f5851d3b93a1ecb",
+    "bytes": 9113,
+    "slip": {
+      "artifacts": [
+        "asset:asset-81242606e50d19f4b9560d9d67abe47b@1"
+      ],
+      "instructions": "Extract the ZIP, read README.txt and compare front_preview.png. Load RIGHT_RETURN.dst without scaling or mirroring and follow the sample acceptance checks before stitching the apron.",
+      "recipient": "Volunteer machine operator via Textile desk"
+    },
+    "remaining": [
+      "Volunteer must stitch and inspect a sample for physical dimensions, orientation, centering and stitch quality before using the apron."
+    ]
+  },
+  "switch_events": [],
+  "authored_versions": {
+    "asset": 1,
+    "character_use": 11,
+    "command_run": 7,
+    "decision_effects": 10,
+    "delivery": 1,
+    "outcome": 1,
+    "participation": 10,
+    "provider_completion": 11
+  },
+  "totals": {
+    "input_tokens": 211037,
+    "cached_input_tokens": 52480,
+    "output_tokens": 9542,
+    "actual_cost_microusd": null
+  }
+}

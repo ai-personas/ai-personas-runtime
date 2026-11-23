@@ -74,7 +74,26 @@ class Recorder:
         self.armed = self.prior.archive(self.dest / "armed.sqlite")
         note(self.dest / "armed.json", self.armed)
 
-    def step(self):
+    def keep_package(self, snapshot, actor, handle):
+        row = snapshot.db.execute("select bytes from objects where digest=?", [handle]).fetchone()
+        if not row or sha256(row[0]).hexdigest() != handle or json.loads(row[0])["persona"] != actor:
+            raise ValueError("Switch does not identify an intact package owned by its actor")
+        directory = self.dest / "packages"
+        directory.mkdir(mode=0o700, exist_ok=True)
+        path = directory / (handle + ".json")
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            if path.read_bytes() != row[0]:
+                raise ValueError("Existing private package differs from the switch object")
+        else:
+            with os.fdopen(fd, "wb") as file:
+                file.write(row[0])
+                file.flush()
+                os.fsync(file.fileno())
+        return {"file": str(path.relative_to(self.dest)), "sha256": handle, "bytes": len(row[0])}
+
+    def step(self, final_archive=None):
         cur = Snapshot(self.uri)
         try:
             changes = []
@@ -85,13 +104,18 @@ class Recorder:
                     raise ValueError("Invalid switch event digest")
                 e = json.loads(blob)
                 if e.get("previous_package") is not None:
-                    changes.append({"event": seq, "actor": actor, "work": work, "decision": call, **e})
+                    changes.append({**e, "event": seq, "actor": actor, "work": work, "decision": call})
             if changes:
                 name = f"switch-{changes[0]['event']}"
                 before = self.prior.archive(self.dest / f"{name}-before.sqlite")
                 after = cur.archive(self.dest / f"{name}-after.sqlite")
                 for e in changes:
                     actor, epoch = e["actor"], e["epoch"]
+                    # Even if two commits landed between samples, the event
+                    # retains the exact immutable models. These files alone are
+                    # not two runnable histories with their original active heads.
+                    e["package_files"] = {side: self.keep_package(cur, actor, e[key])
+                                          for side, key in (("before", "previous_package"), ("after", "model"))}
                     e["observed_both_heads"] = (
                         self.prior.people.get(actor) == {"epoch": epoch-1, "package": e["previous_package"]} and
                         cur.people.get(actor) == {"epoch": epoch, "package": e["model"]})
@@ -99,23 +123,25 @@ class Recorder:
                      "meaning": "Observed database boundaries. Check the actual choice, invitation, qualifications and intervening history. No voluntary or causal classification is automatic."})
                 self.batches.append(name)
             self.seen = cur.through
+            end = cur.archive(final_archive) if final_archive is not None else None
             if not cur.unsettled:
                 self.prior.db.close()
                 self.prior, cur = cur, None
+            return end
         finally:
             if cur:
                 cur.db.close()
 
     def close(self):
-        self.step()
-        end = Snapshot(self.uri)
         try:
+            # The final event scan and the final archive use the same read pin.
+            # A concurrent commit after it belongs to a later observation.
+            end = self.step(self.dest / "ended.sqlite")
             result = {"first_event": self.armed["through_event"], "last_event": self.seen,
-                      "switch_batches": self.batches, "last_snapshot": end.archive(self.dest / "ended.sqlite")}
+                      "switch_batches": self.batches, "last_snapshot": end}
             note(self.dest / "observation.json", result)
             return result
         finally:
-            end.db.close()
             self.prior.db.close()
 
 
