@@ -28,9 +28,20 @@ fn failed_attempt(db: &Connection, call: &str, digest: &str) -> neural::Result<V
         (AccessMode::SiwcOAuth, "OpenAI OAuth"),
     ].into_iter().find(|(mode, _)| receipt["audit"]["transport_profile"] == mode.profile())
         .map_or("Model provider", |(_, name)| name);
+    let summary = if quota {
+        Some(format!("{connection}: insufficient quota"))
+    } else if receipt["http_status"] == 200 && receipt["reported_terminal_status"].is_null()
+        && stream["stage"] == "event" && stream["event_type"] == "error"
+        && stream["remote_error_type"] == "service_unavailable_error"
+        && stream["remote_error_code"] == "server_is_overloaded"
+    {
+        Some(format!("{connection}: provider reported an overloaded server"))
+    } else {
+        None
+    };
     Ok(json!({
         "receipt": format!("object:{digest}"), "connection": connection,
-        "quota": quota, "summary": quota.then(|| format!("{connection}: insufficient quota")),
+        "quota": quota, "summary": summary,
     }))
 }
 

@@ -182,6 +182,10 @@ fn result_status(receipt: &Value) -> Option<&'static str> {
         | "Computation outcome unavailable"
         | "Outcome unavailable" => Some("Outcome unavailable"),
         "PDF page unavailable" => Some("Page unavailable"),
+        _ if receipt["timed_out"] == true => Some("Timed out"),
+        _ if receipt["cancelled"] == true => Some("Cancelled"),
+        _ if receipt["process_started"] == false => Some("Did not start"),
+        _ if receipt["signal"].is_i64() => Some("Signal received"),
         _ if receipt["failure"].is_string() || receipt["error"].is_string() => Some("Failed"),
         _ if receipt["exit_code"].as_i64().is_some_and(|code| code != 0) => Some("Nonzero exit"),
         _ if receipt["missing_outputs"]

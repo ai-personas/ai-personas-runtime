@@ -494,6 +494,7 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
             (Some(error),_,_)=>error.to_owned(),
             (_,Some(code),Some(false))=>format!("Exit {code} · missing output"),
             (_,Some(code),_)=>format!("Exit {code}"),
+            _ if run["signal"].is_i64()=>format!("Signal {}", run["signal"]),
             _=>"Command outcome unavailable".into(),
         };
         let label = if run["host"]["directory_mode"] == "workspace" { format!("Shared project · {label}") } else { label };
@@ -577,7 +578,7 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
         if result["result"]["host"]["directory_mode"] == "workspace" && result["result"]["files_supplied"].as_object().is_some_and(|m| !m.is_empty()) {
             projection["project_inputs"] = result["result"]["files_supplied"].clone();
         }
-        for key in ["installation","program","exit_code","error","stdout","stderr","outputs","missing_outputs"] {
+        for key in ["installation","program","exit_code","signal","timed_out","cancelled","process_started","error","stdout","stderr","outputs","missing_outputs"] {
             projection[key]=result["result"][key].clone();
         }
     }

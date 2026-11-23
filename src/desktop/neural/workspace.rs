@@ -589,14 +589,16 @@ impl App {
                     }
                 }
                 let last = &control["last_failed_call"];
-                if let (Some(summary), Some(reference)) = (last["summary"].as_str(), last["receipt"].as_str()) {
+                if let Some(summary) = last["summary"].as_str() {
                     ui.colored_label(theme::ACCENT, format!("Scheduling paused · Last call: {summary}"))
                         .on_hover_text(s(control, "reason"));
+                } else {
+                    ui.colored_label(theme::ACCENT, format!("{scope} · {} — {}", s(control, "state"), s(control, "reason")));
+                }
+                if let Some(reference) = last["receipt"].as_str() {
                     if ui.small_button("Receipt").on_hover_text(reference).clicked() {
                         receipt = Some(reference.to_owned());
                     }
-                } else {
-                    ui.colored_label(theme::ACCENT, format!("{scope} · {} — {}", s(control, "state"), s(control, "reason")));
                 }
             });
         }
