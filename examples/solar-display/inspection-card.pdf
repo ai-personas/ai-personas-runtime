@@ -1,0 +1,72 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.2756 841.8898] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Length 2125 >>
+stream
+BT /F1 20 Tf 42 790 Td (SOLAR GARDEN PLATE) Tj ET
+BT /F1 14 Tf 42 766 Td (Receiving inspection card) Tj ET
+BT /F1 11 Tf 42 735 Td (Drawing: solar-garden-plate.svg | All dimensions in mm) Tj ET
+BT /F1 10 Tf 42 715 Td (Nominal geometry only - not a tolerance or acceptance specification.) Tj ET
+BT /F1 11 Tf 42 685 Td (Date: __________________    Inspector initials: ______________) Tj ET
+BT /F1 11 Tf 42 660 Td (Material / thickness: _______________________________________) Tj ET
+BT /F1 12 Tf 42 615 Td (Characteristic) Tj ET
+BT /F1 12 Tf 275 615 Td (Nominal) Tj ET
+BT /F1 12 Tf 385 615 Td (Actual \(mm\)) Tj ET
+42 603 m 553 603 l S
+BT /F1 11 Tf 42 576 Td (Overall width) Tj ET
+BT /F1 11 Tf 285 576 Td (90) Tj ET
+BT /F1 11 Tf 385 576 Td (________________) Tj ET
+42 561 m 553 561 l S
+BT /F1 11 Tf 42 530 Td (Overall height) Tj ET
+BT /F1 11 Tf 285 530 Td (40) Tj ET
+BT /F1 11 Tf 385 530 Td (________________) Tj ET
+42 515 m 553 515 l S
+BT /F1 11 Tf 42 484 Td (Hole 1 diameter) Tj ET
+BT /F1 11 Tf 285 484 Td (4) Tj ET
+BT /F1 11 Tf 385 484 Td (________________) Tj ET
+42 469 m 553 469 l S
+BT /F1 11 Tf 42 438 Td (Hole 2 diameter) Tj ET
+BT /F1 11 Tf 285 438 Td (4) Tj ET
+BT /F1 11 Tf 385 438 Td (________________) Tj ET
+42 423 m 553 423 l S
+BT /F1 11 Tf 42 392 Td (Hole centre-to-centre spacing) Tj ET
+BT /F1 11 Tf 285 392 Td (74) Tj ET
+BT /F1 11 Tf 385 392 Td (________________) Tj ET
+42 377 m 553 377 l S
+BT /F1 12 Tf 42 320 Td (Measurement notes) Tj ET
+BT /F1 10 Tf 42 298 Td (Width and height refer to the outside rectangular profile.) Tj ET
+BT /F1 10 Tf 42 280 Td (Two holes: centres \(8, 20\) and \(82, 20\); radius 2 each.) Tj ET
+BT /F1 10 Tf 42 262 Td (Spacing = 82 - 8 = 74 mm, centre to centre.) Tj ET
+BT /F1 11 Tf 42 230 Td (Observations / damage / burrs:) Tj ET
+42 205 m 553 205 l S
+42 177 m 553 177 l S
+42 149 m 553 149 l S
+BT /F1 10 Tf 42 112 Td (Plate not yet cut. Actual measurements intentionally left blank.) Tj ET
+BT /F1 10 Tf 42 94 Td (No tolerance supplied: record results; do not infer pass/fail limits.) Tj ET
+BT /F1 10 Tf 42 64 Td (Print on A4. This card is not a cutting template or scale drawing.) Tj ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000251 00000 n 
+0000000321 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+2497
+%%EOF
