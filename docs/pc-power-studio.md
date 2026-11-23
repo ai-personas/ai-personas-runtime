@@ -12,6 +12,8 @@ On November 21, 2026, a requester entered a PC SMPS brief in native Linux Studio
 
 **Review 11:** The four-person group [changed the input protection circuit and capacitor banks](#a-new-input-supervisor-in-review-11). The new supervisor's static thresholds check out, but input copper losses increased. At the same 99.8 W load the motherboard +12 V connector modeled **11.438 V** with ideal contacts and **11.398 V** with 10 mΩ per mated end, against an 11.40 V floor. Standby still failed. [Original design ZIP](https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-11-20261123/review11-current.zip).
 
+**Subsequent provisional handoff:** [Download the version with local CAD libraries and wiring instructions](https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-11-20261123/dependency-complete-provisional.zip). It opens with clean ERC and board-only DRC and reproduces all 37 regression tests. The PCB and connector-voltage results are unchanged. [What the handoff fixes](#the-provisional-dependency-handoff).
+
 ## Four-person ATX trial: the opening 48 decisions
 
 On November 23 the requester opened a fresh Studio workspace and [invited Lio, Mara, Noor and Tess](assets/studio-atx-four-invitation.jpg). They received the **same 398-byte conventional ATX brief**, no attachments and an empty shared project. Their four starting profiles describe personality, with no engineering roles assigned. This is a separate trial from Nia and Ellis’s work above.
@@ -124,6 +126,16 @@ At **11:15:21 UTC**, Tess issued a new 93-position board. [Studio shows exactly 
 The load results use review 11's actual track, via, pad and filled-zone geometry. Two mesh resolutions differed by at most 0.218 mV; a separate track-network calculation confirmed about 1 V standby supply-path loss at 2 A. In 486 deterministic cases, **576 of 2,511 loaded rail readings** were outside limits. The calculations assume working regulators, 35 µm copper at 80 °C, estimated efficiency, switch and contact losses. They are not measurements of ripple, startup, protection, temperature or PC operation.
 
 Through admission 2667 and requester event 4634, there were **2,637 accepted OAuth decisions**, 17 rejected responses, nine OAuth failures, 819 peer messages and no requester follow-up directions. All **2,629** ordinary decisions kept their original numerical characters. Lio's foreground copper program had no terminal receipt at this cutoff; Mara, Noor and Tess made 1,146 accepted decisions after Lio launched it. No evaluator fixes or findings were sent to the personas.
+
+### The provisional dependency handoff
+
+At **11:24:15 UTC** Tess issued a separate [888,421-byte ZIP](https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-11-20261123/dependency-complete-provisional.zip), SHA-256 `7325965ce43edee7b158c93415797a7e87b00f0e80e7a1a91db7b7b761b98fcb`. It restores the local [library mappings visible in Studio](assets/studio-atx-four-dependency-handoff.jpg), symbol library, input/source instructions, wire schedule, candidate harness BOM and empty-cavity traveler. All 172 manifest entries matched. The schematic, PCB, project, eight circuit definitions, five selected footprint files, BOM and placement are byte-identical to 11.
+
+On a fresh extraction, **all 37 shipped regression tests passed**. ERC and board-only DRC now give zero findings; full parity still reports 290. The 27 wire assignments and 54 planned contacts check out against the board and parts list. Across the populated and empty-cavity forms **85 physical-result cells** read `NOT TESTED`. The traveler validator returned `INCOMPLETE`; it checks 58 of those cells, not the 27 visual crimp/latch fields. An alternate schedule checker and quantity checker passed. Another supplied checker still stops on the missing `interface/atx24_pinmap.csv`. The commissioning guide’s load-arithmetic script and example input are also absent.
+
+The repaired package has its own [independent report](https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-11-20261123/dependency-review.json) and [replay](https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-11-20261123/dependency-replay.zip). Regenerating its plots, placement and two copper meshes reproduced the prior electrical result, including **3.924 V on the 2 A standby load**. It is easier to inspect, not ready to order without engineering changes.
+
+The later Studio edition is `delivery:delivery-c8c86c1ed320203701d65ea25f9ff097@1`, admission 2736 / requester event 4741. Through that cut the group had **2,706 accepted OAuth decisions**, 832 peer messages and zero requester follow-up directions. All 2,698 ordinary decisions used the original numerical characters. No hardware was ordered or tested.
 
 ## The first delivery: PC60 revision A
 
