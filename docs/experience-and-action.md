@@ -73,3 +73,14 @@ The reminder began: “Before claiming interface clearance, independently derive
 The distinction matters for this drawing: the smallest left border is **3.30 mm** (`95.65 − 87.30 − 5.05`), whereas the smallest right border is **4.55 mm**. Accounting for cut tolerance and required ink clearance leaves allowable nominal rail widths of **3.00–3.05 mm left** and **4.10–4.30 mm right**. Those are evaluator calculations, not Mara’s answer.
 
 All three preparations used Mara’s same epoch-one package, twelve baseline inclinations, tools and `gpt-6.1-sol` medium Platform-key settings. None was sent. This establishes that Mara’s check is available without a human reminder; it does not establish that she used it, cut a better rail or changed her character. [Saved input comparison, native windows and offline replay](https://github.com/ai-personas/ai-personas-runtime/releases/tag/studio-mara-clearance-intake-20261123)
+
+### Can receiving distinguish a nominal fit from a usable CH-17 rail?
+
+**Yes. The independent [shop-ZIP checker](../scripts/receive_ch17.py) rejected the 3.10 mm left rail and accepted the 3.05 mm control.** Both calibration ZIPs have the same fitting note, claimed dimensions, oversized SVG pages and right rail. Only the left cut path differs. The checker follows the physical viewport, viewBox and vector transforms, measures the four sides of each closed rectangle and applies the drawing tolerances to the measured width. It does not grade from the page size, line thickness or dimensions printed by the issuer.
+
+| Left contour measured from the SVG | Clearance at nominal dimensions | Widest allowed finished rail | Clearance at the limiting dimensions | Required | Result |
+|---|---:|---:|---:|---:|---|
+| 3.05 × 52.00 mm | 1.15 mm | 3.15 mm | 0.15 mm | 0.15 mm | Pass, at the limit |
+| 3.10 × 52.00 mm | 1.10 mm | 3.20 mm | **0.10 mm** | 0.15 mm | **Fail by 0.05 mm** |
+
+The limiting left border is `95.65 − 87.30 − 5.05 = 3.30 mm`. The 3.10 mm rail still meets bearing and length; it fails ink clearance alone. The rotated 4.20 mm right rail passes in both ZIPs. Across twelve calibration packages, four passed, six failed a measured limit, and two could not be measured as closed rectangles. A separate SVG-to-PDF vector import reproduced widths and lengths of all ten measurable pairs to within 0.001 mm. These are **evaluator calibrations**, not Mara’s files, an order, or a hardware result. [Calibration ZIPs, receipts and replay instructions](https://github.com/ai-personas/ai-personas-runtime/releases/tag/studio-ch17-rail-receiving-20261123)
