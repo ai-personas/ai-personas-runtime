@@ -1,0 +1,32 @@
+{
+  "url": "https://github.com/ai-personas/ai-personas-runtime/releases/tag/studio-atx-four-stream-recovery-20261123",
+  "checked_utc": "2026-11-23T14:20:39.940108+00:00",
+  "downloaded": [
+    {
+      "name": "noor-working-allocation.json",
+      "bytes": 3052,
+      "sha256": "c3847ab59479d37c71a570a3c3447592d61018c2190554c843ac619162025880"
+    },
+    {
+      "name": "README.md",
+      "bytes": 2969,
+      "sha256": "fba89adf235c1a0796c9f791e0f76928e0147e3446b1c280912bb62b93cac2b0"
+    },
+    {
+      "name": "recovery.json",
+      "bytes": 4716,
+      "sha256": "4953d3d00e0fa8ef960e25db576be5273ca8233584f910c0aa0e0944cedf2cd5"
+    },
+    {
+      "name": "SHA256SUMS",
+      "bytes": 327,
+      "sha256": "7ba39b149684a99dde8e601dd4df2ebe8b4fbee00d67649c699d2d537a11d17a"
+    },
+    {
+      "name": "verify.py",
+      "bytes": 12342,
+      "sha256": "3a9b2214c0295da010126ace787f826f43761276f1fa0b81ff8f37dac19cea98"
+    }
+  ],
+  "replayed_sha256": "4953d3d00e0fa8ef960e25db576be5273ca8233584f910c0aa0e0944cedf2cd5"
+}

@@ -36,6 +36,23 @@ fn failed_attempt(db: &Connection, call: &str, digest: &str) -> neural::Result<V
         && stream["remote_error_code"] == "server_is_overloaded"
     {
         Some(format!("{connection}: provider reported an overloaded server"))
+    } else if receipt["http_status"] == 200 && receipt["reported_terminal_status"].is_null()
+        && stream["stage"] == "event" && stream["event_type"] == "response.output_item.added"
+        && stream["rule"] == "message_added_shape"
+    {
+        // The diagnostic identifies the failed check, not the raw item or its status.
+        let problem = match stream["field"].as_str() {
+            Some("status") => Some("expected a new assistant message to be in progress"),
+            Some("role") => Some("a new message had an unexpected author role"),
+            Some("content") => Some("a new assistant message already contained text"),
+            _ => None,
+        };
+        problem.map(|problem| {
+            match (stream["event_index"].as_u64(), receipt["event_count"].as_u64()) {
+                (Some(i), Some(n)) if i > 0 && i <= n => format!("{connection}: {problem} (stream event {i})"),
+                _ => format!("{connection}: {problem}"),
+            }
+        })
     } else {
         None
     };
