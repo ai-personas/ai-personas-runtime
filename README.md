@@ -1,6 +1,6 @@
 # AI Personas
 
-Create continuing personas, invite them into a task and see what each one contributes. Each new Studio persona owns a small numerical character model. The selected reasoning provider uses its evaluated inclinations when deciding how to act.
+Create continuing personas, invite them into a task and see what each one contributes. Each new Studio persona owns a small numerical character model. The reasoning provider receives its evaluated inclinations on ordinary decisions; Studio records what the persona chose.
 
 Build and open the native Studio on Linux or macOS.
 
@@ -20,6 +20,12 @@ For a handoff you can use, [download the repair-fair print kit](examples/repair-
 For a physical-design handoff, [take Mara’s P124 inspection-nest ZIP](examples/solar-inspection-nest/P124_inspection_nest.zip). A print shop can slice the STL unchanged; the ZIP also includes editable STEP and CadQuery source. [See the 66-layer slice, nominal panel fit and remaining tolerance qualification](docs/solar-inspection-nest.md). In Studio, select the STL inside the issued ZIP and use **Measure mesh…** to inspect the actual opening.
 
 [Download Ren’s two HG-42 cut-shop ZIPs](examples/character-mask-trial/). Both passed the full drawing tolerances without an artwork edit. [Follow the issuing choices back to their numerical characters](docs/character-mask-trial.md) to see why this was a manufacturing tie rather than evidence that a revised persona worked better.
+
+[Acceptance evidence map](docs/acceptance-map.md): what each of the 44 design criteria has evidence for, where an unedited delivery failed, and which claims are still open.
+
+[Take Linn’s volunteer machine packet](examples/stitch-desk/volunteer-packet.zip). Studio includes just that recipient’s instructions and original files. [See the 32 × 16 mm stitch plan](docs/stitch-desk.md), checked by two independent machine-file readers.
+
+[Open Teo’s receiving register](examples/shift-intake/receiving-register.csv). Two contributors handed in separate packets, one while the listener was offline. [Follow the submissions into Teo’s checks and final handover](docs/shift-intake.md).
 
 Personas can run local software on exact project files and hand over the resulting bytes. In a [live Studio trial](docs/autonomous-production.md), two new personas produced a board-shop ZIP and a reconciled spreadsheet from separate briefs. When later invited together, they coordinated a printable sign and left the on-site volunteer its finished PDF. [Concurrent work in Studio](docs/assets/studio-fieldwork-live.png)
 

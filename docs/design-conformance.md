@@ -14,6 +14,10 @@ In the [solar fixture handoff](solar-inspection-nest.md), Mara worked from one b
 
 In the [HG-42 mask trial](character-mask-trial.md), Mara and Linn reviewed actual discrepancies and chose to retain practices rather than change their numerical character. A separately registered comparison of Ren’s requested crossover and its true predecessor produced two original cut-shop ZIPs. Both passed all sixteen visibility/concealment margins, blank and web tolerances and a stock vector-cut plan. All ten manufacturing choices used identical inclination values on their actual inputs. No voluntary numerical benefit or physical acceptance was established.
 
+In [a new textile commission](stitch-desk.md), the continuing Linn issued a one-thread volunteer machine job without a follow-up or CAD edit. Two DST readers agreed on all 113 commands, including 110 needle records, the 32 × 16 mm envelope and the right-facing tip. All eleven provider inputs and outputs verified. No one adopted a numerical change, so the preregistered paired commission was not run.
+
+In [Teo’s receiving shift](shift-intake.md), the desk lead submitted its actual packet while the activity listener was offline. The count stayed at eight decisions until normal reconnection. Teo accounted for both submitters and issued an editable CSV with the correct outer hashes and file selections. All 13 provider inputs and terminal responses verified. Both residents kept their original character packages.
+
 In the [field-packet trial](field-packet-trial.md), Ada put a checked cut SVG on an unanswered pickup request she had opened before drawing it. Ada and Remi then delivered the unchanged SVG and a printable receiving card. Remi also issued a drilling template on a separate request a human had already taken. All 33 accepted direct `gpt-6.1-sol` responses used Codex OAuth. The actual plate was neither ordered nor cut.
 
 On a [separate one-brief production job](repair-fair-handoff.md), Ivo and Noor used the native Studio to make two folded table signs from a single A4 sheet. They recovered from an unavailable PDF library, checked the geometry and issued a volunteer dispatch without further human input. All three files in the [native export](../examples/repair-fair/volunteer-print-kit.zip) matched their issued bytes. Both labels face the correct fold on each piece. Printing and physical stability remain unverified.
@@ -448,6 +452,8 @@ The table covers all 46 active identifiers in the upstream requirements index. E
 
 ## Mechanical and behavioral acceptance
 
+The [criterion-by-criterion evidence map](acceptance-map.md) covers all 44 pinned identifiers, with a source and a boundary for each claim. The grouped summary below retains the earlier observations.
+
 These observations cover specific parts of the design catalogue. Each row states its scope. [Mechanical, behavioral and conditional criteria](https://github.com/ai-personas/ai-personas-design/blob/7d86efb31a0323e03166a5c5212cdcd8b2e32f36/evaluation/ACCEPTANCE.md) · [Implementation responsibilities and invariants](https://github.com/ai-personas/ai-personas-design/blob/7d86efb31a0323e03166a5c5212cdcd8b2e32f36/implementation/REQUIREMENTS.md)
 
 | Criteria | Evidence or open condition |
@@ -466,7 +472,8 @@ These observations cover specific parts of the design catalogue. Each row states
 | B10, B11, B12 | The same identities crossed activities. A restored copy kept Ren’s epoch and package when reasoning effort changed. Editable house drawings and a whole-house OpenSCAD exhibition model were inspected. Independent rebuilds verified its envelope and five clear openings. A separate live study traced a persona-issued brief through two print editions and an editorial acceptance in the originating activity. The original family requested an editable discussion concept. That delivery and the separate exhibition model were evaluated for their stated uses. Broader transfer and long-term general-purpose maturation remain open. |
 | X01, X05 | The actual interlocutors were local evaluator roles. No resident consultation, physical assembly, hardware measurement or regulatory approval took place. |
 | X02 | Handover, departure and operator-attributed dissolution preserved the unfinished duties. A race admitted one owner. Reopening required a fresh invitation and a separate acceptance of the exact released outcome. |
-| X03, X04 | An adopted appeal procedure and an ongoing external monitoring service were outside these trials. |
+| X03 | An adopted appeal route with an observed filing, responsible participant and disposition remains unassessed. |
+| X04 | In the [digital receiving shift](shift-intake.md), two named roles submitted actual packets across a listener outage. The unchanged register progressed from two missing to one missing to both received. This establishes the recorded service intervals and the gap, not continuous external monitoring. |
 | X06 | Public aggregate observations identify the design, runtime and tools. The private evaluator’s aggregate receipt-audit source had SHA-256 `d63aee90d884ceff7b1095ee604c4b1dca6a00572f318cb6bf7dabe70a0ccb33`. |
 
 ## Reading and reproducing the evidence
