@@ -1546,6 +1546,11 @@ impl App {
                             action = Some(EventAction::Receipt(seq));
                         }
                     }
+                    if let Some(reference) = event["failed_call"]["receipt"].as_str() {
+                        if text_action(ui, "Provider receipt").on_hover_text(reference).clicked() {
+                            action = Some(EventAction::Open(reference.into()));
+                        }
+                    }
                     if let Some(parent) = body["reply_to"].as_str() {
                         if text_action(ui, "In reply to")
                             .on_hover_text(parent)
@@ -1699,6 +1704,9 @@ pub(super) fn event_text(event: &Value) -> &str {
     let body = &event["body"];
     if event["kind"] == "delivery_check" {
         return s(body, "purpose");
+    }
+    if let Some(summary) = event["failed_call"]["summary"].as_str() {
+        return summary;
     }
     if event["kind"] == "delivery" && body["record"]["title"].is_string() {
         return s(&body["record"], "title");

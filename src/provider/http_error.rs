@@ -67,7 +67,7 @@ impl Capture {
         }
         result.error_type = known(error["type"].as_str(), &[
             "invalid_request_error", "authentication_error", "permission_error",
-            "rate_limit_error", "server_error", "service_unavailable_error",
+            "rate_limit_error", "insufficient_quota", "server_error", "service_unavailable_error",
         ]);
         result.error_code = known(error["code"].as_str(), &[
             "unsupported_parameter", "unknown_parameter", "invalid_value", "invalid_api_key",

@@ -1,5 +1,6 @@
 //! Read-only operator projection. Peer delivery visibility in the runtime is
 //! unchanged: this local workspace inspector reads the owner's saved records.
+mod provider_failures;
 use ai_personas::{
     neural::{self, store},
     persona_model::{Appraisal, Evaluation, FeatureContract, ModelPackage},
@@ -108,6 +109,7 @@ pub(super) fn open(root: &Path) -> neural::Result<Connection> {
 pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<String>) -> neural::Result<Snapshot> {
     let db = open(root)?;
     let mut status = store::status(&db)?;
+    provider_failures::for_holds(&db, &mut status)?;
     if let Some(parts) = status["participation"].as_array_mut().filter(|parts| parts.len() > 1) {
         // A workspace-wide control can append events to every activity without
         // changing any person's participation. Read the committed revisions'
@@ -154,7 +156,11 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
         } else {
             Value::Null
         };
-        events.push(json!({"event":seq,"work":work,"actor":actor,"target":target,"kind":kind,"body":body,"tool_outcome":outcome,"digest":digest,"created":created,"created_utc":created_utc,"invocation":invocation}));
+        let mut event = json!({"event":seq,"work":work,"actor":actor,"target":target,"kind":kind,"body":body,"tool_outcome":outcome,"digest":digest,"created":created,"created_utc":created_utc,"invocation":invocation});
+        if kind == "provider_failure" {
+            event["failed_call"] = provider_failures::for_event(&db, &actor, &work, &target, invocation.as_deref(), &body)?;
+        }
+        events.push(event);
     }
     let cursor = db.query_row("SELECT COALESCE(MAX(seq),0) FROM events", [], |r| r.get(0))?;
     let mut assets = Vec::new();
