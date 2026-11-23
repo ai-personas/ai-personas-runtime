@@ -19,9 +19,15 @@ fn supplies(data: &Value, versions: &BTreeSet<String>) -> Vec<Value> {
         .flatten()
     {
         add(&item["reference"], "reminder");
+        if item["after_your_observation"]["prediction"].is_string() {
+            add(&item["reference"], "interpreted_prediction");
+        }
     }
     for item in agenda["revisit_cues"].as_array().into_iter().flatten() {
         add(&item["reference"], "revisit_cue");
+        if item["after_your_observation"]["prediction"].is_string() {
+            add(&item["reference"], "interpreted_prediction");
+        }
     }
     for item in agenda["later_feedback"].as_array().into_iter().flatten() {
         add(&item["question"], "activity_feedback");

@@ -150,6 +150,7 @@ impl History {
                                                 let label = match item["source"].as_str() {
                                                     Some("reminder") => "Reminder supplied",
                                                     Some("revisit_cue") => "Revisit cue supplied",
+                                                    Some("interpreted_prediction") => "Own prediction supplied",
                                                     Some("search_result") => "Found in search",
                                                     Some("selected_record") => {
                                                         "Selected full record"

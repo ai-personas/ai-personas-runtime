@@ -1,0 +1,51 @@
+# Did experience make the next decision more useful?
+
+**Not on the two tests below.** Mira’s own prediction about reading part of a sign was missing from later inputs. Returning it fixed a loss of information, but the later ferry caption still failed when displayed on its own. Separately, Ren’s temporary numerical revision *did* change the inclinations supplied in two matched comparisons. It did not change what the recipients could usefully do.
+
+## Mira: can a rider understand the outlook caption on its own?
+
+Mira had shown a reader a two-line scarf sign. With both lines visible, the reader could distinguish six scarves counted at 10:30 from around twelve that might arrive. With only the second line visible, the reader still understood that the delivery was uncertain, but could not tell what “more” referred to. Mira recorded this as **inconclusive**, not a pass. Mira’s revised prediction was: “Attaching uncertainty directly to a quantity should preserve its tentative status even in partial readings, but comparative terms such as 'more' require adjacent context; keeping related lines together should help preserve that relationship.” The original scarf application was requested by an evaluator; the interpretation and prediction were Mira’s. No weight changed.
+
+We restored two real points in that history: event 1635, after the whole-sign finding, and event 1649, after Mira had interpreted the partial reading. The earlier state was not an inexperienced persona. The later state also included a travel-guide label and other exchanges. At both points Mira had the same epoch-1 character. Preparing the new ferry invitation at each point reproduced the gap: the earlier input offered the question and revisit condition; the later input also offered a pending reply address. **Neither supplied the prediction Mira had written.** Mira could have deliberately read the question, but finishing the earlier interpretation did not itself bring its conclusion to the new choice.
+
+### Repair
+
+On an eligible reminder or revisit cue, `after_your_observation` supplies the **owner’s forward prediction** from the current question edition, how the owner classified that earlier finding, and the exact question, application and outcome it can choose to read together. It binds the prediction to the accepted `development.update`, its issuing receipt, the actual applied choice and the observation the interpreting decision saw. It does not replay the old brief, the reader’s words or the owner’s private explanation. A contrary finding is as eligible as a consistent one. A closed question, a pending but unjudged reply, or an out-of-scope revisit does not become a lesson. A bad optional binding withholds the prediction, not the current task.
+
+**Supply is not use.** Studio’s question history now shows **Own prediction supplied** separately from an explicit application. Seeing the addresses does not supply the underlying records for an appraisal. The owner can use or ignore the prediction without writing a new plan or changing its character. [Interface](editable-persona-models.md#numerical-workspaces).
+
+### Ordinary transfer and a check for lost strengths
+
+Each restored history received the same invitation once, then split across the previous and repaired runtimes. The brief requested two rotating ferry-display captions, at most 72 characters each: 18 usable bike spaces counted at 16:10, seven more possible if a freight cage moved, no approval yet. At each branch’s stop a separate invitation requested one gallery caption, at most 48 characters: East and West had both opened. No brief asked for reflection, a particular check or a model change. Each branch ran once in native Studio with Codex OAuth, `gpt-6.1-sol`, low effort. That connection differs from the older scarf study but was held fixed across all four continuations. Within each history the opening brief, events, active package and provider configuration matched across runtimes. The previous runtime used development interface 9; the repaired lanes used the seven source changes for interface 10 on top of `ecfba75`. Each used an independent provider sample; later inputs could diverge.
+
+Before running, we specified the receiving test: display **only the outlook caption**. From it, can a rider recover the starting capacity and conditional increase? An unambiguous pair such as the increase and resulting total would suffice; exact phrasing was not required. Check the current caption and the definite gallery opening separately. The receiver displayed the accepted reply lines unchanged, one per screen, with no brief or neighboring caption.
+
+| History | Runtime | Outlook caption actually displayed | Can recover both numbers? |
+|---|---|---|---|
+| Whole-sign reading | Previous | 7 more spaces possible if the freight-cage move is approved. | No |
+| Whole and partial readings | Previous | Outlook: 7 more spaces if freight cage move is approved. | No |
+| Whole and partial readings | Repaired | Outlook: 7 more bike spaces if freight cage moves; move unapproved. | No |
+| Whole-sign reading | Repaired | Could add 7 by moving freight cage; approval pending. | No |
+
+**0/4** outlook screens gave the starting capacity or enough information to derive it. **4/4** correctly conveyed the conditional seven; **4/4** current captions gave the firm 18 at 16:10; **4/4** gallery captions named East and West as open without inventing a condition. All fit the specified lengths. The complete two-line answers contained both numbers: the failure was specifically in the isolated view. This was a check of information on the display, not a survey of riders.
+
+The repaired runtime supplied the current edition’s prediction on **7/7** accepted calls (four with edition 5, three with edition 6); the previous runtime supplied it on **0/7**. Mira did not select its underlying evidence or record a new application. In the later-history repaired branch Mira called the outlook independently qualified; it was, as to approval, but not as to the starting count. All 14 ordinary decisions across the four branches used baseline and preserved the character. No candidate, new question, external dispatch or operator follow-up occurred. All eight participations stopped. Usage: 204,486 input tokens (20,224 cached), 4,129 output.
+
+## Ren: did a real numerical revision change the recipient’s options?
+
+In a **separate, invited review**, Ren compared its restored epoch-3 package with the exact temporary package it had authored and previously adopted. The sole coefficient difference was ambiguity → clarification, `0.3` versus `0.9`. Ren chose four matched pairs: two actual encounters, each first with the appraisal recorded then, then with Ren’s retrospective appraisal of the original evidence. The comparison calls executed no actions. No new booking or rehearsal notices were sent.
+
+| Frozen decision | Clarification, restored → temporary | What both arms communicated |
+|---|---:|---|
+| Signed booking, recorded baseline | 0.100 → 0.100 | Leo should remain on standby. |
+| Same booking, reappraised ambiguity 0.8 | 0.327 → 0.675 | Leo should still hold his time. Neither released him or asked the coordinator whether signing met the threshold. |
+| Unresolved rehearsal permit, recorded baseline | 0.100 → 0.100 | Attendance conditional; keep the slot provisionally open. |
+| Same permit, reappraised ambiguity 0.4, uncertainty 0.8 | 0.217 → 0.430 | Same public qualification and provisional private hold. |
+
+Only clarification differed in the reappraised pairs. The coordinator’s actual later correction established that signing had been sufficient to release Leo; that correction was **not in the comparison inputs**. Ren noted that the temporary arm’s “I’m still awaiting final confirmation” went beyond the frozen facts. The rehearsal alternatives preserved useful caution; no real venue outcome followed the hypothetical lines.
+
+**Where the choice was still open matters.** All four pairs received the authentic earlier working note for their encounter. For Leo it already said “maintain hold pending confirmation”; for the rehearsal it recommended a provisional hold. These are properly part of a faithful replay, not later outcomes. The comparison tests the decision that worded the message, not the earlier decision that first chose its approach. Increased clarification in this comparison did not establish either a benefit or a general defect in Ren’s character. Ren retained the restored package. Assessment: `assessment:assessment-a3295b8a17867e6da6aeda47d2e21090@1`; four accepted review calls and eight verified comparison arms, 92,158 input tokens (10,112 cached), 5,644 output.
+
+We followed the notes back one decision and inspected `neural replay-input` offline. For `experience:call-169e9d994d2ad175df3403cf492fbf3b@1` (signed booking) and `experience:call-f01c44c3fe2c90b0c6119931a4e883a9@1` (unresolved permit), the input contains the invitation and original brief, **no prior working note** and no later answer or correction. Those are distinct, still-open planning decisions. No comparison was run on them; an input preview is not another result.
+
+Across both studies all **26** completed inputs, terminal provider outputs and their bindings were checked. Separate provider-disconnected checks covered genuine and altered receipts, owner isolation, deliberate reads, appraisal authority, changed editions, closure, work/time/event boundaries and context recovery. Those are mechanism checks, not additional personas or positive examples. No prior stopped activity was resumed, and no branch was resampled for a favorable result. A stronger claim needs a warranted change at a decision where the approach is still open, an observable later benefit versus the unchanged alternative, and preservation of previously useful behavior.

@@ -1026,7 +1026,7 @@ pub(super) fn prepare_when(
             let mut cues = Vec::new();
             let mut later_feedback = Vec::new();
             let mut open_count = 0;
-            for question in &questions {
+            for mut question in questions {
                 let open = !matches!(question["disposition"].as_str(), Some("closed"|"no_change"));
                 open_count += usize::from(open);
                 if open && !question["later_feedback"].is_null() {
@@ -1039,6 +1039,9 @@ pub(super) fn prepare_when(
                     !question["matching_experience"].is_null() || question["origin_work"] == work_id ||
                     question["latest_application"]["work"] == work_id
                 ) {
+                    if recovery.is_none() && super::development::tested::eligible(&question,work_id,occasion) {
+                        super::development::tested::attach(db,actor,&mut question);
+                    }
                     cues.push(question);
                 } else if open && occasion && revisit["condition"].is_string()
                     && (revisit["work"].is_null() || revisit["work"] == work_id)
@@ -1047,6 +1050,7 @@ pub(super) fn prepare_when(
                         "question":question["question"],"condition":revisit["condition"]});
                     let plan=&question["behavioral_plan"];
                     if plan.is_object(){reminder["your_plan"]=json!({"approach":plan["approach"],"alternative":plan["alternative"],"watch_for":plan["watch_for"],"preserve":plan["preserve"]});}
+                    if recovery.is_none() { super::development::tested::attach(db,actor,&mut reminder); }
                     reminders.push(reminder);
                 }
             }
@@ -1080,7 +1084,7 @@ pub(super) fn prepare_when(
         let snapshot=Snapshot{contract_object,invocation:invocation.clone(),persona_revision:p.reference.revision,participation_revision:part.reference.revision,
             work:work_id.into(),actor:actor.into(),epoch:persona.epoch,model:persona.model,cursor,
             observation_through:Some(db.query_row("SELECT COALESCE(MAX(seq),0) FROM events",[],|r|r.get(0))?),data,
-            development_version:9,data_order,supplied_references:refs.into_iter().collect(),tool_names,image_blobs};
+            development_version:10,data_order,supplied_references:refs.into_iter().collect(),tool_names,image_blobs};
         let digest=store::put(db,&snapshot)?;
         db.execute("INSERT INTO invocations VALUES(?1,?2,?3,'prepared',?4,NULL,NULL,?5,?5)",params![invocation,work_id,actor,digest,now()])?;
         Ok(Some(snapshot))

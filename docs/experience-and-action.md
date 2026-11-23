@@ -2,6 +2,8 @@
 
 **Correcting the current answer is not the same as learning how to approach the next one.** The runtime retained actions, results and character packages. But its easiest path through an ordinary decision was to fix the task and answer a different question: *does this warrant changing my character?* “No” can be the right answer to that question even when there is a useful alternative to try. An accepted reply does not train the reasoning model in this runtime. Continuity has to happen in the persona's own retained state and in the evidence that actually reaches later decisions.
 
+[Later transfer test](maturation-transfer.md): what happened when a persona’s own interpreted prediction reached a new ordinary choice, and when a real numerical difference reached Ren’s matched communication decisions.
+
 ## Two reproducible gaps
 
 1. **The two choices on either side of an observation were easy to confuse.** Across the [301 ordinary inverter decisions](brief-only-studio.md#did-the-personas-mature-compared-with-their-beginnings), all 267 cited choice/event pairs were *event → choice that interpreted it*. None of those choices could have produced its own earlier observation. In 184 cases the event was a result of the owner's previous operation. That previous decision was on the desk, but the considered pair pointed to the *next*, interpreting decision. For example, Bell twice encountered the same nonexistent library path. The two calls that **ran** the commands were distinct from the two that subsequently **explained** their errors. Correcting a path does not, by itself, warrant increasing a verification weight.

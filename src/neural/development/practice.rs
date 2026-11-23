@@ -286,9 +286,8 @@ pub(super) fn verify_application(db: &Connection, record: &store::Record) -> Res
         ));
     }
     let accepted = crate::neural::provider_evidence::accepted(db, owner, call, true)?;
-    if accepted.snapshot.development_version < 9 {
-        return Ok(());
-    }
+    // Ordinary applications predate named endpoints. They still have to match
+    // the owner's actual examining choice, observed input and active character.
     let u = verify_character(db, &accepted.snapshot)?;
     if b["character_use"] != u.reference.handle()
         || b["provider_receipt"] != u.body["provider_receipt"]

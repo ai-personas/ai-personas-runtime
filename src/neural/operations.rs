@@ -69,6 +69,10 @@ pub(super) fn evaluate_appraisal(
                     super::development::observed_experience(db, snapshot, event)?;
                 }
             }
+            if snapshot.development_version >= 10 && feature.evidence.iter().any(|r|
+                (r.starts_with("question_use:") || r.starts_with("development:")) && !super::development::observed(snapshot,r)) {
+                return Err(failure("A personal reminder or forecast is not its evidence. Select the exact question or application for a full read before citing that record in an appraisal."));
+            }
         }
     }
     let evaluation = context::model(db, persona)?
