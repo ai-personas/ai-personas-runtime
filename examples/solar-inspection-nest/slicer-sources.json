@@ -1,0 +1,27 @@
+[
+  {
+    "url": "https://archive.ubuntu.com/ubuntu/pool/universe/liba/libarcus/libarcus3_4.13.0-2build1_amd64.deb",
+    "name": "libarcus3_4.13.0-2build1_amd64.deb",
+    "sha256": "ad31f4c35ff2a4e0d8dda5a5d3bf19e72f1475453c6979d8ac94d71107ee2c07"
+  },
+  {
+    "url": "https://archive.ubuntu.com/ubuntu/pool/universe/libp/libpolyclipping/libpolyclipping22_6.4.2-7_amd64.deb",
+    "name": "libpolyclipping22_6.4.2-7_amd64.deb",
+    "sha256": "a8517992c774fdc51572299a6d83f2b4c71612c3ddcb0ba7b0b19a6f4b88b80c"
+  },
+  {
+    "url": "https://raw.githubusercontent.com/Ultimaker/Cura/c328f3619dae3ad37fb1decccf1013afa18b410c/resources/definitions/fdmprinter.def.json",
+    "name": "fdmprinter.def.json",
+    "sha256": "6634679e3a9571f877e52e57a688d883dc4dc9fe6855a04c3b7be19b60f3a0b7"
+  },
+  {
+    "url": "https://archive.ubuntu.com/ubuntu/pool/universe/c/cura-engine/cura-engine_4.13.0-1_amd64.deb",
+    "name": "cura-engine_4.13.0-1_amd64.deb",
+    "sha256": "98388d0796a8606e9d9b48a904e31b9a0d431fa0bc54463ee9b388f217bfaf73"
+  },
+  {
+    "name": "fdmextruder.def.json",
+    "url": "https://raw.githubusercontent.com/Ultimaker/Cura/c328f3619dae3ad37fb1decccf1013afa18b410c/resources/definitions/fdmextruder.def.json",
+    "sha256": "c03847252f9dea37277a3151c0eaeec32ded5e4cd91eed62b58e420ad8cb7fef"
+  }
+]

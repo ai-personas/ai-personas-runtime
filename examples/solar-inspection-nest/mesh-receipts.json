@@ -1,0 +1,244 @@
+{
+  "errors_on_isolated_copies": {
+    "damaged archive": "invalid application input: retained object digest mismatch",
+    "damaged prior member object": "invalid application input: Previously retained mesh bytes differ from the selected ZIP member",
+    "missing file": "invalid application input: No such file in this ZIP: missing/model.stl"
+  },
+  "independent_ray_crossings": [
+    -39.75,
+    -33.75,
+    33.75,
+    39.75
+  ],
+  "line_through_open_finger_bays": {
+    "actor": "Shop receiver",
+    "author_kind": "operator",
+    "format": "stl-line-profile-v1",
+    "invocation": null,
+    "mesh": "object:3cf25d4394968451aadf91f8041415e0fc8e174caf5fa8a0afe72e89d87d76fe",
+    "profile": {
+      "ambiguous_crossing_order": false,
+      "axis": "x",
+      "axis_bounds": [
+        -39.75,
+        39.75
+      ],
+      "classified": true,
+      "coplanar_faces": 0,
+      "crossings": [],
+      "fixed": [
+        0.37,
+        6.0
+      ],
+      "fixed_axes": [
+        "y",
+        "z"
+      ],
+      "intervals": [],
+      "mesh_validation": {
+        "diagnostic": null,
+        "passed": true
+      },
+      "method": "Classified spans alternate by even-odd parity between consecutive surface crossings. Coplanar, tangent, ambiguous or invalid mesh sections are unclassified.",
+      "mixed_direction_contacts": 0,
+      "triangles": 96,
+      "units": "STL coordinates have no encoded unit"
+    },
+    "receipt": "object:fefac30adff292d63d3ccacd22e43651461b75d4eaa891679883d4d465fd82ad",
+    "source": "asset:asset-e6420a82b00367497cc7b455009356db@1",
+    "work": null,
+    "zip_member": {
+      "archive": "object:8cbb0399d222bf7166da88bf2f8d08182e496b30cdcdbb6bf79a5e6cb4f6252c",
+      "bytes": 4884,
+      "crc32": "e06fe56a",
+      "index": 0,
+      "path": "P124_nest.stl"
+    }
+  },
+  "linux_release": {
+    "ai-personas": "309cc5bb3abe40a3780f8bd0fc21c9d8b35fdad23d66acc268f4f95b43bb3a7a",
+    "personas-desktop": "960216154351fee3a6f1ba9f14af37aa47164f426d52da593375c465e9b49e04"
+  },
+  "native_receipt": {
+    "actor": "Shop receiver",
+    "author_kind": "operator",
+    "format": "stl-line-profile-v1",
+    "invocation": null,
+    "mesh": "object:3cf25d4394968451aadf91f8041415e0fc8e174caf5fa8a0afe72e89d87d76fe",
+    "profile": {
+      "ambiguous_crossing_order": false,
+      "axis": "x",
+      "axis_bounds": [
+        -39.75,
+        39.75
+      ],
+      "classified": true,
+      "coplanar_faces": 0,
+      "crossings": [
+        -39.75,
+        -33.75,
+        33.75,
+        39.75
+      ],
+      "fixed": [
+        30.37,
+        12.6
+      ],
+      "fixed_axes": [
+        "y",
+        "z"
+      ],
+      "intervals": [
+        {
+          "from": -39.75,
+          "length": 6.0,
+          "region": "inside",
+          "to": -33.75
+        },
+        {
+          "from": -33.75,
+          "length": 67.5,
+          "region": "outside",
+          "to": 33.75
+        },
+        {
+          "from": 33.75,
+          "length": 6.0,
+          "region": "inside",
+          "to": 39.75
+        }
+      ],
+      "mesh_validation": {
+        "diagnostic": null,
+        "passed": true
+      },
+      "method": "Classified spans alternate by even-odd parity between consecutive surface crossings. Coplanar, tangent, ambiguous or invalid mesh sections are unclassified.",
+      "mixed_direction_contacts": 0,
+      "triangles": 96,
+      "units": "STL coordinates have no encoded unit"
+    },
+    "receipt": "object:66dda9a246df0f4d8868b8ce850dffd387e3934c60deac23050587895ffaa2e8",
+    "source": "asset:asset-e6420a82b00367497cc7b455009356db@1",
+    "work": "work-fb78406910566160afe02acf666e7e5a",
+    "zip_member": {
+      "archive": "object:8cbb0399d222bf7166da88bf2f8d08182e496b30cdcdbb6bf79a5e6cb4f6252c",
+      "bytes": 4884,
+      "crc32": "e06fe56a",
+      "index": 0,
+      "path": "P124_nest.stl"
+    }
+  },
+  "operator_line": {
+    "actor": "Shop receiver",
+    "author_kind": "operator",
+    "format": "stl-line-profile-v1",
+    "invocation": null,
+    "mesh": "object:3cf25d4394968451aadf91f8041415e0fc8e174caf5fa8a0afe72e89d87d76fe",
+    "profile": {
+      "ambiguous_crossing_order": false,
+      "axis": "x",
+      "axis_bounds": [
+        -39.75,
+        39.75
+      ],
+      "classified": true,
+      "coplanar_faces": 0,
+      "crossings": [
+        -39.75,
+        -33.75,
+        33.75,
+        39.75
+      ],
+      "fixed": [
+        30.37,
+        12.6
+      ],
+      "fixed_axes": [
+        "y",
+        "z"
+      ],
+      "intervals": [
+        {
+          "from": -39.75,
+          "length": 6.0,
+          "region": "inside",
+          "to": -33.75
+        },
+        {
+          "from": -33.75,
+          "length": 67.5,
+          "region": "outside",
+          "to": 33.75
+        },
+        {
+          "from": 33.75,
+          "length": 6.0,
+          "region": "inside",
+          "to": 39.75
+        }
+      ],
+      "mesh_validation": {
+        "diagnostic": null,
+        "passed": true
+      },
+      "method": "Classified spans alternate by even-odd parity between consecutive surface crossings. Coplanar, tangent, ambiguous or invalid mesh sections are unclassified.",
+      "mixed_direction_contacts": 0,
+      "triangles": 96,
+      "units": "STL coordinates have no encoded unit"
+    },
+    "receipt": "object:607557d97acfd15ef64f4c9b3409423f641841d272802d963304a0e632062cbf",
+    "source": "asset:asset-e6420a82b00367497cc7b455009356db@1",
+    "work": null,
+    "zip_member": {
+      "archive": "object:8cbb0399d222bf7166da88bf2f8d08182e496b30cdcdbb6bf79a5e6cb4f6252c",
+      "bytes": 4884,
+      "crc32": "e06fe56a",
+      "index": 0,
+      "path": "P124_nest.stl"
+    }
+  },
+  "selected_file": {
+    "bytes": 4884,
+    "geometry": {
+      "distinct_vertices": 48,
+      "maximum": [
+        39.75,
+        63.25,
+        13.199999809265137
+      ],
+      "minimum": [
+        -39.75,
+        -63.25,
+        0.0
+      ],
+      "span": [
+        79.5,
+        126.5,
+        13.199999809265137
+      ],
+      "stl_io_0_8_5_validation": {
+        "diagnostic": null,
+        "passed": true
+      },
+      "triangles": 96,
+      "units": "STL coordinates have no encoded unit"
+    },
+    "mesh": "object:3cf25d4394968451aadf91f8041415e0fc8e174caf5fa8a0afe72e89d87d76fe",
+    "reference": "asset:asset-e6420a82b00367497cc7b455009356db@1",
+    "render_history": {
+      "next_offset": null,
+      "offset": 0,
+      "reference": "object:3cf25d4394968451aadf91f8041415e0fc8e174caf5fa8a0afe72e89d87d76fe",
+      "renders": [],
+      "total": 0
+    },
+    "zip_member": {
+      "archive": "object:8cbb0399d222bf7166da88bf2f8d08182e496b30cdcdbb6bf79a5e6cb4f6252c",
+      "bytes": 4884,
+      "crc32": "e06fe56a",
+      "index": 0,
+      "path": "P124_nest.stl"
+    }
+  },
+  "standalone_same_geometry": true
+}
