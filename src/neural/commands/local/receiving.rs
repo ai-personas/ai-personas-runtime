@@ -6,7 +6,8 @@ use crate::neural::human_requests::{self, SheetDelivery};
 pub struct Receiving {
     /// Exact issued edition. An earlier result.deliver in the same decision can be named by $id.
     pub delivery: String,
-    /// Omit to receive the entire unpacked files ZIP. Otherwise use the one-based dispatch
+    /// Omit to receive all issued files at their package paths. An issued ZIP remains a file.
+    /// Otherwise use the one-based dispatch
     /// slip number. A single-file dispatch arrives as its original file with its basename.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dispatch: Option<usize>,
