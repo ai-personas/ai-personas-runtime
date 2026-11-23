@@ -34,7 +34,7 @@ pub(super) enum Dialog {
     Activity {
         social: bool,
         text: String,
-        invitees: BTreeSet<String>,
+        roster: invitation::Roster,
         sources: SourceFiles,
         retry: Option<(String, String)>,
     },
@@ -72,7 +72,7 @@ impl Dialog {
         Self::Activity {
             social,
             text: String::new(),
-            invitees: BTreeSet::new(),
+            roster: Default::default(),
             sources: SourceFiles::default(),
             retry: None,
         }
@@ -225,13 +225,13 @@ impl App {
                     Dialog::Activity {
                         social,
                         text,
-                        invitees,
+                        roster,
                         sources,
                         ..
                     } => {
-                        if let Some(start) = invitation::form(self, ui, *social, text, invitees, sources) {
+                        if let Some(start) = invitation::form(self, ui, *social, text, roster, sources) {
                             start_workspace = start;
-                            let invite = invitees.iter().cloned().collect();
+                            let invite = roster.selected.iter().cloned().collect();
                             command = Some(if *social {
                                 Command::Social {
                                     topic: text.clone(),
