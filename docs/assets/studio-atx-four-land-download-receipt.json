@@ -1,0 +1,38 @@
+{
+  "url": "https://github.com/ai-personas/ai-personas-runtime/releases/tag/studio-atx-four-land-review-20261123",
+  "checked_utc": "2026-11-23T14:37:50.826805+00:00",
+  "downloads": [
+    {
+      "name": "README.md",
+      "bytes": 2803,
+      "sha256": "9900c1fcf5a7e7f51b7d93f9c93057e21ad3df587a5465702b6fc72a1a5729f8"
+    },
+    {
+      "name": "SHA256SUMS",
+      "bytes": 345,
+      "sha256": "517b7be87c1556caf84a41e99207170434222cab00e74f39c1e0b7181d6159a1"
+    },
+    {
+      "name": "source-observations.json",
+      "bytes": 2567,
+      "sha256": "4ec53ff4014f78581cdad74860322bbc4a3214d1dd5bdfadf1ad7e54623a1bf6"
+    },
+    {
+      "name": "two-part-receiving-check.json",
+      "bytes": 11144,
+      "sha256": "e37bed7d762e71be3c6cf53ed14a1f53c6d49c94f824e5c21f76f607026514c0"
+    },
+    {
+      "name": "verify_lands.py",
+      "bytes": 13160,
+      "sha256": "d85bde1fdd73c9162a70a04b94a8226de260c4ebb4ead2914b13eec2f2904463"
+    }
+  ],
+  "replayed_report_sha256": "e37bed7d762e71be3c6cf53ed14a1f53c6d49c94f824e5c21f76f607026514c0",
+  "inputs_from_previous_public_downloads": [
+    "review11-current.zip",
+    "independent-review.json",
+    "dependency-complete-provisional.zip",
+    "dependency-review.json"
+  ]
+}
