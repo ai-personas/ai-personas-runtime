@@ -225,6 +225,35 @@ pub(in crate::neural) fn arrivals(
         .collect()
 }
 
+/// A late reply may never have been considered in the activity where it
+/// arrived. If the owner deliberately reads both original records together,
+/// the same action/outcome link can ground an intention in a different activity.
+pub(in crate::neural) fn acting_from_reads(
+    db: &Connection, s: &Snapshot, outcome: &str,
+) -> Result<Option<String>> {
+    if !outcome.starts_with("experience:event-") {
+        return Ok(None);
+    }
+    let verified_read = |reference: &str| -> Result<Option<Value>> {
+        let Some(record) = super::recall::whole_read(s, reference) else { return Ok(None) };
+        let meta = metadata(db, Some(&s.actor), reference)?;
+        let digest = meta["source"].as_str().and_then(|r| r.strip_prefix("object:"))
+            .ok_or_else(|| failure("Missing experience source"))?;
+        let body: Value = store::object(db, digest)?;
+        if !meta.as_object().is_some_and(|m| m.iter().all(|(k, v)| record.get(k) == Some(v)))
+            || record["body"] != body
+        {
+            return Err(failure("The supplied experience does not match its original record"));
+        }
+        Ok(Some(meta))
+    };
+    let Some(event) = verified_read(outcome)? else { return Ok(None) };
+    let work = event["work"].as_str().ok_or_else(|| failure("Missing outcome activity"))?;
+    let Some(episode) = origin(db, &s.actor, work, outcome)? else { return Ok(None) };
+    let acting = episode["decision"].as_str().ok_or_else(|| failure("Missing acting decision"))?;
+    Ok(verified_read(acting)?.map(|_| acting.to_owned()))
+}
+
 pub(in crate::neural) fn observed(s: &Snapshot, reference: &str) -> bool {
     if s.development_version < 8 || s.model.is_none() || !s.data["context_recovery"].is_null() {
         return false;

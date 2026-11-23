@@ -34,7 +34,7 @@ pub enum Action {
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Plan {
-    /// Exact outcome from action_results (or the retained before_action evidence). It identifies the earlier acting choice.
+    /// Exact event from action_results, recalled or retained action evidence, or a full read of an outcome together with the full read of your acting decision. Use the original outcome, not the receipt for reading it.
     pub outcome: String,
     /// Situation in which this behavioral contrast matters to you. Not a global rule.
     pub when: String,
@@ -181,13 +181,18 @@ pub(in crate::neural) fn consider(
             v["considered"] == plan.outcome && experience::recall::authentic_selection(s, v)
         })
         .map(|v| &v["action_before_observation"]);
-    let episode=on_desk(&s.data).chain(selected).find(|v|v["owner"]==s.actor && v["outcome"]==plan.outcome && v["performed"].is_object()).ok_or_else(||failure("Choose the actual outcome of an earlier action on your desk, not an arbitrary event or a proposed future result"))?;
-    let acting = episode["decision"]
-        .as_str()
-        .ok_or_else(|| failure("Missing earlier acting decision"))?;
-    observed_experience(db, s, acting)?;
+    let episode = on_desk(&s.data).chain(selected)
+        .find(|v| v["owner"] == s.actor && v["outcome"] == plan.outcome && v["performed"].is_object());
+    let acting = if let Some(episode) = episode {
+        episode["decision"].as_str().ok_or_else(|| failure("Missing earlier acting decision"))?.to_owned()
+    } else {
+        experience::action::acting_from_reads(db, s, &plan.outcome)?.ok_or_else(|| failure(
+            "Choose an actual result of your action. For an older result, select the exact acting decision and its original operation result or direct reply together in next_context.references."
+        ))?
+    };
+    observed_experience(db, s, &acting)?;
     observed_experience(db, s, &plan.outcome)?;
-    let (relation, boundary) = super::consequence(db, s, acting, &plan.outcome)?;
+    let (relation, boundary) = super::consequence(db, s, &acting, &plan.outcome)?;
     let u = verify_character(db, s)?;
     let intention = json!({"origin":format!("experience:{}@1",s.invocation),"decision":acting,"outcome":plan.outcome,"when":plan.when,"approach":plan.approach,"alternative":plan.alternative,"watch_for":plan.watch_for,"preserve":plan.preserve,"scope":if actual.is_some(){"tried_in_this_decision"}else{"for_a_later_occasion"}});
     let q = write_update(
@@ -197,7 +202,7 @@ pub(in crate::neural) fn consider(
             base: plan.base.clone(),
             question: plan.approach.clone(),
             interpretation: plan.approach.clone(),
-            evidence: vec![acting.into(), plan.outcome.clone()],
+            evidence: vec![acting, plan.outcome.clone()],
             contrary_evidence: vec![],
             prediction: plan.watch_for.clone(),
             alternatives: plan.alternative.clone(),

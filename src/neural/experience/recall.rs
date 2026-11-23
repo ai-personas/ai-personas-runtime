@@ -271,27 +271,11 @@ pub(in crate::neural) fn previous_observation(input: &Snapshot, event: &str) -> 
             .into_iter()
             .flatten()
     };
-    let whole = |v: &&Value| {
-        v["reference"] == event
-            && v["record"]["reference"] == event
-            && v["record"]["body"].is_object()
-    };
-    if let Some(v) = selected().find(whole).or_else(|| {
-        events()
-            .filter(|e| {
-                e["kind"] == "tool_result"
-                    && matches!(
-                        e["body"]["tool"].as_str(),
-                        Some("asset.read" | "persona.read")
-                    )
-            })
-            .filter_map(|e| e.get("supplied_result"))
-            .find(whole)
-    }) {
+    if let Some(record) = whole_read(input, event) {
         // An experience read may have supplied only the event envelope, not the
         // underlying command streams. Never open those objects on its behalf.
         return Some(
-            json!({"via":"experience_read","at_decision":input.invocation,"record":v["record"]}),
+            json!({"via":"experience_read","at_decision":input.invocation,"record":record}),
         );
     }
     selected()
@@ -299,6 +283,19 @@ pub(in crate::neural) fn previous_observation(input: &Snapshot, event: &str) -> 
         .and_then(|v| v.get("observation_then"))
         .cloned()
         .or_else(|| crate::neural::development::deliberation::observed(input, event).cloned())
+}
+
+/// Only an actual complete experience record in this input, not its address in
+/// a search, a working note, a previous-choice card or an earlier input.
+pub(super) fn whole_read<'a>(input: &'a Snapshot, reference: &str) -> Option<&'a Value> {
+    let reads = input.data["new_events"].as_array().into_iter().flatten()
+        .filter(|e| e["kind"] == "tool_result"
+            && matches!(e["body"]["tool"].as_str(), Some("asset.read" | "persona.read")))
+        .filter_map(|e| e.get("supplied_result"));
+    input.data["selected_resources"].as_array().into_iter().flatten().chain(reads)
+        .find(|v| v["reference"] == reference && v["record"]["reference"] == reference
+            && v["record"]["body"].is_object())
+        .map(|v| &v["record"])
 }
 
 /// A pointer in a cue, arbitrary JSON in an asset, or a recovery card is not a
