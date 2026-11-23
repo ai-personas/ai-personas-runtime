@@ -35,6 +35,12 @@ For example, the rightmost pad edge can be `27 + 4.3 + 6.3 + 4.3 = 41.9 mm`. Its
 
 **CAM disposition.** Using the issuer’s instructions (vector centerline, no additional offset, 100%, no mirror), stock MeerK40t produced one closed path on its dummy device. The digital plan remained inside the specified ±0.15 mm process envelope. At a common upper-right datum, its notch’s left wall moved **0.000327 mm** inward and its floor **0.000154 mm** upward. Spending another full ±0.15 mm about *that* path would reduce two clearances to **0.999673** and **0.999846 mm**. The strict post-planning test failed; the drawing specifies **one total** allowance relative to the artwork. [Both readings, all path coordinates and margins](../examples/solar-bond-strip/receiving.json). No knife motion, adhesion, installation or factory acceptance was observed.
 
+## Seeing what the operator will cut
+
+The drawing’s 0.01 mm black stroke was barely visible in the original native preview. After the commission, Studio gained **Centerlines** for straight-stroke SVGs inside issued files and ZIPs. The operator sees a fixed-width overlay without changing the file. **As drawn** keeps the original appearance. On this original ZIP, **Copy dimensions** returned [the selected SVG’s hash, page size, 62.000 × 27.500 mm path extent, and one closed path](../examples/solar-bond-strip/studio-dimensions.txt). Both 1440 × 900 and 780 × 800 inspection windows were exercised. A preview measures drawing geometry; only the independent receiving check measured the rounded toolpath.
+
+![The cutter operator inspecting the original SVG’s centerlines inside Mara’s issued ZIP.](assets/studio-bond-centerlines.jpg)
+
 ## Did a numerical revision help?
 
 **No eligible change.** Both boundary archives survived, and the complete interval **85–114** contained no post-initialization switch. Every response chose `preserve`; all 13 accepted choices used Mara’s epoch-1 baseline. Neither a read of her earlier clearance-method file nor its reference was found in the actual provider inputs. Her checks are evidence of work, not evidence of a numerical benefit. Neither arm of the [registered unseen comparison](../examples/stitch-desk/protocol.json) ran.

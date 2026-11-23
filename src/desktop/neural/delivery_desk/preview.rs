@@ -11,6 +11,8 @@ use std::{
 use crate::desktop::html_view as html;
 #[path = "archive.rs"]
 mod archive;
+#[path = "straight_paths.rs"]
+mod straight_paths;
 pub(in crate::desktop::neural) use archive::Member as ZipFile;
 use super::super::pdf_pages as pdf;
 
@@ -124,7 +126,7 @@ struct Job {
     member: Option<archive::Member>,
 }
 enum Content {
-    Image(egui::ColorImage, Option<String>),
+    Image(egui::ColorImage, Option<String>, Option<straight_paths::Drawing>),
     Pdf(egui::ColorImage, u32),
     Html(html::Preview),
     Archive(archive::Listing),
@@ -168,7 +170,7 @@ impl Worker {
 enum View {
     #[default]
     Pending,
-    Image(egui::TextureHandle, Option<String>),
+    Image(egui::TextureHandle, Option<String>, Option<straight_paths::Drawing>, bool),
     Pdf(egui::TextureHandle),
     Html(html::Preview),
     Archive(archive::Listing),
@@ -291,13 +293,15 @@ impl Inline {
                     continue;
                 }
                 self.view = match result {
-                    Ok(Content::Image(pixels, note)) => View::Image(
+                    Ok(Content::Image(pixels, note, paths)) => View::Image(
                         ui.ctx().load_texture(
                             format!("delivery-{reference}"),
                             pixels,
                             egui::TextureOptions::LINEAR,
                         ),
                         note,
+                        paths,
+                        false,
                     ),
                     Ok(Content::Pdf(pixels, pages)) => {
                         if self.pages.count.is_none() && !matches!(kind, Kind::Pdf) {
@@ -356,7 +360,8 @@ impl Inline {
                     ui.allocate_ui(area, |ui| table.ui(ui, rows));
                 });
             }
-            View::Image(texture, note) => {
+            View::Image(texture, note, drawing, centerlines) => {
+                if let Some(drawing) = drawing.as_ref() { drawing.controls(ui, centerlines, &path); }
                 let available = ui.available_width();
                 let height = (available * 0.72)
                     .clamp(145., 350.)
@@ -368,12 +373,14 @@ impl Inline {
                 let area = rect.shrink(6.).size();
                 let scale = (area.x / resolution.x).min(area.y / resolution.y).max(0.);
                 let bounds = egui::Rect::from_center_size(rect.center(), resolution * scale);
-                ui.place(
+                if let Some(drawing) = drawing.as_ref().filter(|_| *centerlines) {
+                    drawing.paint(ui, rect);
+                } else { ui.place(
                     bounds,
                     egui::Image::new((texture.id(), resolution))
                         .fit_to_exact_size(bounds.size())
                         .alt_text(format!("Preview of {path}")),
-                );
+                ); }
                 ui.painter().rect_stroke(
                     rect,
                     5.,
@@ -481,7 +488,7 @@ fn load(job: &Job, cancelled: impl Fn() -> bool) -> ai_personas::neural::Result<
             Ok(Content::Pdf(image, count))
         }
         Kind::Vector => {
-            let drawing = ai_personas::vector_preview::render(&bytes, 1.5, None)
+            let (drawing, tree) = ai_personas::vector_preview::render_with_tree(&bytes, 1.5, None)
                 .map_err(ai_personas::neural::failure)?;
             let pixmap = drawing.pixels;
             let (width, height) = (pixmap.width(), pixmap.height());
@@ -499,7 +506,7 @@ fn load(job: &Job, cancelled: impl Fn() -> bool) -> ai_personas::neural::Result<
                     counted(omitted as u64, "external image", "external images")
                 )
             });
-            Ok(Content::Image(pixels, note))
+            Ok(Content::Image(pixels, note, straight_paths::Drawing::inspect(&tree, &bytes)))
         }
         Kind::Raster => {
             let reader =
@@ -520,6 +527,7 @@ fn load(job: &Job, cancelled: impl Fn() -> bool) -> ai_personas::neural::Result<
                     image.as_raw(),
                 ),
                 note,
+                None,
             ))
         }
         Kind::Html => Ok(Content::Html(html::Preview::read(&bytes)?)),

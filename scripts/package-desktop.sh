@@ -90,6 +90,8 @@ If a delivery is a single archive, **Save original ZIP…** in the heading saves
 
 Select an STL in **File preview → Inside this archive** and choose **Measure mesh…** to inspect its envelope and measure a line through the original file.
 
+For a straight-line SVG made of strokes, **Centerlines** makes the paths legible without changing the cut file. **Copy dimensions** distinguishes the paths’ extent from the page size and includes the original SVG digest.
+
 Select a Tajima DST member to see the actual needle path centered on its recorded coordinates. **Show travel** adds the jumps; **Copy measurements** includes the member hash and sewn bounds in millimetres.
 
 Choose **Print preview** on a saved HTML document to see its paginated print layout and save that PDF. Studio and the personas use local WeasyPrint for layout and the Poppler programs `pdfinfo` and `pdftoppm` on PATH to display individual PDF pages. A PDF attachment keeps its original bytes and its page receipts.
