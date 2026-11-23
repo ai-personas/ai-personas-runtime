@@ -139,6 +139,12 @@ The later Studio edition is `delivery:delivery-c8c86c1ed320203701d65ea25f9ff097@
 
 All [14 public release downloads](assets/studio-atx-four-review-11-download-receipt.json) matched the originals. Each downloaded Studio handoff contained its own unchanged design ZIP, and replaying the two downloaded verification bundles reproduced their respective reports byte for byte.
 
+### Two supplier listings close the parts count and expose a land-pattern error
+
+Two more exact listings bring the review 11 and provisional handoff BOMs to **40/40 identified PCB order codes and 37/40 with named distributor offers**. The [AMASS input connector, LCSC C98732](https://www.lcsc.com/product-detail/C98732.html), matches the [manufacturer's drawing](https://cdn.shopify.com/s/files/1/0695/1347/8453/files/XT60PW-M.pdf): both contact holes and both retention slots have the specified sizes and spacing in the PCB and plated drill program. The circuit, schematic and PCB agree on pin 1 GND and pin 2 `VIN_RAW`. The actual cable has not been mated.
+
+For the [Bourns `SRN6045-100M` inductor](https://electrotechglobal.com/product/srn6045-100m/), locating a seller exposed an assembly discrepancy. The [Bourns recommended layout, page 1](https://www.bourns.com/docs/Product-Datasheets/SRN6045.pdf), shows two **2.0 × 6.0 mm** lands separated by **2.3 mm**. L3's local footprint calls itself manufacturer-recommended but uses **2.0 × 2.3 mm** lands separated by **2.0 mm**. The placed board and its copper, solder-mask and paste Gerbers all reproduce those smaller pads. No solder joint was tested. [Comparison and replay for both issued ZIPs](https://github.com/ai-personas/ai-personas-runtime/releases/tag/studio-atx-four-land-review-20261123)
+
 ### A provider pause during the next standby investigation
 
 **There was no new edition at the 14:02 UTC pause.** Lio reported adding two terminals for a parallel standby wire. Tess told Noor she would hold the next export for a check of the complete supply and return paths. All six rows of [Noor's working allowance](https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-stream-recovery-20261123/noor-working-allocation.json) reproduce. In the 2 A case with 5 mΩ per mated interface and 40 mV of reserve, subtracting the proposed wire and joint allowances leaves **16.704 mΩ** for the remaining board path. This is an allowance, not a resistance measurement or a demonstrated connector voltage. The last issued board's 3.924 V standby result remains specific to that board.
