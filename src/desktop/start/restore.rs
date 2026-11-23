@@ -8,6 +8,17 @@ pub(super) struct Form {
     project: String,
 }
 
+impl Form {
+    fn destination(&self) -> Option<PathBuf> {
+        let parent = self.destination.trim();
+        let archive = std::path::Path::new(self.archive.trim());
+        Some(PathBuf::from(parent).join(format!(
+            "{}-restored",
+            archive.file_stem().filter(|_| !parent.is_empty())?.to_string_lossy()
+        )))
+    }
+}
+
 fn location(ui: &mut egui::Ui, title: &str, path: &mut String, folder: bool) -> bool {
     let label = ui.strong(title);
     let row = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
@@ -36,33 +47,33 @@ impl App {
         egui::Window::new("Restore workspace").open(&mut open).collapsible(false)
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO).resizable(false)
             .min_width(1.).max_width(width).default_width(width)
-            .max_height((ctx.content_rect().height()-90.).max(70.)).vscroll(true)
             .show(ctx, |ui| {
-                ui.set_width((width - ui.spacing().scroll.allocated_width()).max(1.));
-                ui.label(design::display("Restore a society", 28.));
-                ui.label("Bring its people, decisions and issued work into a new workspace.");
-                ui.add_space(8.);
-                let mut edited = location(ui, "Workspace archive", &mut form.archive, false);
-                edited |= location(ui, "Destination parent folder", &mut form.destination, true);
-                ui.add_space(6.);
-                ui.strong("Project files for future work");
-                edited |= ui.radio_value(&mut form.select_project, false, "Use the folder saved in the archive").changed();
-                edited |= ui.radio_value(&mut form.select_project, true, "Use a different project folder").changed();
-                if form.select_project {
-                    edited |= location(ui, "Project folder for this copy", &mut form.project, true);
-                    ui.small("Choose an existing folder. External project files are not copied during restore.");
-                }
-                if edited { self.error = None; }
+                ui.set_width(width);
+                egui::ScrollArea::vertical().id_salt("restore-locations")
+                    .max_height((ctx.content_rect().height() - 175.).max(48.))
+                    .auto_shrink([false, true]).show(ui, |ui| {
+                        ui.label(design::display("Restore a society", 28.));
+                        ui.label("Bring its people, decisions and issued work into a new workspace.");
+                        ui.add_space(8.);
+                        let mut edited = location(ui, "Workspace archive", &mut form.archive, false);
+                        edited |= location(ui, "Destination parent folder", &mut form.destination, true);
+                        ui.add_space(6.);
+                        ui.strong("Project files for future work");
+                        edited |= ui.radio_value(&mut form.select_project, false, "Use the folder saved in the archive").changed();
+                        edited |= ui.radio_value(&mut form.select_project, true, "Use a different project folder").changed();
+                        if form.select_project {
+                            edited |= location(ui, "Project folder for this copy", &mut form.project, true);
+                            ui.small("Choose an existing folder. External project files are not copied during restore.");
+                        }
+                        if edited { self.error = None; }
+                        if let Some(path) = form.destination() {
+                            ui.add_space(6.);
+                            ui.add(egui::Label::new(format!("Restore to {}", path.display())).wrap());
+                        }
+                        if let Some(error) = &self.error { ui.colored_label(ui.visuals().error_fg_color, error); }
+                    });
                 ui.separator();
-                let archive = journal::expand(&PathBuf::from(form.archive.trim()));
-                if let Some(stem) = archive.file_stem().filter(|_| !form.destination.trim().is_empty()) {
-                    let root = journal::expand(&PathBuf::from(form.destination.trim()))
-                        .join(format!("{}-restored", stem.to_string_lossy()));
-                    ui.add(egui::Label::new(format!("Restore to {}", root.display())).wrap());
-                }
-                if let Some(error) = &self.error { ui.colored_label(ui.visuals().error_fg_color, error); }
-                let ready = !form.archive.trim().is_empty() && !form.destination.trim().is_empty()
-                    && (!form.select_project || !form.project.trim().is_empty());
+                let ready = form.destination().is_some() && (!form.select_project || !form.project.trim().is_empty());
                 ui.horizontal(|ui| {
                     submit = ui.add_enabled(!self.busy && ready, theme::primary("Restore and open")).clicked();
                     if self.busy { ui.spinner(); }
@@ -70,8 +81,8 @@ impl App {
             });
         if submit {
             let archive = journal::expand(&PathBuf::from(form.archive.trim()));
-            let name = archive.file_stem().and_then(|s| s.to_str()).unwrap_or("workspace");
-            let root = journal::expand(&PathBuf::from(form.destination.trim())).join(format!("{name}-restored"));
+            let Some(destination) = form.destination() else { return };
+            let root = journal::expand(&destination);
             let project = form.select_project.then(|| journal::expand(&PathBuf::from(form.project.trim())));
             self.restore_desk = Some(form);
             self.restore(ctx, archive, root, project);
