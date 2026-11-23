@@ -95,6 +95,27 @@ struct AuthorizedComparison {
     persona: Persona,
     work: String,
     configuration: String,
+    author_output_matched: bool,
+}
+
+/// Compare the exact returned bytes with the retained provider output, not just
+/// the assessment's parsed copy. An absent or ambiguous final carrier proves
+/// no byte match; a contradiction or damaged declared archive is an error.
+fn returned_output(
+    db: &Connection,
+    call: &str,
+    receipt: &str,
+    attempt: &Value,
+    bytes: &[u8],
+) -> Result<bool> {
+    match super::provider_evidence::final_matches(db, receipt, attempt, bytes)
+        .map_err(|e| failure(format!("Cannot verify provider output for {call}: {e}")))?
+    {
+        Some(false) => Err(failure(format!(
+            "The recorded response for {call} differs from the provider’s retained final output"
+        ))),
+        matched => Ok(matched == Some(true)),
+    }
 }
 
 fn authorized_comparison(
@@ -135,7 +156,9 @@ fn authorized_comparison(
         )?
         .body,
     )?;
-    let decision: Value = store::object(db, &decision)?;
+    let bytes = store::bytes(db, &decision)?;
+    let author_output_matched = returned_output(db, source, &receipt, &attempt, &bytes)?;
+    let decision: Value = serde_json::from_slice(&bytes)?;
     let operation = body["source_operation"]
         .as_str()
         .ok_or_else(|| failure("Missing assessment operation"))?;
@@ -175,6 +198,7 @@ fn authorized_comparison(
         persona,
         work,
         configuration,
+        author_output_matched,
     })
 }
 
@@ -291,6 +315,7 @@ pub(super) fn verify(db: &Connection, record: &store::Record) -> Result<Value> {
         Some(candidate)
     };
     let mut calls = BTreeSet::new();
+    let mut matched_outputs = 0usize;
     let contract = FeatureContract::standard();
     for (index, case) in cases.iter().enumerate() {
         let fixed = if authorization.is_some() || body["format"] == "matched-behavior-v2" {
@@ -368,6 +393,7 @@ pub(super) fn verify(db: &Connection, record: &store::Record) -> Result<Value> {
                     ));
                 }
             }
+            let bytes = store::bytes(db, &output)?;
             if body["owner"] != actor
                 || input["source_invocation"] != source
                 || input["candidate"] != body["candidate"]
@@ -376,12 +402,13 @@ pub(super) fn verify(db: &Connection, record: &store::Record) -> Result<Value> {
                 || attempt["response_completed"] != true
                 || audit["invocation_id"] != call
                 || audit["prompt_sha256"] != crate::store::sha256_bytes(prompt.as_bytes())
-                || response(&store::bytes(db, &output)?)? != arm["response"]
+                || response(&bytes)? != arm["response"]
             {
                 return Err(failure(
                     "Comparison summary differs from its original provider call",
                 ));
             }
+            matched_outputs += usize::from(returned_output(db, call, &receipt, &attempt, &bytes)?);
             if let Some(digest) = model.as_str() {
                 let package: ModelPackage = store::object(db, digest)?;
                 let evaluation = package.evaluate(&contract, &appraisal).map_err(failure)?;
@@ -427,7 +454,9 @@ pub(super) fn verify(db: &Connection, record: &store::Record) -> Result<Value> {
         }
     }
     Ok(
-        json!({"assessment":record.reference.handle(),"verified":true,"cases":cases.len(),"completed_arms":calls.len()}),
+        json!({"assessment":record.reference.handle(),"verified":true,"cases":cases.len(),"completed_arms":calls.len(),
+            "provider_outputs":{"authorizing_choice_matched":authorization.as_ref().map(|r|r.author_output_matched),
+                "arms_matched":matched_outputs,"arms_without_final_binding":calls.len()-matched_outputs}}),
     )
 }
 
