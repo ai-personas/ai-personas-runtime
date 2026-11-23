@@ -1,0 +1,167 @@
+{
+  "release_url": "https://github.com/ai-personas/ai-personas-runtime/releases/tag/studio-atx-four-reviews-04-09-20261123",
+  "target": "9d057e1804b9b48a6f2ae307ecd8603ad52f64db",
+  "verified_utc": "2026-11-23T10:17:11.455614+00:00",
+  "downloads": [
+    {
+      "filename": "edition-comparison.json",
+      "bytes": 3211,
+      "sha256": "31edae137bb2c639dd511c09b0728878fb3963c6197c5db46513afa4fee60f11",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-reviews-04-09-20261123/edition-comparison.json",
+      "download_method": "public browser download"
+    },
+    {
+      "filename": "FINDINGS.md",
+      "bytes": 5091,
+      "sha256": "7202c53d5ca74c74c977303cb7170cc200153f2504dbb79279bed94ab91c85e3",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-reviews-04-09-20261123/FINDINGS.md",
+      "download_method": "public browser download"
+    },
+    {
+      "filename": "independent-replay.zip",
+      "bytes": 1152802,
+      "sha256": "43c90a0faf8754be2533e607ecc5a4d785fafd35aaf13ea8a8d9d9020821083b",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-reviews-04-09-20261123/independent-replay.zip",
+      "download_method": "public browser download"
+    },
+    {
+      "filename": "integrated-review-04.zip",
+      "bytes": 9871349,
+      "sha256": "2adc1b0db0d830e02b35e2b17e085daac8d4e3b20b570dc11968ccf378a34662",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-reviews-04-09-20261123/integrated-review-04.zip",
+      "download_method": "public browser download"
+    },
+    {
+      "filename": "pc-power-review07.zip",
+      "bytes": 858517,
+      "sha256": "667e508aa520d81051461b10b00113b4347298a95b399da17fd78d431105c077",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-reviews-04-09-20261123/pc-power-review07.zip",
+      "download_method": "public browser download"
+    },
+    {
+      "filename": "pc-power-review08.zip",
+      "bytes": 10662841,
+      "sha256": "0f9100c91e81dce96bd394488ac02a4593967ef36641612965b8457deb850bf6",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-reviews-04-09-20261123/pc-power-review08.zip",
+      "download_method": "public browser download"
+    },
+    {
+      "filename": "pc-power-review09.zip",
+      "bytes": 10669917,
+      "sha256": "e60635e8cdf71ff03712204c63c2d70f290485b042fd84a272adba5c370687e9",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-reviews-04-09-20261123/pc-power-review09.zip",
+      "download_method": "public browser download"
+    },
+    {
+      "filename": "review-04.json",
+      "bytes": 86038,
+      "sha256": "08a8f75c8248043fd859c788a4559a975760bdb638ad9bb4e978468ba11d81cb",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-reviews-04-09-20261123/review-04.json",
+      "download_method": "public browser download"
+    },
+    {
+      "filename": "review-07.json",
+      "bytes": 93955,
+      "sha256": "009aa40af633e126644f62a951d29ef6bd51c21b8b34da16368217085b2128cd",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-reviews-04-09-20261123/review-07.json",
+      "download_method": "public browser download"
+    },
+    {
+      "filename": "review-08.json",
+      "bytes": 86604,
+      "sha256": "36b2e8b669ab1a603c6090922493a947f3f948856abd4baaf762101bef32ee54",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-reviews-04-09-20261123/review-08.json",
+      "download_method": "public browser download"
+    },
+    {
+      "filename": "review-09-assembly-bom.csv",
+      "bytes": 7217,
+      "sha256": "a258d106cb07c717c95cda918c87167ec19e131496de97031dfed8c7bb584614",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-reviews-04-09-20261123/review-09-assembly-bom.csv",
+      "download_method": "public browser download"
+    },
+    {
+      "filename": "review-09-harness-connections.csv",
+      "bytes": 971,
+      "sha256": "a4b06e439e54746ead14526949524ce49d86ae6fbe8f0291c2e8f579801c4532",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-reviews-04-09-20261123/review-09-harness-connections.csv",
+      "download_method": "public browser download"
+    },
+    {
+      "filename": "review-09-schematic.pdf",
+      "bytes": 424265,
+      "sha256": "65bdf2e1c7605a3e17ebb4abb92077b39b27b8c40ec5416d4a313bf918a6ca40",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-reviews-04-09-20261123/review-09-schematic.pdf",
+      "download_method": "public browser download"
+    },
+    {
+      "filename": "review-09.json",
+      "bytes": 89714,
+      "sha256": "fb4a39ff8a90c813ada73056d96e889463c9103d4dca50bbe26e4d83a9ed34dd",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-reviews-04-09-20261123/review-09.json",
+      "download_method": "public browser download"
+    },
+    {
+      "filename": "SHA256SUMS",
+      "bytes": 1571,
+      "sha256": "f5a178e52ef8004573915f652473240d8046e14a3343ec2c2584a1bcdc90776e",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-reviews-04-09-20261123/SHA256SUMS",
+      "download_method": "public browser download"
+    },
+    {
+      "filename": "Studio-handoff-04.zip",
+      "bytes": 9798077,
+      "sha256": "92c16d033bc7da5f585371e0078968a147e586a655eef1e1f11195812bf9f108",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-reviews-04-09-20261123/Studio-handoff-04.zip",
+      "download_method": "public browser download"
+    },
+    {
+      "filename": "Studio-handoff-07.zip",
+      "bytes": 843199,
+      "sha256": "a9ee0702a0c7a6e4c5cfbdd8c3494cad20b91c2c825f76a23e7f577a8f0e19e2",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-reviews-04-09-20261123/Studio-handoff-07.zip",
+      "download_method": "public browser download"
+    },
+    {
+      "filename": "Studio-handoff-08.zip",
+      "bytes": 10612604,
+      "sha256": "974c23ae0437dab5d3a134143d33dc8385a83d0bbe1d82ebd2a19e74474c03ce",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-reviews-04-09-20261123/Studio-handoff-08.zip",
+      "download_method": "public browser download"
+    },
+    {
+      "filename": "Studio-handoff-09.zip",
+      "bytes": 10618866,
+      "sha256": "559ac7f101ec25b1be7c81c8f9a60e4e5d3f652f60b3588f66ee511962e64d8a",
+      "url": "https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-reviews-04-09-20261123/Studio-handoff-09.zip",
+      "download_method": "public browser download"
+    }
+  ],
+  "regenerated_reports": [
+    {
+      "edition": "04",
+      "design_zip_sha256": "2adc1b0db0d830e02b35e2b17e085daac8d4e3b20b570dc11968ccf378a34662",
+      "report_sha256": "08a8f75c8248043fd859c788a4559a975760bdb638ad9bb4e978468ba11d81cb",
+      "exact_handoff_member": "pc-power/review/integrated-review-04.zip"
+    },
+    {
+      "edition": "07",
+      "design_zip_sha256": "667e508aa520d81051461b10b00113b4347298a95b399da17fd78d431105c077",
+      "report_sha256": "009aa40af633e126644f62a951d29ef6bd51c21b8b34da16368217085b2128cd",
+      "exact_handoff_member": "pc-power/review/pc-power-review07.zip"
+    },
+    {
+      "edition": "08",
+      "design_zip_sha256": "0f9100c91e81dce96bd394488ac02a4593967ef36641612965b8457deb850bf6",
+      "report_sha256": "36b2e8b669ab1a603c6090922493a947f3f948856abd4baaf762101bef32ee54",
+      "exact_handoff_member": "pc-power/review/pc-power-review08.zip"
+    },
+    {
+      "edition": "09",
+      "design_zip_sha256": "e60635e8cdf71ff03712204c63c2d70f290485b042fd84a272adba5c370687e9",
+      "report_sha256": "fb4a39ff8a90c813ada73056d96e889463c9103d4dca50bbe26e4d83a9ed34dd",
+      "exact_handoff_member": "pc-power/review/pc-power-review09.zip"
+    }
+  ],
+  "regenerated_comparison_sha256": "31edae137bb2c639dd511c09b0728878fb3963c6197c5db46513afa4fee60f11"
+}
