@@ -1,6 +1,74 @@
 use super::*;
 use ai_personas::neural::live::{RunScope, RunnerObservation};
 
+#[derive(Default)]
+pub(in crate::desktop::neural) struct Roster {
+    pub(super) selected: BTreeSet<String>,
+    query: String,
+}
+
+impl Roster {
+    fn show(&mut self, ui: &mut Ui, app: &App) {
+        ui.strong("Invite personas");
+        ui.add(egui::TextEdit::singleline(&mut self.query)
+            .hint_text("Find a name or starting profile…")
+            .desired_width(f32::INFINITY));
+        let query = self.query.trim().to_lowercase();
+        let people: Vec<_> = app.records("personas").iter().map(|r| &r["body"])
+            .filter(|p| query.is_empty() || ["id", "label", "seed"].iter()
+                .any(|k| s(p, k).to_lowercase().contains(&query)))
+            .collect();
+        ui.horizontal_wrapped(|ui| {
+            let add = if query.is_empty() { "Select all" } else { "Select matches" };
+            if ui.add_enabled(people.iter().any(|p| !self.selected.contains(s(p, "id"))),
+                egui::Button::new(add).small()).clicked() {
+                // A concrete set of IDs at click time, never a live invitation rule.
+                self.selected.extend(people.iter().map(|p| s(p, "id").to_owned()));
+            }
+            if ui.add_enabled(!self.selected.is_empty(), egui::Button::new("Clear selection").small()).clicked() {
+                self.selected.clear();
+            }
+            if !query.is_empty() && ui.small_button("Show everyone").clicked() {
+                self.query.clear();
+            }
+        });
+        if people.is_empty() {
+            ui.weak("No matching personas.");
+        }
+        for person in people {
+            let id = s(person, "id");
+            let label = s(person, "label");
+            let mut chosen = self.selected.contains(id);
+            ui.push_id(id, |ui| {
+                let tint = theme::palette(ui).ink(app.color(id));
+                ui.horizontal_wrapped(|ui| {
+                    if avatar(ui, label, tint, 24.).on_hover_text(label).clicked() {
+                        chosen = !chosen;
+                    }
+                    ui.checkbox(&mut chosen, RichText::new(label).strong());
+                    let epoch = person["epoch"].as_u64().unwrap_or(0);
+                    let status = if epoch == 0 { "Starting profile".into() } else { format!("Character epoch {epoch}") };
+                    ui.weak(RichText::new(status).small()).on_hover_ui(|ui| {
+                        ui.strong(people::starting_profile_credit(person));
+                        ui.label(s(person, "seed"));
+                    });
+                });
+            });
+            if chosen {
+                self.selected.insert(id.to_owned());
+            } else {
+                self.selected.remove(id);
+            }
+        }
+        if self.selected.is_empty() {
+            ui.small("Choose who receives this invitation.");
+        } else {
+            let names: Vec<_> = self.selected.iter().map(|id| app.label(id)).collect();
+            ui.add(egui::Label::new(format!("{} selected: {}", names.len(), names.join(", "))).wrap());
+        }
+    }
+}
+
 pub(super) fn request_key(
     command: &Command,
     prior: &mut Option<(String, String)>,
@@ -21,7 +89,7 @@ pub(super) fn form(
     ui: &mut Ui,
     social: bool,
     brief: &mut String,
-    invitees: &mut BTreeSet<String>,
+    roster: &mut Roster,
     sources: &mut SourceFiles,
 ) -> Option<bool> {
     let body = |ui: &mut Ui| {
@@ -50,40 +118,7 @@ pub(super) fn form(
         );
         sources.picker.show(ui, &mut sources.files);
         ui.add_space(7.);
-        ui.horizontal_wrapped(|ui| {
-            ui.strong("Invite personas");
-            ui.weak(format!("{} selected", invitees.len()));
-        });
-        for person in app.records("personas") {
-            let body = &person["body"];
-            let id = s(body, "id");
-            let label = s(body, "label");
-            let mut chosen = invitees.contains(id);
-            ui.push_id(id, |ui| {
-                let tint = p.ink(app.color(id));
-                ui.horizontal_wrapped(|ui| {
-                    let portrait = avatar(ui, label, tint, 24.);
-                    if portrait.on_hover_text(label).clicked() {
-                        chosen = !chosen;
-                    }
-                    ui.checkbox(&mut chosen, RichText::new(label).strong());
-                    let epoch = body["epoch"].as_u64().unwrap_or(0);
-                    ui.weak(
-                        RichText::new(if epoch == 0 {
-                            "Starting profile".into()
-                        } else {
-                            format!("Character epoch {epoch}")
-                        })
-                        .small(),
-                    );
-                });
-            });
-            if chosen {
-                invitees.insert(id.into());
-            } else {
-                invitees.remove(id);
-            }
-        }
+        roster.show(ui, app);
     };
     if ui.ctx().content_rect().height() >= 370. {
         let height = (ui.available_height() - 82.)
@@ -135,7 +170,7 @@ pub(super) fn form(
             .color(theme::palette(ui).muted),
     );
     let eligible =
-        !sources.picker.busy() && !invitees.is_empty() && (social || !brief.trim().is_empty());
+        !sources.picker.busy() && !roster.selected.is_empty() && (social || !brief.trim().is_empty());
     let mut submit = None;
     ui.horizontal_wrapped(|ui| {
         if ui.add_enabled(eligible, theme::primary(action)).clicked() {
