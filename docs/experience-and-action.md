@@ -57,3 +57,19 @@ We replayed her unchanged **4,774-byte** provider response against [`main` befor
 With the fix, the same response, input and receipt in a disposable copy saved **one next-time practice** and honored the stop. Studio checked the exact `result.deliver` operation and its issue, the edition named in the buyer’s message, its addressee and both supplied records. Altering the text, addressee, activity, issuing decision, issue event, effect record or original response prevented adoption. An opening-input preview exposed the two reading addresses without supplying the feedback body.
 
 That replay made **zero provider calls** and queued no external work. The live history still records the original rejection. The replay recorded no practice application, numerical change or new delivery; the original ZIP was not changed or fabricated. [Before/after receipts and offline replay instructions](https://github.com/ai-personas/ai-personas-runtime/releases/tag/studio-mara-edition-feedback-20261123)
+
+### Does the check reach Mara on a new job?
+
+**Yes, in the prepared first input.** In two offline Studio copies we used **Save without starting** to invite Mara to design left and right backing rails for a gallery caption holder. Both invitations contained exactly the same 730-byte brief. It gave the plate width, printed-band width, right-edge offset, bearing requirements and cutting tolerance. It did not mention Mara’s earlier work or prescribe how to check the fit. The issuer and the buyer’s old feedback remained discoverable at the same addresses in both copies.
+
+| History used for the opening | What Studio prepared for Mara | Prompt size |
+|---|---|---:|
+| Accepted replay of her saved practice | One reminder containing her condition, approach, alternative, prediction and strength to preserve, all verbatim | 66,859 bytes |
+| Original stopped review, which saved a methods file instead | No practice reminder; the methods file was not selected | 65,170 bytes |
+| Same accepted replay and same invitation, with only the practice hidden from this read | No practice reminder | 65,175 bytes |
+
+The reminder began: “Before claiming interface clearance, independently derive the worst-case clearance at each contact side from the full dimension chain.” We matched the text to Mara’s original provider response and to the question it created. It was in `development.personal_reminders[0]`, not the brief, tool definitions or a selected resource. Neither the old buyer’s message body nor the receiving calculation was supplied. The two ordinary histories have different endings; the matched control kept even the accepted reply and original question record. Across all 27 top-level input fields, hiding the practice changed only the reminder and open-question count, their byte accounting, the generated invocation ID and the preparation time.
+
+The distinction matters for this drawing: the smallest left border is **3.30 mm** (`95.65 − 87.30 − 5.05`), whereas the smallest right border is **4.55 mm**. Accounting for cut tolerance and required ink clearance leaves allowable nominal rail widths of **3.00–3.05 mm left** and **4.10–4.30 mm right**. Those are evaluator calculations, not Mara’s answer.
+
+All three preparations used Mara’s same epoch-one package, twelve baseline inclinations, tools and `gpt-6.1-sol` medium Platform-key settings. None was sent. This establishes that Mara’s check is available without a human reminder; it does not establish that she used it, cut a better rail or changed her character. [Saved input comparison, native windows and offline replay](https://github.com/ai-personas/ai-personas-runtime/releases/tag/studio-mara-clearance-intake-20261123)

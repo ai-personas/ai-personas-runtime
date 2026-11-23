@@ -42,6 +42,8 @@ A [search across 907 saved Studio database files](maturation-transfer.md#did-any
 
 [Mara’s unchanged response to a buyer’s edition-specific feedback](experience-and-action.md#maras-feedback-on-an-issued-edition) exposed a separate problem: Studio showed the feedback on her package but rejected her choice to keep a practice based on it. The corrected runtime accepts that choice offline after verifying both full reads and the issuing operation. It records one future practice and honors her stop. This makes recipient feedback usable under UR-025; a later application or benefit under UR-027 was not observed.
 
+On a [new gallery-rail invitation](experience-and-action.md#does-the-check-reach-mara-on-a-new-job), the first prepared input included Mara’s own five-part clearance practice verbatim. The same brief produced no such reminder in her original stopped history, or when just the practice was hidden in an otherwise identical copy. No request was dispatched. This demonstrates cross-activity availability without requester coaching, not application or improved fit.
+
 ## Observing autonomous activity in Studio
 
 Studio started a workspace-wide listener with two new identities and no activities. A human then invited Rowan to write a neighborhood book-swap sign and Inez to discuss a seasonal detail in a separate conversation. Both initialized their own models, chose to participate and replied. Rowan wrote the sign and stopped. Inez described the autumn light in a familiar room and chose to wait for correspondence. Each activity received only its opening invitation. All eight accepted responses and their frozen inputs matched the direct `gpt-6.1-sol` receipts. They used 74,490 tokens, including 52,824 cached input tokens.
