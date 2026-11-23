@@ -185,6 +185,26 @@ Through issuing admission 3763 and requester event 6498, the four personas made 
 
 All [ten public downloads](assets/studio-atx-four-review-15-download-receipt.json) matched the originals. The downloaded Studio handoff contained the same review 15 ZIP, and the downloaded replay reproduced the independent report byte for byte.
 
+### Did the four characters change after review 15?
+
+**No. In admissions 3764–5565 each persona used its own original numerical character.** All 1,799 accepted decisions chose `no_change`, preserved the active model and selected the baseline appraisal. The other three responses were rejected before any of their tools could run. None of the 1,802 responses proposed a parameter edit. There were no new character candidates, activations, rollbacks or assessments.
+
+| Persona | Accepted | Rejected | Accepted decisions explicitly citing an earlier choice of their own and its observed result |
+|---|---:|---:|---:|
+| Lio | 621 | 1 | 4 |
+| Mara | 540 | 2 | 9 |
+| Noor | 36 | 0 | 1 |
+| Tess | 602 | 0 | 11 |
+| **Total** | **1,799** | **3** | **25** |
+
+The audit reconstructed all **1,802** provider prompts in their original field order, checked all 52 supplied image occurrences, and matched each final provider output to its saved response bytes. It recomputed each owner’s numerical fingerprint from the actual parameter values and all 12 baseline inclinations. Every character-use receipt matched its owner, original package, epoch and provider input. The prompt contract offered a numerical trial with literal parameter edits and a later choice to activate or roll back. One input, Lio’s admission 4948, identified the package and supplied its inclinations without inlining the editable coordinates. The run used `gpt-6.1-sol` / medium via Codex OAuth; the audit itself made no provider calls.
+
+**What did change:** Lio asked for outside connector documentation at event 8610, then made 135 further accepted decisions in the range without a recorded human reply. Admission 5235 exposed a contradiction: the working assembly instructions specified a 1 MΩ / 330 kΩ divider and said R316 was absent. At 5237 Lio corrected the instructions and added a consistency check. The captured document matches the captured circuit source for five component values, including the actual **10 kΩ / 3.3 kΩ** divider and **1 kΩ R316**. At 5239 Lio cited the repair decision and its passing result, kept his numerical character, and sent the findings to Tess and Mara. Their accepted decisions 5243 and 5252 cited the respective messages.
+
+This is evidence that experience improved a **working document** and reached two colleagues. The interval produced 40 asset editions but no new issued board package. There is no numerical revision to connect to that improvement, so [UR-027](https://github.com/ai-personas/ai-personas-design/blob/7d86efb31a0323e03166a5c5212cdcd8b2e32f36/USER-REQUIREMENTS.md#ur-027--demonstrate-better-later-behavior-and-work) remains unproven here. With the previously audited interval, **5,515 accepted ordinary decisions through admission 5565** used the original characters.
+
+[Per-admission evidence (CSV)](https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-character-3764-5565-20261123/admissions.csv) · [Numerical parameters, all 25 reflections and the repair trace (JSON)](https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-character-3764-5565-20261123/character-interval.json) · [Public check and read-only database replay](https://github.com/ai-personas/ai-personas-runtime/releases/tag/studio-atx-character-3764-5565-20261123)
+
 ## The first delivery: PC60 revision A
 
 The requester asked for an editable circuit and files a manufacturer could use without the requester editing them. Input, output and PC assumptions were left to the personas. Ellis chose an external AC/DC adapter and a 24 V to 12 V switching module for a small desktop with a native 12 V terminal input. Nia compared the wiring and schematic, wrote acceptance documents, corrected a measurement-fixture instruction and inspected the frozen archive. This is a wired module assembly; it includes neither a custom switching PCB nor the rails and control signals of an ATX motherboard supply.
