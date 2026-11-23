@@ -433,6 +433,9 @@ pub enum Command {
         archive: PathBuf,
         #[arg(long)]
         sha256: Option<String>,
+        /// Use this existing project folder for future work. Historical paths and files are not rewritten.
+        #[arg(long)]
+        working_directory: Option<PathBuf>,
     },
 }
 
@@ -526,7 +529,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
         Command::RecallChoice{persona,decision,event}=>super::experience::recall::read(&store::open_inspection(root)?,&persona,&decision,&event),
         Command::IntakeHistory{work,page}=>super::intake::inspect(&store::open_inspection(root)?,&work,&page),
         Command::Agreements{work,query}=>super::agreements::inspect(&store::open_inspection(root)?,&work,&super::relationships::Contact::operator(operator),&query),
-        Command::Restore{archive,sha256}=>super::archive::restore(root,&archive,sha256.as_deref(),operator),
+        Command::Restore{archive,sha256,working_directory}=>super::archive::restore(root,&archive,sha256.as_deref(),working_directory.as_deref(),operator),
         Command::Init {
             seeds,
             working_directory,

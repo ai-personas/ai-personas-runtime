@@ -1,6 +1,7 @@
 //! New desktop workspaces use the same initialization and task interface as the CLI.
 use super::{design, file_desk, helpers, journal, neural, theme};
 mod library;
+mod restore;
 use ai_personas::{
     auth,
     neural::{cli, store::Store},
@@ -51,6 +52,7 @@ pub struct App {
     create_mode: bool,
     library_dark: bool,
     open_path: bool,
+    restore_desk: Option<restore::Form>,
     library_filter: String,
 }
 
@@ -203,6 +205,7 @@ impl App {
             library_filter: String::new(),
             library_dark: true,
             open_path: false,
+            restore_desk: None,
             create_mode: requested.is_some() && existing.is_none(),
         };
         if let Some(root)=existing {app.open(ctx,root);}
@@ -358,6 +361,7 @@ impl App {
                     self.busy = false;
                     match result {
                         Ok(root) => {
+                            self.restore_desk = None;
                             let _=remember_workspace(&root);
                             self.workspace = Some(neural::App::new(ctx, root, self.gl.as_ref(), self.operator.clone()))
                         }
