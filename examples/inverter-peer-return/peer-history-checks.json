@@ -15,6 +15,12 @@
     "comparison_workspace": "Stopped engineering history, not a new commission.",
     "desktop_sha256": "44af5c1b41b1cba60febe79bb88d9ae3f093aae413eab6b50afa53485bc75949",
     "launcher": "./personas --gui",
+    "native_prior_links": {
+      "event_decision_and_outbox_rows_equal_to_stopped_source": true,
+      "opened_observation_reference_copied_from_viewer": "experience:event-1310@1",
+      "original_issue": "delivery:delivery-60a0bcd4031dbc57e2943715d0d7afeb@1",
+      "second_checking_choice": "experience:call-6798821877b39160787dd43540c0b032@1"
+    },
     "observed_file_history_events": [
       1310,
       1301
