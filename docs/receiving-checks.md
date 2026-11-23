@@ -1,6 +1,6 @@
 # Taking delivery in Persona Studio
 
-Three new personas used GPT-6.1 Sol through Codex OAuth in two Linux desktop workspaces on November 23, 2026. Ione and Cal delivered a supplier kit for a capacitor-based learning device. Vale delivered a book-return counter, waited for the volunteer to use it, and acknowledged the result. The desktop exported each original ZIP without edits.
+Four new personas used GPT-6.1 Sol through Codex OAuth in two Linux desktop workspaces on November 23, 2026. Ione and Cal delivered a supplier kit for a capacitor-based learning device. Vale delivered a book-return counter and acknowledged the volunteer's results. Teo later traced two files from Vale's relief-shift handoff to their recipients. The desktop exported each original ZIP without edits.
 
 These trials exercise selective discovery and reuse of earlier work, continuation while a human is absent, and persona-chosen cooperation and quality checks. Those obligations appear in UR-019–024, UR-045–047, UR-049 and UR-050. [Design requirements](https://github.com/ai-personas/ai-personas-design/blob/7d86efb31a0323e03166a5c5212cdcd8b2e32f36/USER-REQUIREMENTS.md)
 
@@ -43,10 +43,21 @@ Eight disconnected wake checks also exercised silence, different requests, succe
 
 The volunteer later invited the same Vale to prepare a relief shift. In 13 further accepted decisions it produced an editable instruction card, example CSV and counter for the relief volunteer, plus a one-page PDF for the desk lead. Three receiving runs checked the two slips, including an edited shift CSV and invalid input. The final edition improved the instructions and retained the same exact four file revisions. The receiving receipts name the earlier edition on which Vale ran them. The independent operator exported both final slips, obtained 14 books from the volunteer's three-file folder and rendered all 215 words of the lead's one-page PDF. No physical printing was observed.
 
+## Tracing an issued file to its recipient
+
+Teo joined the workspace after both lending-desk deliveries. The owner supplied two filenames and asked which editions, slips and recipients contained each exact revision. Teo searched for the files, discovered the `asset.deliveries` tool, looked up each revision and cross-checked the two issued records. In six accepted decisions Teo returned the following mapping and chose to stop. No file was changed.
+
+| Exact file revision | Lending desk relief-shift handoff | Finished lending desk relief-shift materials |
+| --- | --- | --- |
+| `count_returns.py`, revision 1 | Slip 1, Relief volunteer | Slip 1, Relief volunteer |
+| `desk-lead-summary.pdf`, revision 1 | Slip 2, Desk lead | Slip 2, Desk lead |
+
+The desk lead received only the PDF in both editions. The volunteer received the script with the instruction card and CSV. Teo supplied the full revision and edition references in its reply.
+
 ## Provider evidence and recovery
 
 The hardware brief produced 48 accepted decisions, two rejected decisions and one failed provider call. Vale’s initial brief produced ten accepted decisions and one rejection. For every accepted decision the independent inspection reconstructed the frozen prompt, checked its length and SHA-256 against the direct call, matched the adopted response bytes to the provider’s retained final message and checked the reported model. Each persona used its own initial numerical character package during these briefs.
 
-The same checks passed for the 18 subsequent field-follow-up and relief-shift decisions. Across the four activities all 76 accepted decisions matched their frozen inputs and retained final replies. None of the three personas adopted a numerical character revision in this study.
+The same checks passed for Ione's five assembly follow-up decisions, Cal's 12 intake decisions, Vale's 13 relief-shift decisions and Teo's six lookup decisions. Across all six activities, all 94 accepted decisions matched their frozen inputs, retained final replies and selected provider model. Each of the four personas continued to use its own initial numerical character package.
 
 During Cal’s work the provider reported `service_unavailable_error/server_is_overloaded` inside an HTTP 200 event stream. The trial build paused Cal and the operator re-enabled scheduling once. The interrupted inference adopted no operations. The shipping runtime recognizes this exact temporary error, records the failed attempt and schedules fresh inference under the existing run controls. Replaying the recorded diagnostic on a disconnected copy exercised that path. Unknown codes, a different error type or event, cancellation, completed and terminal responses, and probes kept their original dispositions.
