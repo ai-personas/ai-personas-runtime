@@ -139,6 +139,8 @@ impl Window {
                         )
                     };
                     let comparison = query.compare.as_deref();
+                    let epoch = self.result.as_ref().and_then(|r| r.as_ref().ok())
+                        .and_then(|r| r["epoch"].as_u64());
                     let selected = choices.clone().find(|c| {
                         comparison == Some(s(c, "reference")) || comparison
                             .and_then(|v| v.strip_prefix("object:"))
@@ -147,15 +149,23 @@ impl Window {
                     egui::ComboBox::from_id_salt("paths-package")
                         .width(236.)
                         .selected_text(
-                            selected
-                                .map(&caption)
-                                .or_else(|| query.compare.as_deref().map(|p| excerpt(p,25)))
-                                .unwrap_or_else(|| "Compare another package…".into()),
+                            if comparison == Some("previous-epoch") {
+                                "Previous active epoch".into()
+                            } else {
+                                selected.map(&caption)
+                                    .or_else(|| query.compare.as_deref().map(|p| excerpt(p,25)))
+                                    .unwrap_or_else(|| "Compare another package…".into())
+                            },
                         )
                         .show_ui(ui, |ui| {
                             refresh |= ui
                                 .selectable_value(&mut query.compare, None, "Supplied package only")
                                 .changed();
+                            if epoch.is_some_and(|n| n > 1) || query.compare.as_deref() == Some("previous-epoch") {
+                                refresh |= ui.selectable_value(
+                                    &mut query.compare, Some("previous-epoch".into()), "Previous active epoch",
+                                ).on_hover_text("Use the package in effect immediately before this recorded epoch.").changed();
+                            }
                             for c in choices {
                                 refresh |= ui
                                     .selectable_value(
@@ -184,6 +194,13 @@ impl Window {
                         let supplied = &report["supplied"]["paths"];
                         let alternate = &report["alternate"]["paths"];
                         if !alternate.is_null() {
+                            let prior = &report["alternate"]["previous"];
+                            if let (Some(epoch), Some(change)) = (prior["epoch"].as_u64(), prior["change"].as_str()) {
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.strong(format!("Compared with epoch {epoch}"));
+                                    if ui.link("Open switch record").clicked() { open = Some(change.into()); }
+                                });
+                            }
                             let count = report["alternate"]["changed_outputs"]
                                 .as_array()
                                 .map_or(0, Vec::len);

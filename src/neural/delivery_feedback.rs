@@ -113,10 +113,12 @@ pub(super) fn latest_elsewhere(db: &Connection, actor: &str, work: &str) -> Resu
     let reference = message["delivery"]
         .as_str()
         .ok_or_else(|| failure("Feedback lacks a delivery edition"))?;
-    issued(db, reference)?.check_message(&message, &activity, actor, seq)?;
-    Ok(Some(
-        json!({"experience":format!("experience:event-{seq}@1"), "work":activity, "author":author, "delivery":reference}),
-    ))
+    let edition = issued(db, reference)?;
+    edition.check_message(&message, &activity, actor, seq)?;
+    let observation = format!("experience:event-{seq}@1");
+    let choice = format!("experience:{}@1", edition.invocation);
+    Ok(Some(json!({"experience":observation,"work":activity,"author":author,"delivery":reference,
+        "issuing_decision":choice,"read_together":[choice,observation],"bodies_supplied":false})))
 }
 
 /// Read a page of human feedback. Full message/file supply is verified on demand

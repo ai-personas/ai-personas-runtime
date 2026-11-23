@@ -68,6 +68,8 @@ In the activity timeline, expand a message and choose **As sent** to inspect or 
 
 **Character Lab → Character Atlas** compares each persona’s first and later models on one shared situation. Choose **Inspect decisions → Use situation in Atlas** to use an actual input instead. The source generation and other local comparisons stay distinct. Neither view starts work.
 
+In a delivery, **File origins… → Issuing decision** opens the actual handoff choice. Choose **Character at this decision… → Previous active epoch** in the comparison picker to see whether the edit changed any values on that choice.
+
 In **Activity → People & tools**, **Last tool result** opens what a persona’s most recent tool actually returned. **Event #** takes you to the action in the timeline.
 
 Open an issued delivery to inspect its drawing, file revisions and remaining checks. **Save handoff…** places the printable `Delivery.html` alongside `Files.zip`. **Send feedback…** addresses a message or attachment to the issuer and keeps it with that edition. Open **Check receipt** on the delivery to see what reached the persona.

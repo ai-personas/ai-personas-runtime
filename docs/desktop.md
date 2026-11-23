@@ -160,6 +160,8 @@ Open **Character Lab → Character Atlas** to compare people side by side. **Edi
 
 To use a real encounter instead, open **Inspect decisions → Use situation in Atlas** on an accepted choice. The Atlas names the source persona, activity, epoch, appraisal and receipt. Only that owner and epoch are marked **Supplied to the recorded decision**. You can switch to an earlier epoch on the same input, including the model before a rollback. Even identical weights at a different epoch are marked as a local comparison. **Return to all unknown** leaves the encounter without changing the original choice.
 
+To trace a shop handoff, open the issued edition and choose **File origins… → Issuing decision**. **Source decision** on a file opens the choice that saved, imported or registered it, which may be a different person’s. In the decision journal, **Character at this decision… → Compare another package… → Previous active epoch** evaluates the preceding character on the input that actually reached the selected choice. The switch record identifies the two epochs, including when the switch was a rollback. The comparison runs locally and does not make another decision.
+
 ![Studio compares Mira, Orin and Tavi on an operator-selected situation. Each of these personas is still on its own first model.](assets/studio-character-atlas.png)
 
 In **Character Lab → Characteristics**, **Next input** shows the values a new decision would receive. **Recorded appraisal** opens the earlier situational calculation. If the persona chose a deadline or an incoming event for reconsideration, Studio displays the condition and, when applicable, links to the event that met it.

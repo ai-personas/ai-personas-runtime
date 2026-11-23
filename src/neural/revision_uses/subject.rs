@@ -116,6 +116,40 @@ pub(in crate::neural) fn issued_candidate(db: &Connection, owner: &str, handle: 
     Ok(candidate(db, Some(owner), handle)?.record)
 }
 
+/// A rollback's package predecessor is not necessarily the active character
+/// preceding the rollback. Look up the switch into the *recorded* epoch.
+pub(in crate::neural) fn preceding_epoch(
+    db: &Connection, owner: &str, config: &str, epoch: u64, package: &str,
+) -> Result<(String, String)> {
+    if epoch < 2 {
+        return Err(failure("The first active epoch has no preceding active character"));
+    }
+    let identity = store::exact(db, config)?;
+    let r = &identity.reference;
+    if r.kind != "persona" || r.id != owner || identity.body["epoch"] != epoch
+        || identity.body["model"] != package
+    {
+        return Err(failure("The recorded decision and its identity edition differ"));
+    }
+    let mut q = db.prepare("SELECT e.seq FROM versions v JOIN events e ON e.invocation=v.invocation
+        JOIN objects o ON o.digest=e.digest WHERE v.kind='persona' AND v.id=?1 AND v.revision<=?2
+        AND e.kind='model_changed' AND e.actor=?1 AND e.target=?1
+        AND json_extract(CAST(o.bytes AS TEXT),'$.epoch')=?3 LIMIT 2")?;
+    let bound = i64::try_from(epoch).map_err(|_| failure("Recorded epoch is out of range"))?;
+    let seqs = q.query_map(params![owner, r.revision, bound], |row| row.get::<_, i64>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let [seq] = seqs.as_slice() else {
+        return Err(failure("A unique switch into the recorded epoch could not be established"));
+    };
+    let change = format!("experience:event-{seq}@1");
+    let switch = resolve(db, Some(owner), &change)?;
+    if switch.epoch != Some(epoch) || switch.supplied != package {
+        return Err(failure("The switch did not supply this decision's character"));
+    }
+    let previous = switch.alternate.ok_or_else(|| failure("The switch has no prior active package"))?;
+    Ok((previous, change))
+}
+
 pub(super) fn resolve(db: &Connection, who: Option<&str>, reference: &str) -> Result<Subject> {
     if reference.starts_with("candidate:") {
         let proposal = candidate(db, who, reference)?;

@@ -21,6 +21,7 @@ pub(super) struct Window {
 
 enum Open {
     Record(String),
+    Choice(String),
     Activity(String),
     Edition(String),
 }
@@ -84,6 +85,7 @@ impl App {
             });
         match open {
             Some(Open::Record(r)) => self.open_resource(ctx, r),
+            Some(Open::Choice(r)) => self.open_choice_or_record(ctx, r),
             Some(Open::Activity(w)) => self.open_home_activity(&w),
             Some(Open::Edition(r)) => self.open_issued_package(ctx, &r),
             None if visible => self.delivery_desk.origins = Some(window),
@@ -98,6 +100,14 @@ impl Window {
         let files = report["files"].as_array()?;
         let earlier = report["earlier"].as_array()?;
         let mut open = None;
+        ui.horizontal_wrapped(|ui| {
+            ui.label(format!("Issued by {}", app.label(s(report, "issuer"))));
+            if let Some(decision) = report["issuing_decision"].as_str() {
+                if ui.link("Issuing decision").on_hover_text(decision).clicked() {
+                    open = Some(Open::Choice(decision.into()));
+                }
+            }
+        });
         if !earlier.is_empty() {
             ui.add_space(6.);
             egui::CollapsingHeader::new(format!(
@@ -228,7 +238,7 @@ impl Window {
                         .on_hover_text(s(source, "decision"))
                         .clicked()
                     {
-                        open = Some(Open::Record(s(source, "decision").into()));
+                        open = Some(Open::Choice(s(source, "decision").into()));
                     }
                 });
             });

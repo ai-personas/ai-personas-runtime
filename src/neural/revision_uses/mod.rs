@@ -3,7 +3,7 @@
 mod subject;
 mod issued;
 mod judgment;
-pub(super) use subject::issued_candidate;
+pub(super) use subject::{issued_candidate, preceding_epoch};
 pub mod atlas;
 pub use judgment::inspect_follow_up;
 

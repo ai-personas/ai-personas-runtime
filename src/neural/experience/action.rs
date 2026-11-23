@@ -235,16 +235,15 @@ pub(in crate::neural) fn arrivals(
         .collect()
 }
 
-/// A late reply may never have been considered in the activity where it
-/// arrived. If the owner deliberately reads both original records together,
-/// the same action/outcome link can ground an intention in a different activity.
+/// A late reply or shop return may never have been considered in the work
+/// where it arrived. Require both full reads, not the discovery addresses.
 pub(in crate::neural) fn acting_from_reads(
     db: &Connection, s: &Snapshot, outcome: &str,
 ) -> Result<Option<String>> {
     if !outcome.starts_with("experience:event-") {
         return Ok(None);
     }
-    let verified_read = |reference: &str| -> Result<Option<Value>> {
+    let verified_read = |reference: &str| -> Result<Option<&Value>> {
         let Some(record) = super::recall::whole_read(s, reference) else { return Ok(None) };
         let meta = metadata(db, Some(&s.actor), reference)?;
         let digest = meta["source"].as_str().and_then(|r| r.strip_prefix("object:"))
@@ -255,13 +254,34 @@ pub(in crate::neural) fn acting_from_reads(
         {
             return Err(failure("The supplied experience does not match its original record"));
         }
-        Ok(Some(meta))
+        Ok(Some(record))
     };
     let Some(event) = verified_read(outcome)? else { return Ok(None) };
     let work = event["work"].as_str().ok_or_else(|| failure("Missing outcome activity"))?;
-    let Some(episode) = origin(db, &s.actor, work, outcome)? else { return Ok(None) };
-    let acting = episode["decision"].as_str().ok_or_else(|| failure("Missing acting decision"))?;
-    Ok(verified_read(acting)?.map(|_| acting.to_owned()))
+    let mut selected = None;
+    if let Some(episode) = origin(db, &s.actor, work, outcome)? {
+        let acting = episode["decision"].as_str().ok_or_else(|| failure("Missing acting decision"))?;
+        selected = verified_read(acting)?.map(|_| acting.to_owned());
+    }
+    // The human can address an issued edition without replying to a sentence.
+    // Bind that observation to the exact result.deliver action before a plan
+    // can use it; the most recent reader of the message is not its issuer.
+    if event["kind"] == "user_message" && event["invocation"].is_null() && event["target"] == s.actor {
+        if let Some(reference) = event["body"]["delivery"].as_str() {
+            let issued = crate::neural::activity_sources::delivery::edition(db, reference)?;
+            let seq = outcome.strip_prefix("experience:event-").and_then(|v| v.strip_suffix("@1"))
+                .and_then(|v| v.parse::<i64>().ok()).ok_or_else(|| failure("Missing feedback event sequence"))?;
+            issued.issue.check_message(&event["body"], work, &s.actor, seq)?;
+            let acting = format!("experience:{}@1", issued.issue.invocation);
+            if verified_read(&acting)?.is_some() {
+                if selected.as_ref().is_some_and(|other| other != &acting) {
+                    return Err(failure("This feedback addresses a message and a different issuing decision. Select the outcome and the one earlier decision you mean."));
+                }
+                selected = Some(acting);
+            }
+        }
+    }
+    Ok(selected)
 }
 
 pub(in crate::neural) fn observed(s: &Snapshot, reference: &str) -> bool {

@@ -154,6 +154,7 @@ pub fn delivery_files(db: &Connection, reference: &str) -> Result<Value> {
     let unknown = files.len() - here - elsewhere;
     Ok(
         json!({"reference":reference,"title":selected.issue.record.body["title"],"work":work,"here":here,
+        "issuer":selected.issue.record.body["owner"],"issuing_decision":format!("experience:{}@1",selected.issue.invocation),
         "elsewhere":elsewhere,"unknown":unknown,"files":files,"unverified_earlier":unavailable,
         "earlier":earlier.into_iter().map(|(_,row)| row).collect::<Vec<_>>()}),
     )

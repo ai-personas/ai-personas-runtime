@@ -187,7 +187,7 @@ pub(in crate::neural) fn consider(
         episode["decision"].as_str().ok_or_else(|| failure("Missing earlier acting decision"))?.to_owned()
     } else {
         experience::action::acting_from_reads(db, s, &plan.outcome)?.ok_or_else(|| failure(
-            "Choose an actual result of your action. For an older result, select the exact acting decision and its original operation result or direct reply together in next_context.references."
+            "Choose an actual result of your action. For an older result, select the acting decision and its original operation result, direct reply or feedback addressed to its exact issued edition together in next_context.references."
         ))?
     };
     observed_experience(db, s, &acting)?;
