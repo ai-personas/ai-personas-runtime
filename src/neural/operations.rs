@@ -465,7 +465,7 @@ fn internal(
             let x: tools::Register = decode(input)?;
             let digest = x.reference.strip_prefix("object:").ok_or_else(||failure("Register the exact object reference returned with the retained bytes"))?;
             if !snapshot.supplied_references.contains(&x.reference) {
-                return Err(failure("Read or select the receipt containing this object before registering its bytes"));
+                return Err(failure("Read or select the receipt containing this object before registering its bytes. For an earlier command output, command.history with its exact object reference finds the retained capture; select the matching command_run receipt in next_context.references. You need not rerun the command or recapture the current file."));
             }
             let size = super::provider_evidence::resource_bytes(db,digest)?.len();
             let asset = save_asset(db,actor,call,&operation.id,&x.path,x.base.as_deref(),digest,&x.cues,&x.qualifications,x.resource.as_ref())?;

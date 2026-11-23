@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
 mod package;
-pub use package::{export_dispatch, export_handoff, export_package, HandoffFormat};
+pub use package::{export_dispatch, export_dispatch_packet, export_handoff, export_package, HandoffFormat};
 pub(super) mod packet;
 pub(super) use packet::issue as issue_packet;
 mod correspondence;

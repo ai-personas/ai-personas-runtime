@@ -181,7 +181,9 @@ pub enum Command {
     /// Save the exact files of one delivery or human request as a portable ZIP.
     ExportPackage { reference: String, destination: PathBuf },
     /// Save exactly the files on an issuer's numbered dispatch slip (one file unchanged, otherwise ZIP).
-    ExportDispatch { delivery: String, number: usize, destination: PathBuf },
+    ExportDispatch { delivery: String, number: usize, destination: PathBuf,
+        /// Save a printable Dispatch.html and this recipient's exact files together in a ZIP.
+        #[arg(long)] packet: bool },
     /// Save a printable issued delivery or human request and its files together.
     ExportHandoff {
         reference: String,
@@ -654,7 +656,10 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
                 }),
                 Command::ActivitySources{work,persona,query}=>store.snapshot(|db|super::activity_sources::inspect(db,&work,persona.as_deref(),&query)),
                 Command::ExportPackage{reference,destination}=>store.snapshot(|db|super::human_requests::export_package(db,&reference,&destination)),
-                Command::ExportDispatch{delivery,number,destination}=>store.snapshot(|db|super::human_requests::export_dispatch(db,&delivery,number,&destination)),
+                Command::ExportDispatch{delivery,number,destination,packet}=>store.snapshot(|db|{
+                    let export = if packet { super::human_requests::export_dispatch_packet } else { super::human_requests::export_dispatch };
+                    export(db,&delivery,number,&destination)
+                }),
                 Command::ExportHandoff{reference,destination,format}=>store.snapshot(|db|super::human_requests::export_handoff(db,&reference,&destination,format)),
                 Command::CommandHistory(query)=>store.snapshot(|db|super::commands::history(db,&query)),
                 Command::GeometryHistory{reference,offset,page_size}=>store.snapshot(|db|super::geometry::history::lookup(db,&super::geometry::history::Lookup{reference,offset,page_size})),

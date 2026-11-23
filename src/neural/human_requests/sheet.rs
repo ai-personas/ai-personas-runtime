@@ -117,9 +117,21 @@ fn delivery(html: &mut String, package: &SheetDelivery, files: &[SheetFile]) {
     html.push_str("</li>");
 }
 
-fn attachment(html: &mut String, file: &SheetFile) {
+fn attachment(html: &mut String, file: &SheetFile, linked: bool) {
     html.push_str("<li><div class=\"file-heading\"><h3 class=\"filename\" dir=\"auto\">");
+    if linked {
+        // URL escaping is distinct from HTML escaping. A literal #, %, ? or
+        // non-ASCII name must open the same member the issuer selected.
+        use std::fmt::Write;
+        html.push_str("<a href=\"Files/");
+        for b in file.path.bytes() {
+            if b.is_ascii_alphanumeric() || b"-._~/".contains(&b) { html.push(char::from(b)); }
+            else { write!(html, "%{b:02X}").expect("write to string"); }
+        }
+        html.push_str("\">");
+    }
     append_text(html, &file.path);
+    if linked { html.push_str("</a>"); }
     html.push_str("</h3><span class=\"size\">");
     append_text(html, &byte_count(file.bytes));
     html.push_str("</span></div><dl class=\"item-facts\">");
@@ -178,11 +190,34 @@ pub(super) fn file_section(html: &mut String, heading: &'static str, files: &[Sh
         append_text(html, &files.len().to_string());
         html.push_str(r#")</span></h2><a class="archive" href="Files.zip" download="Files.zip"><span>Download </span>Files.zip</a></div><ul class="entries">"#);
         for file in files {
-            attachment(html, file);
+            attachment(html, file, false);
         }
         html.push_str("</ul>");
     }
     html.push_str("</section>");
+}
+
+pub(super) fn recipient(
+    package: &SheetDelivery, issuer: &str, number: usize, slip: &crate::neural::tools::Dispatch,
+    reference: &str, files: &[SheetFile],
+) -> String {
+    let mut html = header(&slip.recipient, "Recipient dispatch");
+    field(&mut html, "From edition", &package.title);
+    field(&mut html, "Issuing persona", issuer);
+    field(&mut html, "Dispatch", &number.to_string());
+    html.push_str("</dl></header>");
+    prose_section(&mut html, "Your instructions", &slip.instructions);
+    html.push_str("<section><h2>Your files</h2><p>Unpack this packet, then open the files below. Their names and contents are as issued.</p><ul class=\"entries\">");
+    for file in files { attachment(&mut html, file, true); }
+    html.push_str("</ul></section>");
+    prose_section(&mut html, "Supported use at issue", &package.supported_use);
+    html.push_str("<section><h2>Remaining at issue</h2>");
+    listed_values(&mut html, &package.remaining, "None listed");
+    html.push_str("</section><footer><dl class=\"identifiers\">");
+    field(&mut html, "Delivery revision", reference);
+    field(&mut html, "Declared scope", crate::neural::human_requests::declared_scope(&package.scope));
+    html.push_str("</dl></footer></main></body></html>");
+    html
 }
 
 pub(super) fn render(request: &RequestSheet<'_>) -> String {

@@ -106,12 +106,37 @@ fn package_files(db: &Connection, refs: &[String], writer: &mut File) -> Result<
 /// One-based slip number from an exact accepted issue. Never infer a recipient,
 /// flatten a directory tree, send to a network destination or change work state.
 pub fn export_dispatch(db: &Connection, reference: &str, number: usize, destination: &Path) -> Result<Value> {
+    save_dispatch(db, reference, number, destination, false)
+}
+
+/// A printable single-recipient packet; even a shop ZIP travels as its original file.
+pub fn export_dispatch_packet(db: &Connection, reference: &str, number: usize, destination: &Path) -> Result<Value> {
+    save_dispatch(db, reference, number, destination, true)
+}
+
+fn save_dispatch(db: &Connection, reference: &str, number: usize, destination: &Path, packet: bool) -> Result<Value> {
     let edition = crate::neural::activity_sources::delivery::edition(db, reference)?;
     let package: SheetDelivery = serde_json::from_value(edition.issue.record.body)?;
     let slip = package.dispatch(number)?;
     let parent = archive::parent(destination);
     let mut temp = tempfile::NamedTempFile::new_in(parent)?;
-    let (format, entries) = if slip.artifacts.len() == 1 {
+    let (format, entries) = if packet {
+        let mut zip = zip::ZipWriter::new(temp.as_file_mut());
+        let mut entries = Vec::new();
+        let options = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        for member in files(db, &slip.artifacts)? {
+            let (entry, bytes) = file_contents(db, member)?;
+            zip.start_file(format!("Files/{}", entry.path), options.large_file(entry.bytes >= u32::MAX as u64))?;
+            zip.write_all(&bytes)?;
+            entries.push(entry);
+        }
+        let html = sheet::recipient(&package, edition.issuer_label.as_deref().unwrap_or(&package.owner),
+            number, slip, reference, &entries);
+        zip.start_file("Dispatch.html", options.large_file(html.len() as u64 >= u32::MAX as u64))?;
+        zip.write_all(html.as_bytes())?;
+        zip.finish()?;
+        ("recipient_packet", entries)
+    } else if slip.artifacts.len() == 1 {
         let member = files(db, &slip.artifacts)?.pop().ok_or_else(|| failure("Missing dispatch file"))?;
         let (entry, bytes) = file_contents(db, member)?;
         temp.write_all(&bytes)?;

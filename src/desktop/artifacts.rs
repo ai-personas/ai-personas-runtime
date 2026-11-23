@@ -19,6 +19,8 @@ mod formats;
 mod office;
 #[path = "sound_view.rs"]
 mod sound;
+#[path = "stitch_view.rs"]
+mod stitch;
 #[path = "image_sequence.rs"]
 mod sequence;
 #[path = "sqlite_view.rs"]
@@ -78,6 +80,7 @@ enum Body {
     Database(database::Page),
     Wave(sound::Wave),
     Score(sound::Score),
+    Stitches(stitch::Plan),
 }
 struct Decoded {
     body: Body,
@@ -129,6 +132,7 @@ pub struct Viewer {
     native_document: Option<Arc<native_preview::Document>>,
     texture: Option<egui::TextureHandle>,
     animation: sequence::Player,
+    show_stitch_travel: bool,
     image_zoom: f32,
     image_pan: egui::Vec2,
     white_paper: bool,
@@ -209,6 +213,7 @@ impl Viewer {
             native_document: None,
             texture: None,
             animation: Default::default(),
+            show_stitch_travel: false,
             image_zoom: 1.0,
             image_pan: egui::Vec2::ZERO,
             white_paper: true,
@@ -308,6 +313,7 @@ impl Viewer {
         self.texture = None;
         self.error = None;
         self.animation = Default::default();
+        self.show_stitch_travel = false;
         self.image_zoom = 1.0;
         self.image_pan = egui::Vec2::ZERO;
         self.source_text = false;
@@ -636,6 +642,7 @@ impl Viewer {
             Some(Body::Book(book)) => book.kind,
             Some(Body::Wave(_)) => "Audio waveform",
             Some(Body::Score(_)) => "MIDI piano roll",
+            Some(Body::Stitches(_)) => "Tajima stitch plan",
             _ => "File preview",
         }
     }
@@ -1007,6 +1014,7 @@ impl Viewer {
             Body::Book(book) => book.ui(ui, &mut self.dataset, &mut self.table),
             Body::Wave(wave) => wave.ui(ui),
             Body::Score(score) => score.ui(ui),
+            Body::Stitches(plan) => plan.ui(ui, &mut self.show_stitch_travel, &mut self.texture),
             Body::Bytes(page) => {
                 if let Some(index) = page.ui(ui, &mut self.source_text) {
                     self.serial += 1;

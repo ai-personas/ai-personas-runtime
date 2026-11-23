@@ -275,6 +275,17 @@ pub(super) fn decode(
     let format = formats::identify(&prefix, &named, &file);
     let ext = format.as_str();
     let mut reason = String::new();
+    if ext == "dst" {
+        if len > stitch::MAX_BYTES as u64 {
+            return raw_input(file, "Design exceeds the stitch preview limit · paged bytes".into());
+        }
+        file.rewind().map_err(|e| e.to_string())?;
+        let bytes = read_all(&mut (&mut file).take(stitch::MAX_BYTES as u64 + 1))?;
+        return match stitch::Plan::read(&bytes, &name, cancel) {
+            Ok(plan) => Ok(Decoded { body: Body::Stitches(plan), note: String::new() }),
+            Err(reason) => raw_input(file, reason),
+        };
+    }
     if ext == "sqlite" {
         match database::Page::open(source, &mut file, cancel) {
             Ok(page) => {
