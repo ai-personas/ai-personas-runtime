@@ -1,0 +1,647 @@
+{
+  "assembly": {
+    "actual_supplier_acceptance": null,
+    "board_only_bom": [],
+    "board_only_cpl": [],
+    "bom_only": [],
+    "catalog_centers_on_corresponding_copper": 62,
+    "catalog_numbered_centers": 62,
+    "codes": 14,
+    "cpl_only": [],
+    "cpl_side_matches": 18,
+    "duplicate_bom": [],
+    "duplicate_cpl": [],
+    "duplicate_identity": [],
+    "factory_preview": null,
+    "fitted": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C5",
+      "C6",
+      "C7",
+      "C8",
+      "J1",
+      "J2",
+      "R1",
+      "R2",
+      "R3",
+      "R4",
+      "U1",
+      "U2",
+      "U3",
+      "U4"
+    ],
+    "identity_matches": 18,
+    "parts_per_five": 90,
+    "planned_lots": {
+      "C13527": 5,
+      "C17414": 5,
+      "C17865": 5,
+      "C2836442": 5,
+      "C2907283": 5,
+      "C2933485": 5,
+      "C309049": 5,
+      "C49678": 20,
+      "C519911": 5,
+      "C6987": 5,
+      "C75864": 5,
+      "C77075": 5,
+      "C8269": 10,
+      "C86206": 5
+    },
+    "public_listing_retrievals": {
+      "C13527": {
+        "error": null,
+        "read_for_this_intake": true,
+        "used_public_read_utc": "2026-11-23T07:51:01+00:00"
+      },
+      "C17414": {
+        "error": null,
+        "read_for_this_intake": true,
+        "used_public_read_utc": "2026-11-23T07:51:00+00:00"
+      },
+      "C17865": {
+        "error": null,
+        "read_for_this_intake": true,
+        "used_public_read_utc": "2026-11-23T07:51:02+00:00"
+      },
+      "C2836442": {
+        "error": null,
+        "read_for_this_intake": true,
+        "used_public_read_utc": "2026-11-23T07:51:00+00:00"
+      },
+      "C2907283": {
+        "error": null,
+        "read_for_this_intake": true,
+        "used_public_read_utc": "2026-11-23T07:51:01+00:00"
+      },
+      "C2933485": {
+        "error": null,
+        "read_for_this_intake": true,
+        "used_public_read_utc": "2026-11-23T07:51:06+00:00"
+      },
+      "C309049": {
+        "error": null,
+        "read_for_this_intake": true,
+        "used_public_read_utc": "2026-11-23T07:51:06+00:00"
+      },
+      "C49678": {
+        "error": null,
+        "read_for_this_intake": true,
+        "used_public_read_utc": "2026-11-23T07:51:06+00:00"
+      },
+      "C519911": {
+        "error": "<HTTPError 429: 'Too Many Requests'>",
+        "read_for_this_intake": false,
+        "used_public_read_utc": "2026-11-23T06:46:28+00:00"
+      },
+      "C6987": {
+        "error": "<HTTPError 429: 'Too Many Requests'>",
+        "read_for_this_intake": false,
+        "used_public_read_utc": "2026-11-23T06:46:29+00:00"
+      },
+      "C75864": {
+        "error": null,
+        "read_for_this_intake": true,
+        "used_public_read_utc": "2026-11-23T07:51:06+00:00"
+      },
+      "C77075": {
+        "error": "<HTTPError 429: 'Too Many Requests'>",
+        "read_for_this_intake": false,
+        "used_public_read_utc": "2026-11-23T06:46:29+00:00"
+      },
+      "C8269": {
+        "error": null,
+        "read_for_this_intake": true,
+        "used_public_read_utc": "2026-11-23T07:51:09+00:00"
+      },
+      "C86206": {
+        "error": null,
+        "read_for_this_intake": true,
+        "used_public_read_utc": "2026-11-23T07:51:11+00:00"
+      }
+    },
+    "two_stock_observations_cover_allowance": 18
+  },
+  "download": {
+    "bytes": 1781513,
+    "dispatches": [
+      {
+        "artifacts": [
+          "asset:asset-02dd0477e2b2ed45aa8989c9f9ef640a@1"
+        ],
+        "instructions": "Retain this single ZIP unchanged as the corrected successor. SHA256: 3712d5b34b3995b32a65ecf1f1565c0736dca8b20023ed23c5a98fe6ea0af24b. Do not submit it for ordering while the documented placement-compatibility hold remains open. This handoff does not authorize supplier upload, ordering, payment or building.",
+        "recipient": "Prototype shop buyer"
+      }
+    ],
+    "edition": "delivery:delivery-f6d161232b743040623be9c737f0b6e3@1",
+    "event": 1317,
+    "filename": "successor-evidence-hold.zip",
+    "issued_by": "cleo",
+    "issuing_choice": "call-8c70f956625cc89f050ab1b4beb5ee31",
+    "manifest": "SHA256SUMS.txt",
+    "manifest_entries": 879,
+    "manifest_mismatches": [],
+    "members": 880,
+    "native_and_separate_export": true,
+    "nested_archives": [],
+    "readme": "README-FIRST.txt",
+    "remaining": [
+      "Independent JLCPCB placement-datum/pin-one compatibility evidence, particularly for U1/U3/U4 rotations and U2 origin, remains necessary before unchanged-file ordering.",
+      "No supplier upload, order, payment or physical build has been performed or authorized."
+    ],
+    "scope": "partial",
+    "sha256": "3712d5b34b3995b32a65ecf1f1565c0736dca8b20023ed23c5a98fe6ea0af24b",
+    "supported_use": "Exact unchanged corrected successor ZIP for receiving review and continued supplier-interface substantiation, linked to starting edition delivery:delivery-89f04a8d85b038ce343b87b53b462122@1. Contains the editable project, manufacturing and assembly files, and bounded placement evidence. All 879 listed checksums passed; project, fabrication and assembly bytes match the previously exercised corrected provisional edition. NOT RELEASED FOR ORDERING: geometry consistency does not establish JLCPCB component-specific machine datum/orientation compatibility.",
+    "title": "Corrected bench inverter successor — placement compatibility hold",
+    "tree_sha256": "d79a81b3468b1c4a994003121ed3ff2ee2adb70961638555cedd8ff25469289d",
+    "work": "work-a3f3d19ef228041d1ac91c41c8a1214e"
+  },
+  "fabrication": {
+    "bottom": {
+      "canonical_regenerated_paste_sha256": "c12ec5883c382f6efae8e7743cb437c4987d5b48d546090ae137c8a6b116a8d7",
+      "issued_paste": null,
+      "mask": "Fabrication/inverter-B_Mask.gbs",
+      "mask_open_drill_centers_mm": [
+        [
+          37.0,
+          -37.0
+        ],
+        [
+          42.0,
+          -37.0
+        ],
+        [
+          85.0,
+          -40.0
+        ],
+        [
+          90.0,
+          -40.0
+        ]
+      ],
+      "under_regenerated_paste": 0
+    },
+    "canonical_regenerated_paste_sha256": "49e3c8142cee91d6431af61c4727561dc36653acda127052b6bd75b6d19d186e",
+    "closest_via_hole_to_paste_mm": 0.133,
+    "connector_holes": [
+      {
+        "copper_mm": [
+          2.6,
+          2.6
+        ],
+        "diameter_mm": [
+          1.3,
+          1.3
+        ],
+        "pin": "1",
+        "position": [
+          85.0,
+          40.0
+        ],
+        "ref": "J2"
+      },
+      {
+        "copper_mm": [
+          2.6,
+          2.6
+        ],
+        "diameter_mm": [
+          1.3,
+          1.3
+        ],
+        "pin": "2",
+        "position": [
+          90.0,
+          40.0
+        ],
+        "ref": "J2"
+      },
+      {
+        "copper_mm": [
+          2.6,
+          2.6
+        ],
+        "diameter_mm": [
+          1.3,
+          1.3
+        ],
+        "pin": "1",
+        "position": [
+          37.0,
+          37.0
+        ],
+        "ref": "J1"
+      },
+      {
+        "copper_mm": [
+          2.6,
+          2.6
+        ],
+        "diameter_mm": [
+          1.3,
+          1.3
+        ],
+        "pin": "2",
+        "position": [
+          42.0,
+          37.0
+        ],
+        "ref": "J1"
+      }
+    ],
+    "copper_layers": 2,
+    "drilled_component_pads": 4,
+    "drills": [
+      "Fabrication/inverter-NPTH.drl",
+      "Fabrication/inverter-PTH.drl"
+    ],
+    "duplicate_functions": [],
+    "holes": 23,
+    "in_top_mask_openings": 4,
+    "layers": {
+      "Copper,L1,Top": {
+        "issued": "inverter-F_Cu.gtl",
+        "matching_except_dates": true,
+        "objects": 229,
+        "regenerated": "inverter-F_Cu.gtl",
+        "sha256": "c7d1d8eed40106099159357c3309353e44dd0d6858095cc63c9b4ec7246d0b3b"
+      },
+      "Copper,L2,Bot": {
+        "issued": "inverter-B_Cu.gbl",
+        "matching_except_dates": true,
+        "objects": 53,
+        "regenerated": "inverter-B_Cu.gbl",
+        "sha256": "7247fd02311b2d3b1cc233e905356c04f1209adece7e667eb6da327f2c6e3784"
+      },
+      "Legend,Bot": {
+        "issued": "inverter-B_Silkscreen.gbo",
+        "matching_except_dates": true,
+        "objects": 4,
+        "regenerated": "inverter-B_Silkscreen.gbo",
+        "sha256": "0ef0e6b9690c84c0f2e2840bbdc724ff3938a259469912c10d960bc7a81914e0"
+      },
+      "Legend,Top": {
+        "issued": "inverter-F_Silkscreen.gto",
+        "matching_except_dates": true,
+        "objects": 909,
+        "regenerated": "inverter-F_Silkscreen.gto",
+        "sha256": "b54fcebff69f52bd955e266801a7817be8c48c3818d5941733d3ebd16a08c803"
+      },
+      "Profile,NP": {
+        "issued": "inverter-Edge_Cuts.gm1",
+        "matching_except_dates": true,
+        "objects": 4,
+        "regenerated": "inverter-Edge_Cuts.gm1",
+        "sha256": "2d9adf25caf2cfe048d749efe8a2df220458d810eb818645dfcd642b6f4e2ef7"
+      },
+      "Soldermask,Bot": {
+        "issued": "inverter-B_Mask.gbs",
+        "matching_except_dates": true,
+        "objects": 4,
+        "regenerated": "inverter-B_Mask.gbs",
+        "sha256": "99c404c62028d8ed7a997aadd249e8d957a07e3fdca230be4951d7b3b324d8b9"
+      },
+      "Soldermask,Top": {
+        "issued": "inverter-F_Mask.gts",
+        "matching_except_dates": true,
+        "objects": 62,
+        "regenerated": "inverter-F_Mask.gts",
+        "sha256": "1810696dab478eb70b14a5def5b001314418d36dbb0cb629dd47c714bcaa80e0"
+      },
+      "drill/NonPlated": {
+        "issued": "inverter-NPTH.drl",
+        "matching_except_dates": true,
+        "objects": 0,
+        "regenerated": "inverter-NPTH.drl",
+        "sha256": "d4be64fcebce77fc98181b53deb311ec80a4475b94a2ce7332e658a37b2bd7b0"
+      },
+      "drill/Plated": {
+        "issued": "inverter-PTH.drl",
+        "matching_except_dates": true,
+        "objects": 23,
+        "regenerated": "inverter-PTH.drl",
+        "sha256": "0891ac621416f1fe591b5e5015a6323b07c1f96e1ef0dd85a5623483e964bc79"
+      }
+    },
+    "materials": [
+      {
+        "Name": "F.Cu",
+        "Thickness": 0.035,
+        "Type": "Copper"
+      },
+      {
+        "Material": "FR4",
+        "Name": "F.Cu/B.Cu",
+        "Thickness": 1.51,
+        "Type": "Dielectric"
+      },
+      {
+        "Name": "B.Cu",
+        "Thickness": 0.035,
+        "Type": "Copper"
+      }
+    ],
+    "missing": [
+      "Paste,Bot",
+      "Paste,Top"
+    ],
+    "outline_mm": [
+      65.0,
+      45.0
+    ],
+    "overlay_paste_source": "stock regeneration from the issued board",
+    "paste_intersections": [],
+    "regenerated_separate_drill_hits": {
+      "drill/NonPlated": 0,
+      "drill/Plated": 23
+    },
+    "stack": {
+      "BoardThickness": 1.6,
+      "Finish": "None",
+      "LayerNumber": 2,
+      "ProjectId": {
+        "GUID": "696e7665-7274-4657-922e-6b696361645f",
+        "Name": "inverter",
+        "Revision": "rev?"
+      },
+      "Size": {
+        "X": 65.05,
+        "Y": 45.05
+      }
+    },
+    "thickness_mm": 1.6,
+    "top_copper": "Fabrication/inverter-F_Cu.gtl",
+    "top_mask": "Fabrication/inverter-F_Mask.gts",
+    "top_paste": null,
+    "under_top_paste": 0,
+    "unidentified_drills": 0,
+    "unrecognized": [],
+    "via_count": 19,
+    "via_geometry": [
+      {
+        "diameter_mm": 0.6,
+        "drill_mm": 0.3,
+        "net": "/+5V",
+        "position": [
+          47.5134,
+          62.3024
+        ]
+      },
+      {
+        "diameter_mm": 0.6,
+        "drill_mm": 0.3,
+        "net": "/+5V",
+        "position": [
+          46.7,
+          55.0
+        ]
+      },
+      {
+        "diameter_mm": 0.6,
+        "drill_mm": 0.3,
+        "net": "/+5V",
+        "position": [
+          48.35,
+          49.6234
+        ]
+      },
+      {
+        "diameter_mm": 0.6,
+        "drill_mm": 0.3,
+        "net": "/+5V",
+        "position": [
+          54.2,
+          58.0
+        ]
+      },
+      {
+        "diameter_mm": 0.6,
+        "drill_mm": 0.3,
+        "net": "/DIS",
+        "position": [
+          43.8577,
+          58.9688
+        ]
+      },
+      {
+        "diameter_mm": 0.6,
+        "drill_mm": 0.3,
+        "net": "/DIS",
+        "position": [
+          47.0157,
+          60.3084
+        ]
+      },
+      {
+        "diameter_mm": 0.6,
+        "drill_mm": 0.3,
+        "net": "/GND",
+        "position": [
+          43.05,
+          47.04
+        ]
+      },
+      {
+        "diameter_mm": 0.6,
+        "drill_mm": 0.3,
+        "net": "/GND",
+        "position": [
+          43.05,
+          41.96
+        ]
+      },
+      {
+        "diameter_mm": 0.6,
+        "drill_mm": 0.3,
+        "net": "/GND",
+        "position": [
+          71.35,
+          46.4
+        ]
+      },
+      {
+        "diameter_mm": 0.6,
+        "drill_mm": 0.3,
+        "net": "/GND",
+        "position": [
+          43.8474,
+          65.1026
+        ]
+      },
+      {
+        "diameter_mm": 0.6,
+        "drill_mm": 0.3,
+        "net": "/GND",
+        "position": [
+          79.3,
+          47.0
+        ]
+      },
+      {
+        "diameter_mm": 0.6,
+        "drill_mm": 0.3,
+        "net": "/GND",
+        "position": [
+          69.91,
+          53.9125
+        ]
+      },
+      {
+        "diameter_mm": 0.6,
+        "drill_mm": 0.3,
+        "net": "/GND",
+        "position": [
+          51.5,
+          46.0
+        ]
+      },
+      {
+        "diameter_mm": 0.6,
+        "drill_mm": 0.3,
+        "net": "/NQ",
+        "position": [
+          67.5009,
+          42.365
+        ]
+      },
+      {
+        "diameter_mm": 0.6,
+        "drill_mm": 0.3,
+        "net": "/NQ",
+        "position": [
+          61.5507,
+          58.1292
+        ]
+      },
+      {
+        "diameter_mm": 0.6,
+        "drill_mm": 0.3,
+        "net": "/Q",
+        "position": [
+          60.3281,
+          55.3869
+        ]
+      },
+      {
+        "diameter_mm": 0.6,
+        "drill_mm": 0.3,
+        "net": "/Q",
+        "position": [
+          67.621,
+          44.2149
+        ]
+      },
+      {
+        "diameter_mm": 0.6,
+        "drill_mm": 0.3,
+        "net": "/VIN",
+        "position": [
+          74.1207,
+          45.6593
+        ]
+      },
+      {
+        "diameter_mm": 0.6,
+        "drill_mm": 0.3,
+        "net": "/VIN",
+        "position": [
+          64.064,
+          37.3359
+        ]
+      }
+    ],
+    "vias_with_open_mask": []
+  },
+  "kicad": {
+    "board": "KiCad/inverter.kicad_pcb",
+    "board_only": [],
+    "command_exits": {
+      "drc": 0,
+      "drills": 0,
+      "erc": 0,
+      "geometry": 0,
+      "gerbers": 0,
+      "netlist": 0,
+      "parity": 0,
+      "positions": 0,
+      "version": 0
+    },
+    "different_net_names": [],
+    "drc": {
+      "counts": {},
+      "exit": 0
+    },
+    "drill_args": [
+      "--excellon-separate-th"
+    ],
+    "erc": {
+      "counts": {},
+      "exit": 0
+    },
+    "exclusions": {
+      "drc": [],
+      "erc": []
+    },
+    "gerber_args": [
+      "--subtract-soldermask"
+    ],
+    "mixed_pins": [],
+    "native_editor_note": "Both relocated native editors opened the original project files. Optional wxPython plug-ins were unavailable on the receiving installation.",
+    "native_editors": {
+      "eeschema": {
+        "capture_sha256": "7a5438d4c46b9b0eb445d18aa54135e49bb235cea6126ad052e9eca9b3954b5c",
+        "source": "inverter.kicad_sch",
+        "unchanged_sha256": "09a49d706b0faccd6e781313f6098d3d932636531f02bceb9e1f6da6c20ad705",
+        "window_title": "inverter — Schematic Editor"
+      },
+      "pcbnew": {
+        "capture_sha256": "eb2e59f91bf191d3484a0540ed1e10ea015c927bc5cb380ff905d8b35ae0c93f",
+        "source": "inverter.kicad_pcb",
+        "unchanged_sha256": "bfdf5afc3adc962e60fe310e2c1f5badc9be71886f9e149d74e2aee77043a984",
+        "window_title": "inverter — PCB Editor"
+      }
+    },
+    "net_partition_equal": true,
+    "numbered_pins": 62,
+    "parity": {
+      "counts": {},
+      "exit": 0
+    },
+    "pcb_pin_map_sha256": "d4f4b4c8555c872228161f38426d24f0546269863ce0369f85a7476b070a04ce",
+    "schematic": "KiCad/inverter.kicad_sch",
+    "schematic_only": [],
+    "schematic_pin_map_sha256": "d4f4b4c8555c872228161f38426d24f0546269863ce0369f85a7476b070a04ce",
+    "source_hashes": [
+      "09a49d706b0faccd6e781313f6098d3d932636531f02bceb9e1f6da6c20ad705",
+      "bfdf5afc3adc962e60fe310e2c1f5badc9be71886f9e149d74e2aee77043a984"
+    ],
+    "stock_version": "9.0.9"
+  },
+  "operating_point": {
+    "measured_W": null,
+    "physical_build": false,
+    "previous_basis_file": "../inverter-revision/operating-basis.json",
+    "same_schematic_pin_names_and_parts_as_predecessor": true,
+    "unchanged_operating_conditions_in_instructions": true
+  },
+  "paths": {
+    "board": "KiCad/inverter.kicad_pcb",
+    "bom": "Assembly/BOM.csv",
+    "columns": {
+      "bom_ref": "Designator",
+      "code": "LCSC Part #",
+      "cpl_ref": "Designator",
+      "mpn": "Manufacturer Part Number",
+      "rot": "Rotation",
+      "side": "Layer",
+      "x": "Mid X",
+      "y": "Mid Y"
+    },
+    "cpl": "Assembly/CPL.csv",
+    "fabrication": "Fabrication",
+    "schematic": "KiCad/inverter.kicad_sch"
+  }
+}

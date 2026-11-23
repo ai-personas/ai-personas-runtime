@@ -42,10 +42,10 @@ def shape(p):
     raise ValueError(f"Unsupported plot primitive: {type(p).__name__}")
 
 
-def openings(path, function, polarity):
+def openings(path, function, polarity, side="Top"):
     layer = GerberFile.open(path)
-    if layer.file_attrs.get(".FileFunction") != (function, "Top"):
-        raise ValueError(f"{path.name}: expected {function},Top")
+    if side not in ("Top", "Bot") or layer.file_attrs.get(".FileFunction") != (function, side):
+        raise ValueError(f"{path.name}: expected {function},{side}")
     if layer.file_attrs.get(".FilePolarity") != (polarity,):
         raise ValueError(f"{path.name}: unexpected {function} file polarity")
     image = GeometryCollection()
@@ -60,9 +60,9 @@ def openings(path, function, polarity):
     return image
 
 
-def observe(paste, mask, drills):
-    a = openings(paste, "Paste", "Positive")
-    m = openings(mask, "Soldermask", "Negative")
+def observe(paste, mask, drills, side="Top"):
+    a = openings(paste, "Paste", "Positive", side)
+    m = openings(mask, "Soldermask", "Negative", side)
     hits = []
     for path in drills:
         for obj in ExcellonFile.open(path).objects:
@@ -78,11 +78,12 @@ def observe(paste, mask, drills):
                 "paste_clearance_mm": None if a.is_empty else round(hole.distance(a), 5),
                 "mask_open_clearance_mm": None if m.is_empty else round(hole.distance(m), 5),
             })
+    label = "top" if side == "Top" else "bottom"
     return {
         "sha256": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in [paste, mask, *drills]},
         "holes": len(hits),
-        "under_top_paste": sum(h["paste_intersection_mm2"] > 0 for h in hits),
-        "in_top_mask_openings": sum(h["mask_open_intersection_mm2"] > 0 for h in hits),
+        f"under_{label}_paste": sum(h["paste_intersection_mm2"] > 0 for h in hits),
+        f"in_{label}_mask_openings": sum(h["mask_open_intersection_mm2"] > 0 for h in hits),
         "hits": hits,
     }
 
@@ -91,6 +92,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--paste", type=Path, required=True)
     parser.add_argument("--mask", type=Path, required=True)
+    parser.add_argument("--side", choices=("Top", "Bot"), default="Top")
     parser.add_argument("drills", type=Path, nargs="+")
     args = parser.parse_args()
-    print(json.dumps(observe(args.paste, args.mask, args.drills), indent=2))
+    print(json.dumps(observe(args.paste, args.mask, args.drills, args.side), indent=2))

@@ -145,7 +145,11 @@ impl App {
                     }
                 };
                 if ui.available_width() >= 630. {
-                    ui.columns(2, |cols| { remaining(&mut cols[0]); next(&mut cols[1]); });
+                    ui.columns(2, |cols| {
+                        let left = egui::Layout::top_down(egui::Align::Min);
+                        cols[0].with_layout(left, remaining);
+                        cols[1].with_layout(left, next);
+                    });
                 } else {
                     remaining(ui); ui.add_space(8.); next(ui);
                 }

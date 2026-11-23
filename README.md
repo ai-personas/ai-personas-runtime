@@ -39,6 +39,8 @@ For a single-archive edition, **Save original ZIP…** takes the persona’s exa
 
 **New brief from edition…** lets a buyer commission a revision or an independent check from the exact delivery. On the [next inverter revision](docs/inverter-shop-return.md), Arden restored schematic/board parity and corrected IC placements. Cleo independently found three remaining vias beneath solder paste and told the buyer to hold the unedited ZIP.
 
+Cleo then [sent those findings directly to Arden](docs/inverter-peer-return.md). Arden fixed the three vias and the regulator footprint; Cleo returned the exact successor ZIP to the buyer. **Brief receipts** opens the choices on both sides of a request. A new persona, Linn, independently inspected the unchanged files and [issued a hold report](examples/inverter-peer-return/independent-receiving-disposition.md).
+
 **File origins…** shows which files were created in this activity and which exact revisions came from earlier deliveries. A package also links to human requests that included that edition. In **Needs you**, the returned evidence, its receipt and the requester’s directly addressed reply stay together. [Rowan’s quote handoff](docs/assets/studio-quote-file-origins.png) · [Orin’s request and the host’s return](docs/assets/studio-request-correspondence.png)
 
 Open **File history → Deliveries using this revision** to find later packages that included an older sheet. **Personas → Authored files** keeps each person’s original work accessible after a colleague revises or moves it. [Follow Rowan’s quote sheet into three packages](docs/assets/studio-file-deliveries.png)

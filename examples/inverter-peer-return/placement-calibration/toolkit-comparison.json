@@ -1,0 +1,157 @@
+{
+  "by_reference": {
+    "C1": {
+      "center_difference_mm": 0.0,
+      "inside_copper_using_issued": 2,
+      "inside_copper_using_toolkit": 0,
+      "issued_angle": 0.0,
+      "numbered_centers": 2,
+      "toolkit_angle": 180.0
+    },
+    "C2": {
+      "center_difference_mm": 0.0,
+      "inside_copper_using_issued": 2,
+      "inside_copper_using_toolkit": 2,
+      "issued_angle": 0.0,
+      "numbered_centers": 2,
+      "toolkit_angle": 0.0
+    },
+    "C3": {
+      "center_difference_mm": 0.0,
+      "inside_copper_using_issued": 2,
+      "inside_copper_using_toolkit": 2,
+      "issued_angle": 180.0,
+      "numbered_centers": 2,
+      "toolkit_angle": 180.0
+    },
+    "C4": {
+      "center_difference_mm": 0.0,
+      "inside_copper_using_issued": 2,
+      "inside_copper_using_toolkit": 2,
+      "issued_angle": 180.0,
+      "numbered_centers": 2,
+      "toolkit_angle": 180.0
+    },
+    "C5": {
+      "center_difference_mm": 0.0,
+      "inside_copper_using_issued": 2,
+      "inside_copper_using_toolkit": 2,
+      "issued_angle": 0.0,
+      "numbered_centers": 2,
+      "toolkit_angle": 0.0
+    },
+    "C6": {
+      "center_difference_mm": 0.0,
+      "inside_copper_using_issued": 2,
+      "inside_copper_using_toolkit": 2,
+      "issued_angle": 0.0,
+      "numbered_centers": 2,
+      "toolkit_angle": 0.0
+    },
+    "C7": {
+      "center_difference_mm": 0.0,
+      "inside_copper_using_issued": 2,
+      "inside_copper_using_toolkit": 2,
+      "issued_angle": 0.0,
+      "numbered_centers": 2,
+      "toolkit_angle": 0.0
+    },
+    "C8": {
+      "center_difference_mm": 0.0,
+      "inside_copper_using_issued": 2,
+      "inside_copper_using_toolkit": 2,
+      "issued_angle": 0.0,
+      "numbered_centers": 2,
+      "toolkit_angle": 0.0
+    },
+    "J1": {
+      "center_difference_mm": 0.0,
+      "inside_copper_using_issued": 2,
+      "inside_copper_using_toolkit": 2,
+      "issued_angle": 0.0,
+      "numbered_centers": 2,
+      "toolkit_angle": 0.0
+    },
+    "J2": {
+      "center_difference_mm": 0.0,
+      "inside_copper_using_issued": 2,
+      "inside_copper_using_toolkit": 2,
+      "issued_angle": 0.0,
+      "numbered_centers": 2,
+      "toolkit_angle": 0.0
+    },
+    "R1": {
+      "center_difference_mm": 0.0,
+      "inside_copper_using_issued": 2,
+      "inside_copper_using_toolkit": 2,
+      "issued_angle": 0.0,
+      "numbered_centers": 2,
+      "toolkit_angle": 0.0
+    },
+    "R2": {
+      "center_difference_mm": 0.0,
+      "inside_copper_using_issued": 2,
+      "inside_copper_using_toolkit": 2,
+      "issued_angle": 0.0,
+      "numbered_centers": 2,
+      "toolkit_angle": 0.0
+    },
+    "R3": {
+      "center_difference_mm": 0.0,
+      "inside_copper_using_issued": 2,
+      "inside_copper_using_toolkit": 2,
+      "issued_angle": 0.0,
+      "numbered_centers": 2,
+      "toolkit_angle": 0.0
+    },
+    "R4": {
+      "center_difference_mm": 0.0,
+      "inside_copper_using_issued": 2,
+      "inside_copper_using_toolkit": 2,
+      "issued_angle": 0.0,
+      "numbered_centers": 2,
+      "toolkit_angle": 0.0
+    },
+    "U1": {
+      "center_difference_mm": 3.54e-05,
+      "inside_copper_using_issued": 9,
+      "inside_copper_using_toolkit": 1,
+      "issued_angle": 270.0,
+      "numbered_centers": 9,
+      "toolkit_angle": 0.0
+    },
+    "U2": {
+      "center_difference_mm": 0.0,
+      "inside_copper_using_issued": 3,
+      "inside_copper_using_toolkit": 3,
+      "issued_angle": 0.0,
+      "numbered_centers": 3,
+      "toolkit_angle": 0.0
+    },
+    "U3": {
+      "center_difference_mm": 0.0,
+      "inside_copper_using_issued": 8,
+      "inside_copper_using_toolkit": 8,
+      "issued_angle": 270.0,
+      "numbered_centers": 8,
+      "toolkit_angle": 270.0
+    },
+    "U4": {
+      "center_difference_mm": 0.0,
+      "inside_copper_using_issued": 14,
+      "inside_copper_using_toolkit": 14,
+      "issued_angle": 270.0,
+      "numbered_centers": 14,
+      "toolkit_angle": 270.0
+    }
+  },
+  "cli_exit": 0,
+  "code_archive_sha256": "4f224373f95692dd5ee6c564414f83e458829af26fda32cfdfa7a2f40884b545",
+  "command": "python3 -m plugins.cli -p <relocated KiCad/inverter.kicad_pcb> --autoTranslate --nonInteractive --noBackup",
+  "original_board_copy_unchanged": true,
+  "project_sha256": "bfdf5afc3adc962e60fe310e2c1f5badc9be71886f9e149d74e2aee77043a984",
+  "source": "https://github.com/bennymeg/Fabrication-Toolkit/tree/7f627b6be76081b962161b9eb9fe3a326a18c915",
+  "stock_kicad": "9.0.9",
+  "table": "Manufacturer-independent KiCad plugin from the JLCPCB KiCad guide, exercised only on a separate copy. A matching rule is not a factory review; no generated comparison file is an order input.",
+  "toolkit_positions_sha256": "11bcc436c5bd13bd9d0f7678a009b51c33ae11acd12b18b4c8a489fccc53daf5"
+}

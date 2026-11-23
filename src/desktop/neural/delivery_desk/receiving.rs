@@ -87,6 +87,66 @@ fn observed(check: &Value) -> (String, Color32) {
     ("Interrupted".into(), theme::ACCENT)
 }
 
+fn prior_file_checks(ui: &mut Ui, app: &App, package: &Package) -> Option<String> {
+    use ai_personas::neural::activity_sources::{prior_checks, PriorChecks};
+    let mut open = None;
+    egui::CollapsingHeader::new("Earlier runs on these exact files")
+        .id_salt(("prior-file-checks", &package.reference))
+        .show(ui, |ui| {
+            let page_id = ui.make_persistent_id(("prior-file-page", &app.root, &package.reference));
+            let mut page = ui.data(|d| d.get_temp::<usize>(page_id)).unwrap_or_default();
+            let id = page_id.with(page);
+            let result: Linked = ui.data_mut(|d| d.get_temp_mut_or_insert_with(id, || {
+                let slot = Arc::new(OnceLock::new());
+                let reader = Arc::clone(&slot);
+                let root = app.root.clone();
+                let query = PriorChecks { delivery: package.reference.clone(), offset: page, page_size: 1 };
+                let ctx = ui.ctx().clone();
+                std::thread::spawn(move || {
+                    let r = data::open(&root).and_then(|db| prior_checks(&db, None, &query));
+                    let _ = reader.set(r.map_err(|e| e.to_string()));
+                    ctx.request_repaint();
+                });
+                slot
+            }).clone());
+            let Some(result) = result.get() else { ui.spinner(); return; };
+            let report = match result {
+                Ok(r) => r,
+                Err(e) => {
+                    ui.weak(e);
+                    if ui.small_button("Retry earlier runs").clicked() {
+                        ui.data_mut(|d| d.remove::<Linked>(id));
+                        ui.ctx().request_repaint();
+                    }
+                    return;
+                }
+            };
+            let count = report["total"].as_u64().unwrap_or_default() as usize;
+            if count == 0 { ui.weak("No earlier full-edition run on this file set."); return; }
+            ui.weak("These files were checked before this handoff. The earlier issue had its own instructions.");
+            home::pager(ui, &mut page, count, 1, "earlier runs");
+            ui.data_mut(|d| d.insert_temp(page_id, page));
+            let row = &report["items"][0];
+            let who = s(row, "checker");
+            ui.horizontal_wrapped(|ui| {
+                avatar(ui, app.label(who), persona_color(who), 20.);
+                ui.strong(app.label(who));
+                let (label, tint) = observed(row);
+                theme::badge(ui, &label, tint);
+                if ui.link("Checking choice ↗").clicked() { open = Some(s(row,"checking_choice").to_owned()); }
+                if ui.link("Observation ↗").clicked() { open = Some(s(row,"observation").to_owned()); }
+            });
+            ui.label(s(row, "purpose"));
+            ui.horizontal_wrapped(|ui| {
+                ui.weak(format!("Original issue · {}", app.label(s(row,"issuer"))));
+                if ui.link(s(row,"title")).on_hover_text(s(row,"earlier_edition")).clicked() {
+                    open = Some(s(row,"earlier_edition").to_owned());
+                }
+            });
+        });
+    open
+}
+
 impl App {
     pub(super) fn receiving_checks(&mut self, ui: &mut Ui, package: &Package) {
         let events = self.home_index.receiving_checks(&package.reference);
@@ -104,8 +164,9 @@ impl App {
                     ui.weak(counted(events.len() as u64, "run", "runs"));
                 }
             });
+            record = prior_file_checks(ui, self, package);
             if events.is_empty() {
-                ui.weak("No persona has run a check on the files from this edition.");
+                ui.weak("No receiving run was addressed to this edition.");
                 return;
             }
             home::pager(ui, &mut page, events.len(), 1, "checks");
@@ -162,7 +223,7 @@ impl App {
                     }
                 }
             });
-            record = issue_and_check(ui, self, package, seq, who);
+            record = issue_and_check(ui, self, package, seq, who).or(record.take());
             if let Some(error) = check["error"].as_str() {
                 ui.colored_label(theme::palette(ui).ink(theme::ACCENT), error);
             }
@@ -172,7 +233,8 @@ impl App {
             let command = self.command_bench.locate(reference);
             self.command(ui.ctx(), command);
         } else if let Some(reference) = record {
-            self.open_choice_or_record(ui.ctx(), reference);
+            if reference.starts_with("delivery:") { self.open_issued_package(ui.ctx(), &reference); }
+            else { self.open_choice_or_record(ui.ctx(), reference); }
         } else if let Some(work) = activity {
             self.open_home_activity(&work);
         }

@@ -310,6 +310,8 @@ pub enum Command {
     RevisionUses(super::revision_uses::Query),
     /// Trace persona-originated activities, returned answers, exact deliveries and requester feedback.
     RequestHistory { work:String, #[command(flatten)] #[serde(flatten)] query:super::activity_requests::Query },
+    /// Trace full-file receiving checks on exact revisions before they were reissued.
+    PriorFileChecks { #[arg(long)] persona:Option<String>, #[command(flatten)] #[serde(flatten)] query:super::activity_sources::PriorChecks },
     /// Find exact lifetime records visible to a persona, optionally filtering by work, author and kind.
     ExperienceSearch {
         persona: String,
@@ -666,6 +668,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
                 Command::Read{reference,start,end}=>context::read(&store.db,&reference,start,end),
                 Command::QuestionHistory{reference}=>store.snapshot(|db|super::question_history::inspect(db,&reference)),
                 Command::RequestHistory{work,query}=>store.snapshot(|db|super::activity_requests::history(db,&work,None,&query)),
+                Command::PriorFileChecks{persona,query}=>store.snapshot(|db|super::activity_sources::prior_checks(db,persona.as_deref(),&query)),
                 Command::RevisionUses(query)=>store.snapshot(|db|super::revision_uses::inspect(db,None,&query)),
                 Command::CharacterPaths(query)=>store.snapshot(|db|super::character_paths::inspect(db,None,&query)),
                 Command::AppraisalContext{work,persona}=>store.snapshot(|db|{

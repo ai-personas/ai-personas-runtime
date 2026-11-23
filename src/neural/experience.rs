@@ -7,6 +7,7 @@ use std::collections::BTreeSet;
 pub(super) mod action;
 mod outcome_sources;
 mod receiving;
+pub(super) mod prior_checks;
 pub(super) mod recall;
 
 const EVENTS: &str = "SELECT 'event-' || e.seq AS id, e.work,e.actor,e.target,e.kind,e.digest,

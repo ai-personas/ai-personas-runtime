@@ -1,0 +1,1587 @@
+{
+  "calibration_output": "eb25593606704828fbde8d7cff4b2d056665090dd68ec4de4a7fc6e5d8acba6b",
+  "copper": "c7d1d8eed40106099159357c3309353e44dd0d6858095cc63c9b4ec7246d0b3b",
+  "library": {
+    "C13527": {
+      "package": "SOIC-14_L8.7-W3.9-P1.27-LS6.0-BL",
+      "pads": [
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "8",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.5739892,
+            2.0379944
+          ],
+          "xy_mm": [
+            3.81,
+            -2.618994000000038
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "9",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.5739892,
+            2.0379944
+          ],
+          "xy_mm": [
+            2.54,
+            -2.618994000000038
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "10",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.5739892,
+            2.0379944
+          ],
+          "xy_mm": [
+            1.27,
+            -2.618994000000038
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "11",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.5739892,
+            2.0379944
+          ],
+          "xy_mm": [
+            0.0,
+            -2.618994000000038
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "12",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.5739892,
+            2.0379944
+          ],
+          "xy_mm": [
+            -1.27,
+            -2.618994000000038
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "13",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.5739892,
+            2.0379944
+          ],
+          "xy_mm": [
+            -2.54,
+            -2.618994000000038
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "14",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.5739892,
+            2.0379944
+          ],
+          "xy_mm": [
+            -3.81,
+            -2.618994000000038
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "7",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.5739892,
+            2.0379944
+          ],
+          "xy_mm": [
+            3.81,
+            2.618994000000038
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "6",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.5739892,
+            2.0379944
+          ],
+          "xy_mm": [
+            2.54,
+            2.618994000000038
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "5",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.5739892,
+            2.0379944
+          ],
+          "xy_mm": [
+            1.27,
+            2.618994000000038
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "4",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.5739892,
+            2.0379944
+          ],
+          "xy_mm": [
+            0.0,
+            2.618994000000038
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "3",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.5739892,
+            2.0379944
+          ],
+          "xy_mm": [
+            -1.27,
+            2.618994000000038
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "2",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.5739892,
+            2.0379944
+          ],
+          "xy_mm": [
+            -2.54,
+            2.618994000000038
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "1",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.5739892,
+            2.0379944
+          ],
+          "xy_mm": [
+            -3.81,
+            2.618994000000038
+          ]
+        }
+      ],
+      "retrieved_utc": "2026-11-23T07:51:02+00:00",
+      "sha256": "2e08f4823d694f62997573f772d4fbab0d719e232766225f722964bf8f5f8a4b",
+      "url": "https://easyeda.com/api/products/C13527/components?version=6.5.22"
+    },
+    "C17414": {
+      "package": "R0805",
+      "pads": [
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "2",
+          "rot": 0.0,
+          "shape": "RECT",
+          "size_mm": [
+            1.1325352,
+            1.3770102
+          ],
+          "xy_mm": [
+            0.9999979999999742,
+            0.0
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "1",
+          "rot": 0.0,
+          "shape": "RECT",
+          "size_mm": [
+            1.1325352,
+            1.3770102
+          ],
+          "xy_mm": [
+            -0.9999979999999742,
+            0.0
+          ]
+        }
+      ],
+      "retrieved_utc": "2026-11-23T07:51:01+00:00",
+      "sha256": "ffa5015163c42c4e9fd7a30a5e87a55fd55acb105dc1d3f3df294a190fc641df",
+      "url": "https://easyeda.com/api/products/C17414/components?version=6.5.22"
+    },
+    "C17865": {
+      "package": "R0805",
+      "pads": [
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "2",
+          "rot": 0.0,
+          "shape": "RECT",
+          "size_mm": [
+            1.1325352,
+            1.3770102
+          ],
+          "xy_mm": [
+            0.9999979999999742,
+            0.0
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "1",
+          "rot": 0.0,
+          "shape": "RECT",
+          "size_mm": [
+            1.1325352,
+            1.3770102
+          ],
+          "xy_mm": [
+            -0.9999979999999742,
+            0.0
+          ]
+        }
+      ],
+      "retrieved_utc": "2026-11-23T07:51:02+00:00",
+      "sha256": "c3e4e4a404fe3a56aeeebd11909152fbe588c9fe1f5bc0e2b48e0bce8ee8235b",
+      "url": "https://easyeda.com/api/products/C17865/components?version=6.5.22"
+    },
+    "C2836442": {
+      "package": "CAP-SMD_BD6.3-L6.6-W6.6-LS7.4-FD",
+      "pads": [
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "1",
+          "rot": 0.0,
+          "shape": "RECT",
+          "size_mm": [
+            3.4999930000000004,
+            1.1999976
+          ],
+          "xy_mm": [
+            -2.6699210000000178,
+            0.0
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "2",
+          "rot": 0.0,
+          "shape": "RECT",
+          "size_mm": [
+            3.4999930000000004,
+            1.1999976
+          ],
+          "xy_mm": [
+            2.6699210000000178,
+            0.0
+          ]
+        }
+      ],
+      "retrieved_utc": "2026-11-23T07:51:01+00:00",
+      "sha256": "185bd6d72043ab894adc19e3fe87ce5c5718a70bc3573c8083ff154298791749",
+      "url": "https://easyeda.com/api/products/C2836442/components?version=6.5.22"
+    },
+    "C2907283": {
+      "package": "R0805",
+      "pads": [
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "2",
+          "rot": 0.0,
+          "shape": "RECT",
+          "size_mm": [
+            1.1325352,
+            1.3770102
+          ],
+          "xy_mm": [
+            0.9999979999999742,
+            0.0
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "1",
+          "rot": 0.0,
+          "shape": "RECT",
+          "size_mm": [
+            1.1325352,
+            1.3770102
+          ],
+          "xy_mm": [
+            -0.9999979999999742,
+            0.0
+          ]
+        }
+      ],
+      "retrieved_utc": "2026-11-23T07:51:01+00:00",
+      "sha256": "88ec2016124a28a0eab862d510674230ec56199cd9943dbd08f7043d5509c710",
+      "url": "https://easyeda.com/api/products/C2907283/components?version=6.5.22"
+    },
+    "C2933485": {
+      "package": "R0805",
+      "pads": [
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "2",
+          "rot": 0.0,
+          "shape": "RECT",
+          "size_mm": [
+            1.1325352,
+            1.3770102
+          ],
+          "xy_mm": [
+            0.9999979999999742,
+            0.0
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "1",
+          "rot": 0.0,
+          "shape": "RECT",
+          "size_mm": [
+            1.1325352,
+            1.3770102
+          ],
+          "xy_mm": [
+            -0.9999979999999742,
+            0.0
+          ]
+        }
+      ],
+      "retrieved_utc": "2026-11-23T07:51:07+00:00",
+      "sha256": "72e7d734a369fc20acc96a9c774a14b463bdab4122a328807b7594bc6999e43c",
+      "url": "https://easyeda.com/api/products/C2933485/components?version=6.5.22"
+    },
+    "C309049": {
+      "package": "C0805",
+      "pads": [
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "2",
+          "rot": 0.0,
+          "shape": "RECT",
+          "size_mm": [
+            1.4100047999999998,
+            1.3500100000000002
+          ],
+          "xy_mm": [
+            0.9999979999999742,
+            0.0
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "1",
+          "rot": 0.0,
+          "shape": "RECT",
+          "size_mm": [
+            1.4100047999999998,
+            1.3500100000000002
+          ],
+          "xy_mm": [
+            -0.9999979999999742,
+            0.0
+          ]
+        }
+      ],
+      "retrieved_utc": "2026-11-23T07:51:07+00:00",
+      "sha256": "2603335206d88dc50e86698fd8c35562d292afc227180f07e2f66f75b6e948b4",
+      "url": "https://easyeda.com/api/products/C309049/components?version=6.5.22"
+    },
+    "C49678": {
+      "package": "C0805",
+      "pads": [
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "2",
+          "rot": 0.0,
+          "shape": "RECT",
+          "size_mm": [
+            1.4100047999999998,
+            1.3500100000000002
+          ],
+          "xy_mm": [
+            0.9999979999999742,
+            0.0
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "1",
+          "rot": 0.0,
+          "shape": "RECT",
+          "size_mm": [
+            1.4100047999999998,
+            1.3500100000000002
+          ],
+          "xy_mm": [
+            -0.9999979999999742,
+            0.0
+          ]
+        }
+      ],
+      "retrieved_utc": "2026-11-23T07:51:07+00:00",
+      "sha256": "0fdedc3c30b490b1f3bcf7294aaa2730e555bcc699c24ca986761e7d7c26e498",
+      "url": "https://easyeda.com/api/products/C49678/components?version=6.5.22"
+    },
+    "C519911": {
+      "package": "C0805",
+      "pads": [
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "2",
+          "rot": 0.0,
+          "shape": "RECT",
+          "size_mm": [
+            1.4100047999999998,
+            1.3500100000000002
+          ],
+          "xy_mm": [
+            0.9999979999999742,
+            0.0
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "1",
+          "rot": 0.0,
+          "shape": "RECT",
+          "size_mm": [
+            1.4100047999999998,
+            1.3500100000000002
+          ],
+          "xy_mm": [
+            -0.9999979999999742,
+            0.0
+          ]
+        }
+      ],
+      "retrieved_utc": "2026-11-23T07:51:02+00:00",
+      "sha256": "d70a286c707dbdab0a0fecd783d3d045c6f9dd118a583d85e0100a66e7b49def",
+      "url": "https://easyeda.com/api/products/C519911/components?version=6.5.22"
+    },
+    "C6987": {
+      "package": "SOIC-8_L4.9-W3.9-P1.27-LS6.0-BL",
+      "pads": [
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "5",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.58801,
+            1.7999964
+          ],
+          "xy_mm": [
+            1.905,
+            -2.5999439999999687
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "6",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.58801,
+            1.7999964
+          ],
+          "xy_mm": [
+            0.635,
+            -2.5999439999999687
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "7",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.58801,
+            1.7999964
+          ],
+          "xy_mm": [
+            -0.635,
+            -2.5999439999999687
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "8",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.58801,
+            1.7999964
+          ],
+          "xy_mm": [
+            -1.905,
+            -2.5999439999999687
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "4",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.58801,
+            1.7999964
+          ],
+          "xy_mm": [
+            1.905,
+            2.5999439999999687
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "3",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.58801,
+            1.7999964
+          ],
+          "xy_mm": [
+            0.635,
+            2.5999439999999687
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "2",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.58801,
+            1.7999964
+          ],
+          "xy_mm": [
+            -0.635,
+            2.5999439999999687
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "1",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.58801,
+            1.7999964
+          ],
+          "xy_mm": [
+            -1.905,
+            2.5999439999999687
+          ]
+        }
+      ],
+      "retrieved_utc": "2026-11-23T07:51:03+00:00",
+      "sha256": "aedc91cecd9272c9d640e526165c23fbc1b5b9bb141d7be5beffcc7fddefe9b0",
+      "url": "https://easyeda.com/api/products/C6987/components?version=6.5.22"
+    },
+    "C75864": {
+      "package": "SO-8_L4.9-W3.9-P1.27-LS6.0-BL-EP",
+      "pads": [
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "8",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.5999988,
+            1.5999968
+          ],
+          "xy_mm": [
+            -1.9049746000000065,
+            -3.0000193999999882
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "1",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.5999988,
+            1.5999968
+          ],
+          "xy_mm": [
+            -1.9049746000000065,
+            2.999968600000001
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "7",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.5999988,
+            1.5999968
+          ],
+          "xy_mm": [
+            -0.6349746000000064,
+            -3.0000193999999882
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "6",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.5999988,
+            1.5999968
+          ],
+          "xy_mm": [
+            0.6350253999999936,
+            -3.0000193999999882
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "5",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.5999988,
+            1.5999968
+          ],
+          "xy_mm": [
+            1.9050253999999935,
+            -3.0000193999999882
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "2",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.5999988,
+            1.5999968
+          ],
+          "xy_mm": [
+            -0.6349746000000064,
+            2.999968600000001
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "3",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.5999988,
+            1.5999968
+          ],
+          "xy_mm": [
+            0.6350253999999936,
+            2.999968600000001
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "4",
+          "rot": 0.0,
+          "shape": "OVAL",
+          "size_mm": [
+            0.5999988,
+            1.5999968
+          ],
+          "xy_mm": [
+            1.9050253999999935,
+            2.999968600000001
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "9",
+          "rot": 0.0,
+          "shape": "RECT",
+          "size_mm": [
+            3.1999936,
+            2.4999949999999997
+          ],
+          "xy_mm": [
+            2.539999999362408e-05,
+            -2.539999999362408e-05
+          ]
+        }
+      ],
+      "retrieved_utc": "2026-11-23T07:51:07+00:00",
+      "sha256": "75c2fcc84638b9ff4fa7883fd5646a0926c182234b292c8298c462fcbbfe6bac",
+      "url": "https://easyeda.com/api/products/C75864/components?version=6.5.22"
+    },
+    "C77075": {
+      "package": "C0805",
+      "pads": [
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "2",
+          "rot": 0.0,
+          "shape": "RECT",
+          "size_mm": [
+            1.4100047999999998,
+            1.3500100000000002
+          ],
+          "xy_mm": [
+            0.9999979999999742,
+            0.0
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "1",
+          "rot": 0.0,
+          "shape": "RECT",
+          "size_mm": [
+            1.4100047999999998,
+            1.3500100000000002
+          ],
+          "xy_mm": [
+            -0.9999979999999742,
+            0.0
+          ]
+        }
+      ],
+      "retrieved_utc": "2026-11-23T07:51:04+00:00",
+      "sha256": "2246ef3db512f214354b7a879ee6f1038bb852985378e3190eaf71661331e57b",
+      "url": "https://easyeda.com/api/products/C77075/components?version=6.5.22"
+    },
+    "C8269": {
+      "package": "CONN-TH_2P-P5.00_WJ128V-5.0-2P",
+      "pads": [
+        {
+          "drill_mm": 1.199896,
+          "layer": "11",
+          "number": "1",
+          "rot": 0.0,
+          "shape": "ELLIPSE",
+          "size_mm": [
+            1.9999959999999999,
+            1.9999959999999999
+          ],
+          "xy_mm": [
+            -2.5044400000000033,
+            0.0
+          ]
+        },
+        {
+          "drill_mm": 1.199896,
+          "layer": "11",
+          "number": "2",
+          "rot": 0.0,
+          "shape": "ELLIPSE",
+          "size_mm": [
+            1.9999959999999999,
+            1.9999959999999999
+          ],
+          "xy_mm": [
+            2.5044400000000033,
+            0.0
+          ]
+        }
+      ],
+      "retrieved_utc": "2026-11-23T07:51:10+00:00",
+      "sha256": "76f49ccd6cc135cb8fc0619e10206eae900781492f9c1d4ee7834408a3b981a3",
+      "url": "https://easyeda.com/api/products/C8269/components?version=6.5.22"
+    },
+    "C86206": {
+      "package": "TO-263-2_L10.0-W9.2-P5.08-LS15.3-TL-CW",
+      "pads": [
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "2",
+          "rot": 0.0,
+          "shape": "RECT",
+          "size_mm": [
+            9.000007400000001,
+            10.200004999999999
+          ],
+          "xy_mm": [
+            5.3975,
+            0.0
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "3",
+          "rot": 0.0,
+          "shape": "RECT",
+          "size_mm": [
+            3.4999930000000004,
+            1.5999968
+          ],
+          "xy_mm": [
+            -5.3975,
+            2.54
+          ]
+        },
+        {
+          "drill_mm": 0.0,
+          "layer": "1",
+          "number": "1",
+          "rot": 0.0,
+          "shape": "RECT",
+          "size_mm": [
+            3.4999930000000004,
+            1.5999968
+          ],
+          "xy_mm": [
+            -5.3975,
+            -2.54
+          ]
+        }
+      ],
+      "retrieved_utc": "2026-11-23T07:51:12+00:00",
+      "sha256": "30b0c89af560929533b8fd4575559556b9600bbd65c9cfad9795c425d887ace2",
+      "url": "https://easyeda.com/api/products/C86206/components?version=6.5.22"
+    }
+  },
+  "references": {
+    "C1": [
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.03008,
+        "fraction_of_catalog_land_on_numbered_copper": 0.99137,
+        "pin": "1",
+        "xy_mm": [
+          59.33008,
+          -36.0
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.03008,
+        "fraction_of_catalog_land_on_numbered_copper": 0.99137,
+        "pin": "2",
+        "xy_mm": [
+          64.66992,
+          -36.0
+        ]
+      }
+    ],
+    "C2": [
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.05,
+        "fraction_of_catalog_land_on_numbered_copper": 0.69656,
+        "pin": "2",
+        "xy_mm": [
+          78.0,
+          -47.0
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.05,
+        "fraction_of_catalog_land_on_numbered_copper": 0.69656,
+        "pin": "1",
+        "xy_mm": [
+          76.0,
+          -47.0
+        ]
+      }
+    ],
+    "C3": [
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.05,
+        "fraction_of_catalog_land_on_numbered_copper": 0.69656,
+        "pin": "2",
+        "xy_mm": [
+          43.0,
+          -43.46
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.05,
+        "fraction_of_catalog_land_on_numbered_copper": 0.69656,
+        "pin": "1",
+        "xy_mm": [
+          45.0,
+          -43.46
+        ]
+      }
+    ],
+    "C4": [
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.05,
+        "fraction_of_catalog_land_on_numbered_copper": 0.69656,
+        "pin": "2",
+        "xy_mm": [
+          43.0,
+          -48.54
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.05,
+        "fraction_of_catalog_land_on_numbered_copper": 0.69656,
+        "pin": "1",
+        "xy_mm": [
+          45.0,
+          -48.54
+        ]
+      }
+    ],
+    "C5": [
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.05,
+        "fraction_of_catalog_land_on_numbered_copper": 0.69656,
+        "pin": "2",
+        "xy_mm": [
+          50.0,
+          -55.0
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.05,
+        "fraction_of_catalog_land_on_numbered_copper": 0.69656,
+        "pin": "1",
+        "xy_mm": [
+          48.0,
+          -55.0
+        ]
+      }
+    ],
+    "C6": [
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.05,
+        "fraction_of_catalog_land_on_numbered_copper": 0.69656,
+        "pin": "2",
+        "xy_mm": [
+          43.0,
+          -66.0
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.05,
+        "fraction_of_catalog_land_on_numbered_copper": 0.69656,
+        "pin": "1",
+        "xy_mm": [
+          41.0,
+          -66.0
+        ]
+      }
+    ],
+    "C7": [
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.05,
+        "fraction_of_catalog_land_on_numbered_copper": 0.69656,
+        "pin": "2",
+        "xy_mm": [
+          50.0,
+          -67.0
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.05,
+        "fraction_of_catalog_land_on_numbered_copper": 0.69656,
+        "pin": "1",
+        "xy_mm": [
+          48.0,
+          -67.0
+        ]
+      }
+    ],
+    "C8": [
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.05,
+        "fraction_of_catalog_land_on_numbered_copper": 0.69656,
+        "pin": "2",
+        "xy_mm": [
+          64.0,
+          -53.0
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.05,
+        "fraction_of_catalog_land_on_numbered_copper": 0.69656,
+        "pin": "1",
+        "xy_mm": [
+          62.0,
+          -53.0
+        ]
+      }
+    ],
+    "J1": [
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.00444,
+        "fraction_of_catalog_land_on_numbered_copper": 1.0,
+        "pin": "1",
+        "xy_mm": [
+          36.99556,
+          -37.0
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.00444,
+        "fraction_of_catalog_land_on_numbered_copper": 1.0,
+        "pin": "2",
+        "xy_mm": [
+          42.00444,
+          -37.0
+        ]
+      }
+    ],
+    "J2": [
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.00444,
+        "fraction_of_catalog_land_on_numbered_copper": 1.0,
+        "pin": "1",
+        "xy_mm": [
+          84.99556,
+          -40.0
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.00444,
+        "fraction_of_catalog_land_on_numbered_copper": 1.0,
+        "pin": "2",
+        "xy_mm": [
+          90.00444,
+          -40.0
+        ]
+      }
+    ],
+    "R1": [
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.0875,
+        "fraction_of_catalog_land_on_numbered_copper": 0.8534,
+        "pin": "2",
+        "xy_mm": [
+          43.0,
+          -56.0
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.0875,
+        "fraction_of_catalog_land_on_numbered_copper": 0.8534,
+        "pin": "1",
+        "xy_mm": [
+          41.0,
+          -56.0
+        ]
+      }
+    ],
+    "R2": [
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.0875,
+        "fraction_of_catalog_land_on_numbered_copper": 0.8534,
+        "pin": "2",
+        "xy_mm": [
+          43.0,
+          -61.0
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.0875,
+        "fraction_of_catalog_land_on_numbered_copper": 0.8534,
+        "pin": "1",
+        "xy_mm": [
+          41.0,
+          -61.0
+        ]
+      }
+    ],
+    "R3": [
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.0875,
+        "fraction_of_catalog_land_on_numbered_copper": 0.8534,
+        "pin": "2",
+        "xy_mm": [
+          74.0,
+          -51.0
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.0875,
+        "fraction_of_catalog_land_on_numbered_copper": 0.8534,
+        "pin": "1",
+        "xy_mm": [
+          72.0,
+          -51.0
+        ]
+      }
+    ],
+    "R4": [
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.0875,
+        "fraction_of_catalog_land_on_numbered_copper": 0.8534,
+        "pin": "2",
+        "xy_mm": [
+          57.0,
+          -58.0
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.0875,
+        "fraction_of_catalog_land_on_numbered_copper": 0.8534,
+        "pin": "1",
+        "xy_mm": [
+          55.0,
+          -58.0
+        ]
+      }
+    ],
+    "U1": [
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.12499,
+        "fraction_of_catalog_land_on_numbered_copper": 0.86122,
+        "pin": "8",
+        "xy_mm": [
+          74.99999,
+          -41.095
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.12499,
+        "fraction_of_catalog_land_on_numbered_copper": 0.86122,
+        "pin": "1",
+        "xy_mm": [
+          69.00001,
+          -41.095
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.12499,
+        "fraction_of_catalog_land_on_numbered_copper": 0.86122,
+        "pin": "7",
+        "xy_mm": [
+          74.99999,
+          -42.365
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.12499,
+        "fraction_of_catalog_land_on_numbered_copper": 0.86122,
+        "pin": "6",
+        "xy_mm": [
+          74.99999,
+          -43.635
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.12499,
+        "fraction_of_catalog_land_on_numbered_copper": 0.86122,
+        "pin": "5",
+        "xy_mm": [
+          74.99999,
+          -44.905
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.12499,
+        "fraction_of_catalog_land_on_numbered_copper": 0.86122,
+        "pin": "2",
+        "xy_mm": [
+          69.00001,
+          -42.365
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.12499,
+        "fraction_of_catalog_land_on_numbered_copper": 0.86122,
+        "pin": "3",
+        "xy_mm": [
+          69.00001,
+          -43.635
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.12499,
+        "fraction_of_catalog_land_on_numbered_copper": 0.86122,
+        "pin": "4",
+        "xy_mm": [
+          69.00001,
+          -44.905
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.0,
+        "fraction_of_catalog_land_on_numbered_copper": 1.0,
+        "pin": "9",
+        "xy_mm": [
+          72.0,
+          -43.0
+        ]
+      }
+    ],
+    "U2": [
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.0,
+        "fraction_of_catalog_land_on_numbered_copper": 0.99946,
+        "pin": "2",
+        "xy_mm": [
+          59.145,
+          -46.0
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.0,
+        "fraction_of_catalog_land_on_numbered_copper": 0.97973,
+        "pin": "3",
+        "xy_mm": [
+          48.35,
+          -48.54
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.0,
+        "fraction_of_catalog_land_on_numbered_copper": 0.97973,
+        "pin": "1",
+        "xy_mm": [
+          48.35,
+          -43.46
+        ]
+      }
+    ],
+    "U3": [
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.12494,
+        "fraction_of_catalog_land_on_numbered_copper": 0.9887,
+        "pin": "5",
+        "xy_mm": [
+          50.59994,
+          -62.905
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.12494,
+        "fraction_of_catalog_land_on_numbered_copper": 0.9887,
+        "pin": "6",
+        "xy_mm": [
+          50.59994,
+          -61.635
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.12494,
+        "fraction_of_catalog_land_on_numbered_copper": 0.9887,
+        "pin": "7",
+        "xy_mm": [
+          50.59994,
+          -60.365
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.12494,
+        "fraction_of_catalog_land_on_numbered_copper": 0.9887,
+        "pin": "8",
+        "xy_mm": [
+          50.59994,
+          -59.095
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.12494,
+        "fraction_of_catalog_land_on_numbered_copper": 0.9887,
+        "pin": "4",
+        "xy_mm": [
+          45.40006,
+          -62.905
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.12494,
+        "fraction_of_catalog_land_on_numbered_copper": 0.9887,
+        "pin": "3",
+        "xy_mm": [
+          45.40006,
+          -61.635
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.12494,
+        "fraction_of_catalog_land_on_numbered_copper": 0.9887,
+        "pin": "2",
+        "xy_mm": [
+          45.40006,
+          -60.365
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.12494,
+        "fraction_of_catalog_land_on_numbered_copper": 0.9887,
+        "pin": "1",
+        "xy_mm": [
+          45.40006,
+          -59.095
+        ]
+      }
+    ],
+    "U4": [
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.14399,
+        "fraction_of_catalog_land_on_numbered_copper": 0.92778,
+        "pin": "8",
+        "xy_mm": [
+          64.61899,
+          -63.81
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.14399,
+        "fraction_of_catalog_land_on_numbered_copper": 0.92778,
+        "pin": "9",
+        "xy_mm": [
+          64.61899,
+          -62.54
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.14399,
+        "fraction_of_catalog_land_on_numbered_copper": 0.92778,
+        "pin": "10",
+        "xy_mm": [
+          64.61899,
+          -61.27
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.14399,
+        "fraction_of_catalog_land_on_numbered_copper": 0.92778,
+        "pin": "11",
+        "xy_mm": [
+          64.61899,
+          -60.0
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.14399,
+        "fraction_of_catalog_land_on_numbered_copper": 0.92778,
+        "pin": "12",
+        "xy_mm": [
+          64.61899,
+          -58.73
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.14399,
+        "fraction_of_catalog_land_on_numbered_copper": 0.92778,
+        "pin": "13",
+        "xy_mm": [
+          64.61899,
+          -57.46
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.14399,
+        "fraction_of_catalog_land_on_numbered_copper": 0.92778,
+        "pin": "14",
+        "xy_mm": [
+          64.61899,
+          -56.19
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.14399,
+        "fraction_of_catalog_land_on_numbered_copper": 0.92778,
+        "pin": "7",
+        "xy_mm": [
+          59.38101,
+          -63.81
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.14399,
+        "fraction_of_catalog_land_on_numbered_copper": 0.92778,
+        "pin": "6",
+        "xy_mm": [
+          59.38101,
+          -62.54
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.14399,
+        "fraction_of_catalog_land_on_numbered_copper": 0.92778,
+        "pin": "5",
+        "xy_mm": [
+          59.38101,
+          -61.27
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.14399,
+        "fraction_of_catalog_land_on_numbered_copper": 0.92778,
+        "pin": "4",
+        "xy_mm": [
+          59.38101,
+          -60.0
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.14399,
+        "fraction_of_catalog_land_on_numbered_copper": 0.92778,
+        "pin": "3",
+        "xy_mm": [
+          59.38101,
+          -58.73
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.14399,
+        "fraction_of_catalog_land_on_numbered_copper": 0.92778,
+        "pin": "2",
+        "xy_mm": [
+          59.38101,
+          -57.46
+        ]
+      },
+      {
+        "center_on_numbered_copper": true,
+        "center_to_plotted_centroid_mm": 0.14399,
+        "fraction_of_catalog_land_on_numbered_copper": 0.92778,
+        "pin": "1",
+        "xy_mm": [
+          59.38101,
+          -56.19
+        ]
+      }
+    ]
+  },
+  "source": "Native EasyEDA Standard zero export of the actual catalog codes; released CPL; actual numbered top-copper Gerber flashes. The fraction compares CAD land areas (not physical lead contact)."
+}

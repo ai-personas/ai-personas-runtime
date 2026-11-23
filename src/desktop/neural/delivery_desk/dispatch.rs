@@ -116,7 +116,9 @@ impl App {
             };
             if ui.available_width() >= 680. {
                 ui.columns(2, |c| {
-                    direction(&mut c[0]);
+                    // A justified column can stretch a short word across the
+                    // whole line before a long filename or checksum.
+                    c[0].with_layout(egui::Layout::top_down(egui::Align::Min), direction);
                     contents(&mut c[1]);
                 });
             } else {

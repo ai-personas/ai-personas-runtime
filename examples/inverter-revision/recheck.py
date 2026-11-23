@@ -42,10 +42,10 @@ def number(value):
     return float(re.sub(r"\s*(mm|deg|°)\s*$", "", value, flags=re.I))
 
 
-def pad_coverage(copper, cpl, bom, columns, libraries):
+def numbered_copper(copper):
     from gerbonara import GerberFile
     from gerbonara.utils import MM
-    from shapely.geometry import Point, GeometryCollection
+    from shapely.geometry import GeometryCollection
     from drill_overlay import shape
     plotted = defaultdict(GeometryCollection)
     for ob in GerberFile.open(copper).objects:
@@ -59,6 +59,12 @@ def pad_coverage(copper, cpl, bom, columns, libraries):
             aperture = aperture.union(s) if prim.polarity_dark == ob.polarity_dark else aperture.difference(s)
         k = (ref, pin)
         plotted[k] = plotted[k].union(aperture) if ob.polarity_dark else plotted[k].difference(aperture)
+    return plotted
+
+
+def pad_coverage(copper, cpl, bom, columns, libraries):
+    from shapely.geometry import Point
+    plotted = numbered_copper(copper)
     counts = {}
     for ref, row in cpl.items():
         assert row[columns["side"]].strip().lower() in ("top", "t")
@@ -120,8 +126,9 @@ def kicad_checks(cli, project, config, fitted, fab, issued_plots):
     assert len(pins) == config["numbered_pins"] and {pins["R4", "1"], pins["R4", "2"]} == {"+5V", "GND"}
     print(f"Regenerated netlist and placement: {len(fitted)} references; {len(pins)} schematic pins, R4 across +5V and GND.")
     run("pcb", "export", "gerbers", "--layers", "F.Cu,B.Cu,F.Paste,B.Paste,F.Silkscreen,B.Silkscreen,F.Mask,B.Mask,Edge.Cuts",
+        *config.get("gerber_args", []),
         "-o", str(cam) + "/", project / config["board"])
-    run("pcb", "export", "drill", "-o", str(cam) + "/", project / config["board"])
+    run("pcb", "export", "drill", *config.get("drill_args", []), "-o", str(cam) + "/", project / config["board"])
     folder = Path(fab["top_copper"]).parent
     for name, item in fab["regenerated_layers"].items():
         before = issued_plots.read((folder / item["issued"]).as_posix())
