@@ -225,6 +225,54 @@ pub(in crate::neural) fn arrivals(
         .collect()
 }
 
+/// A return can arrive after its issuer stops. To use it in another activity,
+/// the owner must have read both the outcome and the actual acting decision.
+pub(in crate::neural) fn acting_from_reads(
+    db: &Connection, s: &Snapshot, outcome: &str,
+) -> Result<Option<String>> {
+    if !outcome.starts_with("experience:event-") {
+        return Ok(None);
+    }
+    let verified_read = |reference: &str| -> Result<Option<&Value>> {
+        let Some(record) = super::recall::whole_read(s, reference) else { return Ok(None) };
+        let meta = metadata(db, Some(&s.actor), reference)?;
+        let digest = meta["source"].as_str().and_then(|r| r.strip_prefix("object:"))
+            .ok_or_else(|| failure("Missing experience source"))?;
+        let body: Value = store::object(db, digest)?;
+        if !meta.as_object().is_some_and(|m| m.iter().all(|(k, v)| record.get(k) == Some(v)))
+            || record["body"] != body
+        {
+            return Err(failure("The supplied experience does not match its original record"));
+        }
+        Ok(Some(record))
+    };
+    let Some(event) = verified_read(outcome)? else { return Ok(None) };
+    let work = event["work"].as_str().ok_or_else(|| failure("Missing outcome activity"))?;
+    let mut selected = None;
+    if let Some(episode) = origin(db, &s.actor, work, outcome)? {
+        let acting = episode["decision"].as_str().ok_or_else(|| failure("Missing acting decision"))?;
+        selected = verified_read(acting)?.map(|_| acting.to_owned());
+    }
+    // Edition feedback need not be a reply to a message. Verify the actual
+    // result.deliver operation and its issue, not the last reader of the return.
+    if event["kind"] == "user_message" && event["invocation"].is_null() && event["target"] == s.actor {
+        if let Some(reference) = event["body"]["delivery"].as_str() {
+            let edition = crate::neural::activity_sources::delivery::edition(db, reference)?;
+            let seq = outcome.strip_prefix("experience:event-").and_then(|v| v.strip_suffix("@1"))
+                .and_then(|v| v.parse::<i64>().ok()).ok_or_else(|| failure("Missing feedback event sequence"))?;
+            edition.issue.check_message(&event["body"], work, &s.actor, seq)?;
+            let acting = format!("experience:{}@1", edition.issue.invocation);
+            if verified_read(&acting)?.is_some() {
+                if selected.as_ref().is_some_and(|other| other != &acting) {
+                    return Err(failure("This feedback addresses a message and a different issuing decision. Select the outcome and the one earlier decision you mean."));
+                }
+                selected = Some(acting);
+            }
+        }
+    }
+    Ok(selected)
+}
+
 pub(in crate::neural) fn observed(s: &Snapshot, reference: &str) -> bool {
     if s.development_version < 8 || s.model.is_none() || !s.data["context_recovery"].is_null() {
         return false;
