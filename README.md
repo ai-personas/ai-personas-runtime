@@ -19,6 +19,8 @@ For a handoff you can use, [download the repair-fair print kit](examples/repair-
 
 For a physical-design handoff, [take Mara’s P124 inspection-nest ZIP](examples/solar-inspection-nest/P124_inspection_nest.zip). A print shop can slice the STL unchanged; the ZIP also includes editable STEP and CadQuery source. [See the 66-layer slice, nominal panel fit and remaining tolerance qualification](docs/solar-inspection-nest.md). In Studio, select the STL inside the issued ZIP and use **Measure mesh…** to inspect the actual opening.
 
+[Take Mara’s BC-17 rear adhesive cutting file](examples/solar-bond-strip/BC17-A-cut-package.zip). The unedited SVG fits the bracket and clears the solder pads over the [full drawing tolerances](docs/solar-bond-strip.md), with two clearances exactly at the limit.
+
 [Download Ren’s two HG-42 cut-shop ZIPs](examples/character-mask-trial/). Both passed the full drawing tolerances without an artwork edit. [Follow the issuing choices back to their numerical characters](docs/character-mask-trial.md) to see why this was a manufacturing tie rather than evidence that a revised persona worked better.
 
 [Acceptance evidence map](docs/acceptance-map.md): what each of the 44 design criteria has evidence for, where an unedited delivery failed, and which claims are still open.

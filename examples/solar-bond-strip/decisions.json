@@ -1,0 +1,982 @@
+{
+  "design": "7d86efb31a0323e03166a5c5212cdcd8b2e32f36",
+  "live_runtime": "96981bf",
+  "registered_before_invitation": "6dd2989",
+  "source": {
+    "source": "2adb51395c4ec5f2e011bfd3d15ebb3a60180ae10022a02b5e16282b10772631",
+    "through": 85,
+    "people": {
+      "mara": [
+        "4b93fb925ed8a28e8dec0833fafc1e4b42d11aac795ccf2f73fa98fd97ac85ed",
+        1
+      ],
+      "oren": [
+        null,
+        0
+      ]
+    },
+    "inputs": {
+      "P124_dwg.pdf": "8439a6f4dd57c1d503e8cdea9341622d16c294261dbb5f9d12c029a7c0255d64",
+      "BC-17-A.txt": "3e2ce01f89671b3bd9dea46be678202a098d1da0455a9ddcfaf8232e044b963e"
+    },
+    "desktop_sha256": "80372e3467990200a454b9464285209fa47148bdcb977e6345377f052455dd8b",
+    "cli_sha256": "166f4f1c63699983148b7e536937a2f30efb62099fb0b6878dc43c72adbc3c0b",
+    "host": "34b7131e862a3595ef12e6d4b28669dda6e67855a9c17c579d66da167c158c67"
+  },
+  "work": "work-c09568d7713db606e8cdd7eb8f1f1203",
+  "opening": {
+    "brief": "work:work-c09568d7713db606e8cdd7eb8f1f1203@1",
+    "created": "2026-11-23 13:02:10 UTC",
+    "decision": null,
+    "files": [
+      {
+        "bytes": 2627,
+        "name": "BC-17-A.txt",
+        "reference": "object:3e2ce01f89671b3bd9dea46be678202a098d1da0455a9ddcfaf8232e044b963e",
+        "sha256": "3e2ce01f89671b3bd9dea46be678202a098d1da0455a9ddcfaf8232e044b963e"
+      }
+    ],
+    "from_edition": null,
+    "need": "Our exhibit shop needs a knife-cut rear mounting adhesive for unwired Voltaic P124 R4G modules. Give the cutter operator a downloadable ZIP with the ready-to-cut 1:1 SVG and placement directions. The released shop interface BC-17 Rev A is attached; the manufacturer's P124_dwg.pdf and BC-17-A.txt are in the shared project reference folder. We need one adhesive piece that covers the bracket lands and leaves the pad pair and its top wire exit clear across the drawing and shop tolerances. Nobody is available to modify the artwork. Physical adhesion qualification and installation will happen later.",
+    "requester": "Exhibit shop",
+    "source": "operator",
+    "source_work": null
+  },
+  "operator_intake": [
+    {
+      "actor": "Exhibit shop",
+      "at": "2026-11-23 13:02:10 UTC",
+      "event": 86,
+      "kind": "invitation",
+      "record": "experience:event-86@1",
+      "target": "mara"
+    }
+  ],
+  "model": "gpt-6.1-sol",
+  "connection": "direct Codex OAuth",
+  "effort": "medium",
+  "states": {
+    "accepted": 13,
+    "rejected": 2
+  },
+  "verified_inputs_and_outputs": 15,
+  "calls": [
+    {
+      "id": "call-ff22591c8c48a80e8bf1ab39eb2cf5ef",
+      "state": "accepted",
+      "actor": "mara",
+      "snapshot": "688ce4a5a17ee4cecef3be84a03cf0e25e65634da7f117385da92729bb0bf772",
+      "response": "6f3d1c8c10e10a172b2fb719c0e6e6d33f74135538e8d217d6956d07189b20d2",
+      "receipt": "430938f56fc45df19e5009c3ae40c6924e9a1c026412b30ab8532beba0b23724",
+      "request_sha256": "02a653c5728a9b2c7f634480efbce6fa0506b27db34ec0b747ed7788befdd7b0",
+      "terminal_output_sha256": "34494313e11a072c6cdcd855932d024e3036ee43b1cf074ac110eeb1d480280b",
+      "package": "4b93fb925ed8a28e8dec0833fafc1e4b42d11aac795ccf2f73fa98fd97ac85ed",
+      "epoch": 1,
+      "selected": [],
+      "held_out_supplied": false,
+      "full_shop_spec": false,
+      "prior_method_full_text": false,
+      "prior_method_reference": false,
+      "reason": "I will produce and verify the cut geometry and operator package against the supplied interfaces.",
+      "continuation": {
+        "kind": "ready",
+        "purpose": "Inspect supplied interface and discover local execution tools"
+      },
+      "maintenance": "no_change",
+      "next_model": "preserve",
+      "operations": [
+        "peer.respond",
+        "asset.read",
+        "tools.describe"
+      ],
+      "image_inputs": [],
+      "basis": "baseline",
+      "numerical": "78b2306f37686efa0d6d5c404d2c389f68f76cea149cd3b2c9b7fe352789d3e6",
+      "inclinations": {
+        "assertiveness": 0.3799489622552249,
+        "challenge": 0.24491866240370913,
+        "clarification": 0.197375320224904,
+        "collaboration": 0.3363755443363322,
+        "detail": 0.14888503362331798,
+        "exploration": 0.5370495669980353,
+        "initiative": 0.4218990052500079,
+        "integration": 0.4218990052500079,
+        "persistence": 0.46211715726000974,
+        "revision": 0.4218990052500079,
+        "verification": 0.46211715726000974,
+        "warmth": 0.5716699660851173
+      }
+    },
+    {
+      "id": "call-7f37293ab48c224a80ac3d855ee52524",
+      "state": "accepted",
+      "actor": "mara",
+      "snapshot": "6e3e1728aadb3ac76ea1fbfec14fc777be1a3abf8d5e9744c256469eaccf1807",
+      "response": "5e1566fced03b1f76b4f679ff2756ecb242f2a66cbd4af2fec94ff25d6765826",
+      "receipt": "1184bd52087f147049ba7dbab379450f1270c5b4995e4f1311d57a14ec7746ff",
+      "request_sha256": "b93925cdecb88c95deb8051d740a0fc4a2134f0b7dbe980afc061e25471acbdf",
+      "terminal_output_sha256": "ef1c4b7648266aaf3656cced1b5c5ce365d91f5ea976363a72476d5528e6c1d8",
+      "package": "4b93fb925ed8a28e8dec0833fafc1e4b42d11aac795ccf2f73fa98fd97ac85ed",
+      "epoch": 1,
+      "selected": [],
+      "held_out_supplied": false,
+      "full_shop_spec": true,
+      "prior_method_full_text": false,
+      "prior_method_reference": false,
+      "reason": "The shop interface defines the tolerance and coverage checks; I next need the controlling module dimensions.",
+      "continuation": {
+        "kind": "ready",
+        "purpose": "Read local drawing dimensions"
+      },
+      "maintenance": "no_change",
+      "next_model": "preserve",
+      "operations": [
+        "command.local"
+      ],
+      "image_inputs": [],
+      "basis": "baseline",
+      "numerical": "78b2306f37686efa0d6d5c404d2c389f68f76cea149cd3b2c9b7fe352789d3e6",
+      "inclinations": {
+        "assertiveness": 0.3799489622552249,
+        "challenge": 0.24491866240370913,
+        "clarification": 0.197375320224904,
+        "collaboration": 0.3363755443363322,
+        "detail": 0.14888503362331798,
+        "exploration": 0.5370495669980353,
+        "initiative": 0.4218990052500079,
+        "integration": 0.4218990052500079,
+        "persistence": 0.46211715726000974,
+        "revision": 0.4218990052500079,
+        "verification": 0.46211715726000974,
+        "warmth": 0.5716699660851173
+      }
+    },
+    {
+      "id": "call-4f74201d12771c81d53e0650da000bd3",
+      "state": "accepted",
+      "actor": "mara",
+      "snapshot": "1c9b3e54f87485423b056815bab91af40de8d6c4d7bbfc56983a0590e953209b",
+      "response": "ebebb4335009b3faf4e7d84cceb110db2a45c2143672e3ac23dd805f47e2cece",
+      "receipt": "ca6c79e87dcf3c740e1e34913d9db0a68943df901aad00e6b0b12eec1d625484",
+      "request_sha256": "dc7ab02e9b37f51bd03a3849021051182a69a92e3c447d43ada6ae531236ac68",
+      "terminal_output_sha256": "8275f623feb6824c452e6c99ef9f181a8f55fbd74643bc58dac082533b6315fe",
+      "package": "4b93fb925ed8a28e8dec0833fafc1e4b42d11aac795ccf2f73fa98fd97ac85ed",
+      "epoch": 1,
+      "selected": [
+        "object:3e2ce01f89671b3bd9dea46be678202a098d1da0455a9ddcfaf8232e044b963e"
+      ],
+      "held_out_supplied": false,
+      "full_shop_spec": true,
+      "prior_method_full_text": false,
+      "prior_method_reference": false,
+      "reason": "The supplied PDF has no extractable drawing text; a rendered inspection is needed.",
+      "continuation": {
+        "kind": "ready",
+        "purpose": "Inspect drawing image"
+      },
+      "maintenance": "no_change",
+      "next_model": "preserve",
+      "operations": [
+        "command.local",
+        "tools.describe"
+      ],
+      "image_inputs": [],
+      "basis": "baseline",
+      "numerical": "78b2306f37686efa0d6d5c404d2c389f68f76cea149cd3b2c9b7fe352789d3e6",
+      "inclinations": {
+        "assertiveness": 0.3799489622552249,
+        "challenge": 0.24491866240370913,
+        "clarification": 0.197375320224904,
+        "collaboration": 0.3363755443363322,
+        "detail": 0.14888503362331798,
+        "exploration": 0.5370495669980353,
+        "initiative": 0.4218990052500079,
+        "integration": 0.4218990052500079,
+        "persistence": 0.46211715726000974,
+        "revision": 0.4218990052500079,
+        "verification": 0.46211715726000974,
+        "warmth": 0.5716699660851173
+      }
+    },
+    {
+      "id": "call-108c092f7cb9717359f9e55b0719b5f6",
+      "state": "accepted",
+      "actor": "mara",
+      "snapshot": "7d8d25e11d6474323829b06a0823bfadfe679fca6dae3aaba3288dca7bdca73b",
+      "response": "763cadf77776338f7d7cc67b6302e22c7950238bee6531e503ea48f086c8d531",
+      "receipt": "2e89fe46bbbed2e76da850fc9aba14b6bc6f4df5157019ff870da3b7b5a985f8",
+      "request_sha256": "5c58cc25d67f08b57f1cc32c6fd3cc55020ac4fac0a4cbde0db59818a35713d6",
+      "terminal_output_sha256": "effc211a7d3b8d54760bef9c48c2a7d25f0d68eb8f2a3659e7c2727fcd2d1076",
+      "package": "4b93fb925ed8a28e8dec0833fafc1e4b42d11aac795ccf2f73fa98fd97ac85ed",
+      "epoch": 1,
+      "selected": [
+        "object:3e2ce01f89671b3bd9dea46be678202a098d1da0455a9ddcfaf8232e044b963e"
+      ],
+      "held_out_supplied": false,
+      "full_shop_spec": true,
+      "prior_method_full_text": false,
+      "prior_method_reference": false,
+      "reason": "Rendering failed because the output path was unwritable; use a project-local output instead.",
+      "continuation": {
+        "kind": "ready",
+        "purpose": "Read rendered drawing"
+      },
+      "maintenance": "no_change",
+      "next_model": "preserve",
+      "operations": [
+        "command.local"
+      ],
+      "image_inputs": [],
+      "basis": "baseline",
+      "numerical": "78b2306f37686efa0d6d5c404d2c389f68f76cea149cd3b2c9b7fe352789d3e6",
+      "inclinations": {
+        "assertiveness": 0.3799489622552249,
+        "challenge": 0.24491866240370913,
+        "clarification": 0.197375320224904,
+        "collaboration": 0.3363755443363322,
+        "detail": 0.14888503362331798,
+        "exploration": 0.5370495669980353,
+        "initiative": 0.4218990052500079,
+        "integration": 0.4218990052500079,
+        "persistence": 0.46211715726000974,
+        "revision": 0.4218990052500079,
+        "verification": 0.46211715726000974,
+        "warmth": 0.5716699660851173
+      }
+    },
+    {
+      "id": "call-2034e9552c784c01bd5b5e592576dfec",
+      "state": "accepted",
+      "actor": "mara",
+      "snapshot": "6b23333980aa1d2d0e41d11954c7a6970685a21e7663a948d406e6e4d4e966e9",
+      "response": "f1bd0f5ef709e4ba32e589baf8768fb1ccc1154b2d1434c31d3931dc62ea013c",
+      "receipt": "6613e1a3548fb90e995217bc1ac636bbe2afd8b44c964ae679d930bb6320348a",
+      "request_sha256": "bd1e2496501011f546a36d0b2349d84c16d555b22806d5f4f443f197cf758a1c",
+      "terminal_output_sha256": "fa874f0323ced8f6ce34cd4b2f8ea760875cab16a63d048d4a440bfe6e84779e",
+      "package": "4b93fb925ed8a28e8dec0833fafc1e4b42d11aac795ccf2f73fa98fd97ac85ed",
+      "epoch": 1,
+      "selected": [
+        "object:3e2ce01f89671b3bd9dea46be678202a098d1da0455a9ddcfaf8232e044b963e"
+      ],
+      "held_out_supplied": false,
+      "full_shop_spec": true,
+      "prior_method_full_text": false,
+      "prior_method_reference": false,
+      "reason": "The project-local drawing render succeeded; inspect it to derive the tolerance envelope.",
+      "continuation": {
+        "kind": "ready",
+        "purpose": "Derive geometry from drawing"
+      },
+      "maintenance": "no_change",
+      "next_model": "preserve",
+      "operations": [
+        "image.read"
+      ],
+      "image_inputs": [],
+      "basis": "baseline",
+      "numerical": "78b2306f37686efa0d6d5c404d2c389f68f76cea149cd3b2c9b7fe352789d3e6",
+      "inclinations": {
+        "assertiveness": 0.3799489622552249,
+        "challenge": 0.24491866240370913,
+        "clarification": 0.197375320224904,
+        "collaboration": 0.3363755443363322,
+        "detail": 0.14888503362331798,
+        "exploration": 0.5370495669980353,
+        "initiative": 0.4218990052500079,
+        "integration": 0.4218990052500079,
+        "persistence": 0.46211715726000974,
+        "revision": 0.4218990052500079,
+        "verification": 0.46211715726000974,
+        "warmth": 0.5716699660851173
+      }
+    },
+    {
+      "id": "call-0ca9803e94be9f57e6f76f552bcea652",
+      "state": "rejected",
+      "actor": "mara",
+      "snapshot": "a36295501391df16b2b22111c9399d9ce053d3d4cb6fe3938cb236a731ff6593",
+      "response": "61086b3b1f5d111c30f0c5bbdedfeb4ecedc05eed79a996df2179976f042f6cb",
+      "receipt": "914d990a2b2e525de6019f48186cd5f6b287d6db8d94a515542f9ba397d4c22f",
+      "request_sha256": "c210a67d43f2e851c87bd6a20d87f580d860b042de520846903a904b6a00533a",
+      "terminal_output_sha256": "5e5ea70e612728041160637af7fb196f86cfdbebdd0f4d06ee09c750517c7f29",
+      "package": "4b93fb925ed8a28e8dec0833fafc1e4b42d11aac795ccf2f73fa98fd97ac85ed",
+      "epoch": 1,
+      "selected": [
+        "object:3e2ce01f89671b3bd9dea46be678202a098d1da0455a9ddcfaf8232e044b963e"
+      ],
+      "held_out_supplied": false,
+      "full_shop_spec": true,
+      "prior_method_full_text": false,
+      "prior_method_reference": false,
+      "reason": "Read the controlling rear-view dimensions and general tolerance. A right-edge-referenced, open-top notched contour can cover all three lands while clearing the complete pad aisle.",
+      "continuation": {
+        "kind": "ready",
+        "purpose": "Build and digitally verify the cutting package"
+      },
+      "maintenance": "no_change",
+      "next_model": "preserve",
+      "operations": [
+        "command.local",
+        "tools.describe"
+      ],
+      "image_inputs": [
+        {
+          "reference": "object:8c790b4136706cef2af6cdef2997a2c46989e8b5af65c5d4fcf762d6d3b88603",
+          "bytes": 288869,
+          "url_sha256": "c97f07de02f05995961d36a242d031ce23f7dfeb70c7b004cb7d8b35b0cee4dd"
+        }
+      ],
+      "rejection": {
+        "event": 96,
+        "reason": "Choose next_context.appraisal explicitly: {kind:baseline,reason}, {kind:evaluate,appraisal,reason}, {kind:before_action,appraisal,alternatives,reason} or {kind:reuse,evaluation,reason}"
+      }
+    },
+    {
+      "id": "call-695729ac2d85a4a51489dafc7babc5e7",
+      "state": "accepted",
+      "actor": "mara",
+      "snapshot": "6ad1568f3cc917df68e68e35e1b3a53b352427decb60d7abe8a02769ab73b179",
+      "response": "86b0f6530dae742279852bce2418ccea719b871da3a9d6af93b4bb2b46a1b800",
+      "receipt": "ba21d6ad9abe5bbf364b9d77df2e9d2032f9919c4802d452312270367e76ac0e",
+      "request_sha256": "62b2993fee36f0af7812348795659324cdfc70a6c136e74bf72f9db9d7cfc45d",
+      "terminal_output_sha256": "ced7969257e765f5f01b43371d02334634e6a885a733a2afc7def517eade8d1b",
+      "package": "4b93fb925ed8a28e8dec0833fafc1e4b42d11aac795ccf2f73fa98fd97ac85ed",
+      "epoch": 1,
+      "selected": [
+        "object:3e2ce01f89671b3bd9dea46be678202a098d1da0455a9ddcfaf8232e044b963e"
+      ],
+      "held_out_supplied": false,
+      "full_shop_spec": true,
+      "prior_method_full_text": false,
+      "prior_method_reference": false,
+      "reason": "Read the drawing: finished width 66±0.5, pad top 15.5±1, left pad X=26±1, pad size 4 with general ±0.3, and inter-pad gap 6 with general ±0.3. A top-open U contour can meet the land and clearance requirements.",
+      "continuation": {
+        "kind": "ready",
+        "purpose": "Inspect candidate geometry and package checks"
+      },
+      "maintenance": "no_change",
+      "next_model": "preserve",
+      "operations": [
+        "command.local"
+      ],
+      "image_inputs": [
+        {
+          "reference": "object:8c790b4136706cef2af6cdef2997a2c46989e8b5af65c5d4fcf762d6d3b88603",
+          "bytes": 288869,
+          "url_sha256": "c97f07de02f05995961d36a242d031ce23f7dfeb70c7b004cb7d8b35b0cee4dd"
+        }
+      ],
+      "basis": "baseline",
+      "numerical": "78b2306f37686efa0d6d5c404d2c389f68f76cea149cd3b2c9b7fe352789d3e6",
+      "inclinations": {
+        "assertiveness": 0.3799489622552249,
+        "challenge": 0.24491866240370913,
+        "clarification": 0.197375320224904,
+        "collaboration": 0.3363755443363322,
+        "detail": 0.14888503362331798,
+        "exploration": 0.5370495669980353,
+        "initiative": 0.4218990052500079,
+        "integration": 0.4218990052500079,
+        "persistence": 0.46211715726000974,
+        "revision": 0.4218990052500079,
+        "verification": 0.46211715726000974,
+        "warmth": 0.5716699660851173
+      }
+    },
+    {
+      "id": "call-15a92df363830941d078d2582eb74650",
+      "state": "accepted",
+      "actor": "mara",
+      "snapshot": "6aacbf0db09f7ba0356b3c3526200ceb5eb0ccf9111aebd36e5549843b7952ee",
+      "response": "600d07f219cfb0bf7b1ab32e1dbbc08eceb480e8d9cb2293f5ae67b10a4ee65e",
+      "receipt": "d2ac532ddcc74df5fa97350f1dfcdcfdd6711ac76c0d4877018a83b293747c81",
+      "request_sha256": "377a4d269455305db1999226070d7d4e9d4725fa909db936a798ca6d1682c0d2",
+      "terminal_output_sha256": "04d17c21ddbe5573ca4fdb03929d027e768bec1d49ebd65b184d6236416a82f6",
+      "package": "4b93fb925ed8a28e8dec0833fafc1e4b42d11aac795ccf2f73fa98fd97ac85ed",
+      "epoch": 1,
+      "selected": [
+        "object:3e2ce01f89671b3bd9dea46be678202a098d1da0455a9ddcfaf8232e044b963e",
+        "object:8c790b4136706cef2af6cdef2997a2c46989e8b5af65c5d4fcf762d6d3b88603"
+      ],
+      "held_out_supplied": false,
+      "full_shop_spec": true,
+      "prior_method_full_text": false,
+      "prior_method_reference": false,
+      "reason": "The candidate SVG, directions and ZIP were generated successfully. The source drawing and shop interface support the stated geometry; I will now check the actual SVG geometry against worst-case constraints before issuing it.",
+      "continuation": {
+        "kind": "ready",
+        "purpose": "Review independent geometry check and delivery schemas"
+      },
+      "maintenance": "no_change",
+      "next_model": "preserve",
+      "operations": [
+        "command.local",
+        "tools.describe"
+      ],
+      "image_inputs": [
+        {
+          "reference": "object:8c790b4136706cef2af6cdef2997a2c46989e8b5af65c5d4fcf762d6d3b88603",
+          "bytes": 288869,
+          "url_sha256": "c97f07de02f05995961d36a242d031ce23f7dfeb70c7b004cb7d8b35b0cee4dd"
+        }
+      ],
+      "basis": "baseline",
+      "numerical": "78b2306f37686efa0d6d5c404d2c389f68f76cea149cd3b2c9b7fe352789d3e6",
+      "inclinations": {
+        "assertiveness": 0.3799489622552249,
+        "challenge": 0.24491866240370913,
+        "clarification": 0.197375320224904,
+        "collaboration": 0.3363755443363322,
+        "detail": 0.14888503362331798,
+        "exploration": 0.5370495669980353,
+        "initiative": 0.4218990052500079,
+        "integration": 0.4218990052500079,
+        "persistence": 0.46211715726000974,
+        "revision": 0.4218990052500079,
+        "verification": 0.46211715726000974,
+        "warmth": 0.5716699660851173
+      }
+    },
+    {
+      "id": "call-5116299b298902c44588d066c5f6243d",
+      "state": "accepted",
+      "actor": "mara",
+      "snapshot": "f1e16709867486c71f11a3c2fbc9073eea26de49e158fe9ac9e57cd6925387ea",
+      "response": "30079e91d495ca1e2a35cd3b5bac8d954088383cb6eb0e46d7a9ed352a5baebf",
+      "receipt": "8eda57ed7c45563ecb8c8d40f39ecb1f6f8a08ec690c9b977d5c0fa46d38d250",
+      "request_sha256": "e3a5313cb3708273ff5d164bd231474edb3cc3a2d01ec89e7c311b7ba156ede8",
+      "terminal_output_sha256": "386fe62528e3dc6ce5c604a2128cc93114add53d63b10f4c3a43f003e4756dd5",
+      "package": "4b93fb925ed8a28e8dec0833fafc1e4b42d11aac795ccf2f73fa98fd97ac85ed",
+      "epoch": 1,
+      "selected": [
+        "object:3e2ce01f89671b3bd9dea46be678202a098d1da0455a9ddcfaf8232e044b963e"
+      ],
+      "held_out_supplied": false,
+      "full_shop_spec": true,
+      "prior_method_full_text": false,
+      "prior_method_reference": false,
+      "reason": "The exported SVG passed the independent geometry check, including all eight width/placement extremes, land coverage, wire clearance and minimum eroded area. I will inspect the operator-facing directions before releasing the ZIP.",
+      "continuation": {
+        "kind": "ready",
+        "purpose": "Review packaged directions and release the verified artwork"
+      },
+      "maintenance": "no_change",
+      "next_model": "preserve",
+      "operations": [
+        "command.local"
+      ],
+      "image_inputs": [],
+      "basis": "baseline",
+      "numerical": "78b2306f37686efa0d6d5c404d2c389f68f76cea149cd3b2c9b7fe352789d3e6",
+      "inclinations": {
+        "assertiveness": 0.3799489622552249,
+        "challenge": 0.24491866240370913,
+        "clarification": 0.197375320224904,
+        "collaboration": 0.3363755443363322,
+        "detail": 0.14888503362331798,
+        "exploration": 0.5370495669980353,
+        "initiative": 0.4218990052500079,
+        "integration": 0.4218990052500079,
+        "persistence": 0.46211715726000974,
+        "revision": 0.4218990052500079,
+        "verification": 0.46211715726000974,
+        "warmth": 0.5716699660851173
+      }
+    },
+    {
+      "id": "call-5fb271857981a771391b0c1412438095",
+      "state": "rejected",
+      "actor": "mara",
+      "snapshot": "adaf2f8ddfd8bbf13a6735bf5677437b3175fc2573ca7d7b3dbbd942811d1d54",
+      "response": "5a540b63b7e90e96f956c19795b89fc65b09270f92cc146fbd35d74d1083a527",
+      "receipt": "93226c368baf9dcaf6788a6ca5497a04c5fae3c164d28d3567c37cea7ffb12a6",
+      "request_sha256": "aec78184c897ace37699aebad1766fd5abf346dabad8f07f79a4ff92e30ebc54",
+      "terminal_output_sha256": "7be2b46de79045d35e15594f81bbf873a4e7e801cf0b9bda939c24cc34b3fc12",
+      "package": "4b93fb925ed8a28e8dec0833fafc1e4b42d11aac795ccf2f73fa98fd97ac85ed",
+      "epoch": 1,
+      "selected": [
+        "object:823012d4af3e4058b96dcd0e40fd7a37f1493d2fdefb34f737100863efdac8d2",
+        "object:3e2ce01f89671b3bd9dea46be678202a098d1da0455a9ddcfaf8232e044b963e"
+      ],
+      "held_out_supplied": false,
+      "full_shop_spec": true,
+      "prior_method_full_text": false,
+      "prior_method_reference": false,
+      "reason": "The packaged directions agree with the verified contour and shop placement datum. The ZIP contains the single cut contour, placement directions and dimensional calculations; I am issuing it and checking the exact received package.",
+      "continuation": {
+        "kind": "ready",
+        "purpose": "Inspect the receiving check and finish the cutter-operator handoff"
+      },
+      "maintenance": "no_change",
+      "next_model": "preserve",
+      "operations": [
+        "asset.register",
+        "result.deliver",
+        "command.local"
+      ],
+      "image_inputs": [],
+      "rejection": {
+        "event": 101,
+        "reason": "Operation register (asset.register): Read or select the receipt containing this object before registering its bytes. For an earlier command output, command.history with its exact object reference finds the retained capture; select the matching command_run receipt in next_context.references. You need not rerun the command or recapture the current file."
+      }
+    },
+    {
+      "id": "call-2038a7ca42fa9b22b4b10ccb5b6dd055",
+      "state": "accepted",
+      "actor": "mara",
+      "snapshot": "b8f3643b12e9640609094e907b04e011f2871aa2348943871c0840c2aec5cf77",
+      "response": "7178a94f40d9f90435a0f5711eddb4e697de6bf4484b579e08ab7530b00da9d0",
+      "receipt": "f255a170f4d4bb3f449fb521c930a897425cf723775b3493b1f69f97134d8f5a",
+      "request_sha256": "7717c239afc8c3b5e2628a8157e2161f7f2b503c1ae6dabf52f66b1144288c52",
+      "terminal_output_sha256": "22770343d6dc4dd18fb37a4a0e882b2cb0cce0db374b7dbdf3f40d4b3069b85f",
+      "package": "4b93fb925ed8a28e8dec0833fafc1e4b42d11aac795ccf2f73fa98fd97ac85ed",
+      "epoch": 1,
+      "selected": [
+        "object:823012d4af3e4058b96dcd0e40fd7a37f1493d2fdefb34f737100863efdac8d2",
+        "object:3e2ce01f89671b3bd9dea46be678202a098d1da0455a9ddcfaf8232e044b963e"
+      ],
+      "held_out_supplied": false,
+      "full_shop_spec": true,
+      "prior_method_full_text": false,
+      "prior_method_reference": false,
+      "reason": "The packaged SVG and directions have been inspected and agree with the dimensional release. Registration was rejected because the original ZIP capture receipt was not selected; no delivery occurred.",
+      "continuation": {
+        "kind": "ready",
+        "purpose": "Recover the original ZIP capture receipt"
+      },
+      "maintenance": "no_change",
+      "next_model": "preserve",
+      "operations": [
+        "tools.describe"
+      ],
+      "image_inputs": [],
+      "basis": "baseline",
+      "numerical": "78b2306f37686efa0d6d5c404d2c389f68f76cea149cd3b2c9b7fe352789d3e6",
+      "inclinations": {
+        "assertiveness": 0.3799489622552249,
+        "challenge": 0.24491866240370913,
+        "clarification": 0.197375320224904,
+        "collaboration": 0.3363755443363322,
+        "detail": 0.14888503362331798,
+        "exploration": 0.5370495669980353,
+        "initiative": 0.4218990052500079,
+        "integration": 0.4218990052500079,
+        "persistence": 0.46211715726000974,
+        "revision": 0.4218990052500079,
+        "verification": 0.46211715726000974,
+        "warmth": 0.5716699660851173
+      }
+    },
+    {
+      "id": "call-8c053398c35ead4479fcdcd929d7e10c",
+      "state": "accepted",
+      "actor": "mara",
+      "snapshot": "11fdaf46b0f235b70db8d0e710632375652289ead4c3f992f3bc6768313cafb8",
+      "response": "554d617ae1f4165b04a0e5ba109fb07ede31c98d3eace5a38836cd3c122fb712",
+      "receipt": "0acc5cc0e5842290600ad57d0a6d74b9c90168e2554c6c0296ba1a069415a1c3",
+      "request_sha256": "832b0733481fdceea83473e50cc137b43546d1e52b3071e704b20394ce8564ee",
+      "terminal_output_sha256": "71b8887d43dce75d83868c048566b996f4417ad03aa1ccc4682c3374a3b04e8c",
+      "package": "4b93fb925ed8a28e8dec0833fafc1e4b42d11aac795ccf2f73fa98fd97ac85ed",
+      "epoch": 1,
+      "selected": [
+        "object:823012d4af3e4058b96dcd0e40fd7a37f1493d2fdefb34f737100863efdac8d2"
+      ],
+      "held_out_supplied": false,
+      "full_shop_spec": false,
+      "prior_method_full_text": false,
+      "prior_method_reference": false,
+      "reason": "Recovering the retained ZIP capture so it can be issued without recreating or guessing its bytes.",
+      "continuation": {
+        "kind": "ready",
+        "purpose": "Select original ZIP capture receipt and issue package"
+      },
+      "maintenance": "no_change",
+      "next_model": "preserve",
+      "operations": [
+        "command.history"
+      ],
+      "image_inputs": [],
+      "basis": "baseline",
+      "numerical": "78b2306f37686efa0d6d5c404d2c389f68f76cea149cd3b2c9b7fe352789d3e6",
+      "inclinations": {
+        "assertiveness": 0.3799489622552249,
+        "challenge": 0.24491866240370913,
+        "clarification": 0.197375320224904,
+        "collaboration": 0.3363755443363322,
+        "detail": 0.14888503362331798,
+        "exploration": 0.5370495669980353,
+        "initiative": 0.4218990052500079,
+        "integration": 0.4218990052500079,
+        "persistence": 0.46211715726000974,
+        "revision": 0.4218990052500079,
+        "verification": 0.46211715726000974,
+        "warmth": 0.5716699660851173
+      }
+    },
+    {
+      "id": "call-9ba2a0732d4f94a60270eadfd67fca4b",
+      "state": "accepted",
+      "actor": "mara",
+      "snapshot": "99ca04fbc3ad477b4ad4eda0843590ce16a39619206bf05621ff70d4e920565c",
+      "response": "c17ba501fda8a76d1dd0da72074394916b00d73b3034dd39c16b916a55097473",
+      "receipt": "70506a20e5fe628dd7b10e2d081fbb944bfe4f61eaf51b599e247c4d86534a4b",
+      "request_sha256": "2b11aea3cb96952c350a665f042b2ca20e128300c66e5927bc4f65a3e3c8b0e1",
+      "terminal_output_sha256": "c2cd7c9d57fbb33a74d82966484e1e59862d2a897458e9298a60dd420c8e4aec",
+      "package": "4b93fb925ed8a28e8dec0833fafc1e4b42d11aac795ccf2f73fa98fd97ac85ed",
+      "epoch": 1,
+      "selected": [
+        "object:823012d4af3e4058b96dcd0e40fd7a37f1493d2fdefb34f737100863efdac8d2"
+      ],
+      "held_out_supplied": false,
+      "full_shop_spec": false,
+      "prior_method_full_text": false,
+      "prior_method_reference": false,
+      "reason": "The history lookup located the exact successful ZIP capture and its receipt; selecting that original receipt enables registration without recreating the package.",
+      "continuation": {
+        "kind": "ready",
+        "purpose": "Register and issue the exact ZIP, then exercise its recipient-facing contents"
+      },
+      "maintenance": "no_change",
+      "next_model": "preserve",
+      "operations": [
+        "tools.describe"
+      ],
+      "image_inputs": [],
+      "basis": "baseline",
+      "numerical": "78b2306f37686efa0d6d5c404d2c389f68f76cea149cd3b2c9b7fe352789d3e6",
+      "inclinations": {
+        "assertiveness": 0.3799489622552249,
+        "challenge": 0.24491866240370913,
+        "clarification": 0.197375320224904,
+        "collaboration": 0.3363755443363322,
+        "detail": 0.14888503362331798,
+        "exploration": 0.5370495669980353,
+        "initiative": 0.4218990052500079,
+        "integration": 0.4218990052500079,
+        "persistence": 0.46211715726000974,
+        "revision": 0.4218990052500079,
+        "verification": 0.46211715726000974,
+        "warmth": 0.5716699660851173
+      }
+    },
+    {
+      "id": "call-ae11bfd4af8550565a8c8a1d537d41d1",
+      "state": "accepted",
+      "actor": "mara",
+      "snapshot": "07ff309cfae1f3a976d6e647562468e87f85987ba52195c2342ab19d16e64451",
+      "response": "fa54a3f8fdb63fc58bb678d245847ac5f77627cd59e4b2dd7dfee63007d2169b",
+      "receipt": "087e5d050c00ce8491a15eab22a598eeac8b5205b3ba626147a3d6da3025e912",
+      "request_sha256": "dfc5f2d86ea0cfd98e0ec5c0438bfbf9a178845ceee9c74ad5da4091064f89c2",
+      "terminal_output_sha256": "89116907ebdb9b33d499819469afab65b0c5836486da5c59df2c198058a704fc",
+      "package": "4b93fb925ed8a28e8dec0833fafc1e4b42d11aac795ccf2f73fa98fd97ac85ed",
+      "epoch": 1,
+      "selected": [
+        "command_run:local-a71650a863994ce0b43b325635ee03cea87dfc25bfaa4a345167c1934089abf7@1",
+        "object:823012d4af3e4058b96dcd0e40fd7a37f1493d2fdefb34f737100863efdac8d2"
+      ],
+      "held_out_supplied": false,
+      "full_shop_spec": false,
+      "prior_method_full_text": false,
+      "prior_method_reference": false,
+      "reason": "The exact ZIP and its build receipt are available. I am issuing it and exercising the exported ZIP rather than recreating the artwork.",
+      "continuation": {
+        "kind": "ready",
+        "purpose": "Inspect exported package check and shop-interface requirements, then finalize delivery"
+      },
+      "maintenance": "no_change",
+      "next_model": "preserve",
+      "operations": [
+        "asset.register",
+        "result.deliver",
+        "command.local",
+        "asset.read"
+      ],
+      "image_inputs": [],
+      "basis": "baseline",
+      "numerical": "78b2306f37686efa0d6d5c404d2c389f68f76cea149cd3b2c9b7fe352789d3e6",
+      "inclinations": {
+        "assertiveness": 0.3799489622552249,
+        "challenge": 0.24491866240370913,
+        "clarification": 0.197375320224904,
+        "collaboration": 0.3363755443363322,
+        "detail": 0.14888503362331798,
+        "exploration": 0.5370495669980353,
+        "initiative": 0.4218990052500079,
+        "integration": 0.4218990052500079,
+        "persistence": 0.46211715726000974,
+        "revision": 0.4218990052500079,
+        "verification": 0.46211715726000974,
+        "warmth": 0.5716699660851173
+      }
+    },
+    {
+      "id": "call-f568d895ded305515f632cd90bc7e4f2",
+      "state": "accepted",
+      "actor": "mara",
+      "snapshot": "6ee404ad78e629962fa27b88e452f53bd17629368ffea32eaa8baad32b1f0d2a",
+      "response": "6ae3cb26025ed0cdf26aa8653152f1254d9df8a642c19c7427b7bd184bf991a5",
+      "receipt": "bd70c8d37bd22f7e35717a2ffbfb89424f639cf8e02bf9c99ad3d06cd5a7850a",
+      "request_sha256": "3b065fd9c446db687f53390674a54e3ce4645aa9c98bcacf26619b3607d0fbf5",
+      "terminal_output_sha256": "4cb6adf7b074a96487469acc4c9f64706d266aa2fd20c7f5225e7f795b668b91",
+      "package": "4b93fb925ed8a28e8dec0833fafc1e4b42d11aac795ccf2f73fa98fd97ac85ed",
+      "epoch": 1,
+      "selected": [],
+      "held_out_supplied": false,
+      "full_shop_spec": true,
+      "prior_method_full_text": false,
+      "prior_method_reference": false,
+      "reason": "The issued ZIP contains the ready-to-cut SVG and placement directions. Inspection of the actual exported package confirmed its member set, SVG millimetre scale, single closed straight-segment contour and area. The included dimensional analysis addresses BC-17 Rev A's placement/cutting allowances, edge clearances, full wire aisle, bond-land coverage and connected minimum area. No artwork modification remains.",
+      "continuation": {
+        "kind": "stop",
+        "reason": "The requested usable ZIP has been delivered and digitally checked. Remaining physical qualification and installation were explicitly deferred by the original brief."
+      },
+      "maintenance": "no_change",
+      "next_model": "preserve",
+      "operations": [
+        "work.outcome"
+      ],
+      "image_inputs": [],
+      "basis": "baseline",
+      "numerical": "78b2306f37686efa0d6d5c404d2c389f68f76cea149cd3b2c9b7fe352789d3e6",
+      "inclinations": {
+        "assertiveness": 0.3799489622552249,
+        "challenge": 0.24491866240370913,
+        "clarification": 0.197375320224904,
+        "collaboration": 0.3363755443363322,
+        "detail": 0.14888503362331798,
+        "exploration": 0.5370495669980353,
+        "initiative": 0.4218990052500079,
+        "integration": 0.4218990052500079,
+        "persistence": 0.46211715726000974,
+        "revision": 0.4218990052500079,
+        "verification": 0.46211715726000974,
+        "warmth": 0.5716699660851173
+      },
+      "reply": {
+        "event": 114,
+        "text": "Completed: [Download the BC-17 Rev A cutting package](asset:asset-fa8ce52fc3283c99acb7777eed17994d@1).\n\nThe ZIP includes:\n- **BC17-A-cut.svg** — ready-to-cut 1:1 SVG, one continuous straight-segment contour, **62.00 × 27.50 mm**.\n- **PLACEMENT.txt** — rear-view orientation and placement directions.\n- **DIMENSIONAL-CHECK.txt** — tolerance analysis for land coverage, pad-pair/top wire clearance, edge clearance and minimum finished area.\n\nLoad at **100% without mirroring or added offsets**. Place the artwork’s upper-right bounding-box corner **2.00 mm left of the finished module’s right edge and 2.00 mm below its top edge**, with the notch opening toward the pads/top.\n\nThe exported ZIP and SVG scale/contour were checked. This is a dimensional release; actual cutting, tape selection, physical adhesion qualification and installation have not been performed."
+      }
+    }
+  ],
+  "commands": [
+    {
+      "event": 91,
+      "call": "call-7f37293ab48c224a80ac3d855ee52524",
+      "id": "inspect",
+      "receipt": "command_run:local-9ed95188c465285314f9678a829c65c8d074a0b5a5c1c7a4ebe18339e158c099@1",
+      "program": "bash",
+      "argv_sha256": "6d10942731cdb4d003c5c1e88a9c72a1072a93bc9507a7f282e6f91ebed17d7d",
+      "host_log_matches": true,
+      "exit": 0,
+      "stdout": "object:ab84dda058288edd756b1699cc76b3f8597e1f974a1c108dca7e2de819ef8d5f",
+      "stderr": "object:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "outputs": {}
+    },
+    {
+      "event": 93,
+      "call": "call-4f74201d12771c81d53e0650da000bd3",
+      "id": "render",
+      "receipt": "command_run:local-fb4bd328661377643c5d8372ff9620866e533e7704f6bf857fab3f858d05fda8@1",
+      "program": "bash",
+      "argv_sha256": "6c2099afff9c26386c8513b90bfefd28c610c3e8eab8d64e56c3a75630213e72",
+      "host_log_matches": true,
+      "exit": 1,
+      "stdout": "object:271879b222e60c19b602fcb1bf92bc5f4c86883c8704391fc9c4d6bb8b18d5e9",
+      "stderr": "object:e891cceb22dcbed5502e4544d4e88e23c14f53b79ae1beac80b4bff48450b648",
+      "outputs": {}
+    },
+    {
+      "event": 94,
+      "call": "call-108c092f7cb9717359f9e55b0719b5f6",
+      "id": "render_local",
+      "receipt": "command_run:local-cd353e7d7736c98cf6834c8a59926725a45fb56cbfda129b3a845853ffa242bf@1",
+      "program": "pdftoppm",
+      "argv_sha256": "d981aa190064a0bd74b1ee31a72346c3492cb41eac1740e8e88b4918e05e4c73",
+      "host_log_matches": true,
+      "exit": 0,
+      "stdout": "object:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr": "object:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "outputs": {
+        "p124.png": {
+          "bytes": 288869,
+          "object": "object:8c790b4136706cef2af6cdef2997a2c46989e8b5af65c5d4fcf762d6d3b88603"
+        }
+      }
+    },
+    {
+      "event": 97,
+      "call": "call-695729ac2d85a4a51489dafc7babc5e7",
+      "id": "build",
+      "receipt": "command_run:local-a71650a863994ce0b43b325635ee03cea87dfc25bfaa4a345167c1934089abf7@1",
+      "program": "python3",
+      "argv_sha256": "da0c5c4fe6f1f2d73a956903ee366caa103399283e188f0941cb53a9b96925de",
+      "host_log_matches": true,
+      "exit": 0,
+      "stdout": "object:c084adc067b6c20b901a3f85ebeffb93084984b2bccb7d144502f8f038d887b7",
+      "stderr": "object:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "outputs": {
+        "BC17-A-cut-package.zip": {
+          "bytes": 2676,
+          "object": "object:d18b1b85e90867741368b7809827a8d197079c5a24d42a33504204bb7d8e0758"
+        },
+        "release_bc17/BC17-A-cut.svg": {
+          "bytes": 223,
+          "object": "object:9e341c85c5393f8b30244455364092803275f37ac55bc6d5b0d0f281a475697c"
+        },
+        "release_bc17/DIMENSIONAL-CHECK.txt": {
+          "bytes": 1910,
+          "object": "object:0c2cf7e55342a2d41e1421d3ebf434c74c131b9e20e25334f632b0774246f607"
+        },
+        "release_bc17/PLACEMENT.txt": {
+          "bytes": 2029,
+          "object": "object:fddc079e599ad2e3cb2901047bd65f13b00f369a1e83cdf54beafa31fc6f17ec"
+        }
+      }
+    },
+    {
+      "event": 99,
+      "call": "call-15a92df363830941d078d2582eb74650",
+      "id": "check",
+      "receipt": "command_run:local-4abdb694345bece29bb16b709b4449e4a9dfced3979febe0ae6d0464620a501c@1",
+      "program": "python3",
+      "argv_sha256": "381fbceb1d71549cfe7e4869b690e284a3035e159e7fcea21f56afabd64c993a",
+      "host_log_matches": true,
+      "exit": 0,
+      "stdout": "object:e6d87ed557165c5f6ba43b58bc877f5e85380dd26164217f9ba69774a739e545",
+      "stderr": "object:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "outputs": {}
+    },
+    {
+      "event": 100,
+      "call": "call-5116299b298902c44588d066c5f6243d",
+      "id": "inspect",
+      "receipt": "command_run:local-0a38b2a3b9f66b666d60d44ac3411aecd333e891ce4ac78374178350f2dd2662@1",
+      "program": "python3",
+      "argv_sha256": "a27adbec1db0b70753ac1260f567ce0d49f9c0d9c8b87619054dd702aa19dc58",
+      "host_log_matches": true,
+      "exit": 0,
+      "stdout": "object:93fc07001690d3fd59a3be1d33448778d89e2ea06708ab89ed32c34cab2cc4e1",
+      "stderr": "object:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "outputs": {}
+    },
+    {
+      "event": 110,
+      "call": "call-ae11bfd4af8550565a8c8a1d537d41d1",
+      "id": "receive_check",
+      "receipt": "command_run:local-016572a4c2da593d3eb5e57e1a5502c69a8331d9992748094fd24e71e535e169@1",
+      "program": "python3",
+      "argv_sha256": "156baee2bf4526a1a8e95ac154656ac14e95e63498dba86f50638f1e2b9fd169",
+      "host_log_matches": true,
+      "exit": 0,
+      "stdout": "object:77ff3c9cec55916e87c62d0da3b16972b8dadfedd3535e550208c9c6f66e798d",
+      "stderr": "object:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "outputs": {}
+    }
+  ],
+  "edition": {
+    "event": 107,
+    "issuing_choice": "call-ae11bfd4af8550565a8c8a1d537d41d1",
+    "reference": "delivery:delivery-d1478713bbf009e822682e9079b0c27d@1",
+    "asset": "asset:asset-fa8ce52fc3283c99acb7777eed17994d@1",
+    "file": "BC17-A-cut-package.zip",
+    "bytes": 2676,
+    "sha256": "d18b1b85e90867741368b7809827a8d197079c5a24d42a33504204bb7d8e0758",
+    "dispatch": {
+      "artifacts": [
+        "asset:asset-fa8ce52fc3283c99acb7777eed17994d@1"
+      ],
+      "instructions": "Extract ZIP. Read PLACEMENT.txt. Import BC17-A-cut.svg at 100% with bounds 62.00 × 27.50 mm; cut vector centreline with no added offset or mirroring. Position from the finished module right and top edges as directed. Physical qualification remains required before service.",
+      "recipient": "Exhibit shop cutter operator"
+    },
+    "instructions_sha256": "d667e2088564f3f33bcc21ab495fda9e80db03c963ac61ba45b79e60e80f13c0",
+    "remaining": [
+      "Physical knife cutting, tape/substrate selection, adhesion qualification and installation remain later shop activities."
+    ]
+  },
+  "receiving_check": {
+    "cancelled": false,
+    "checking_work": "work-c09568d7713db606e8cdd7eb8f1f1203",
+    "delivery": "delivery:delivery-d1478713bbf009e822682e9079b0c27d@1",
+    "dispatch": 1,
+    "effect": "effect-b7473884fc8cc2560ea78b571689cdf3",
+    "error": null,
+    "exit_code": 0,
+    "files_staged": 1,
+    "missing_outputs": [],
+    "process_started": true,
+    "program": "python3",
+    "purpose": "Check the actual exported ZIP, SVG topology and scale, and included placement directions.",
+    "receipt": "command_run:local-016572a4c2da593d3eb5e57e1a5502c69a8331d9992748094fd24e71e535e169@1",
+    "receiving_environment": "receiving_launcher",
+    "result": "object:842cdb07ead59caa467024889cad3c14869017f2ae54ef2324a2d54e6053520e",
+    "success": true,
+    "timed_out": false
+  },
+  "totals": {
+    "input_tokens": 303501,
+    "cached_input_tokens": 125952,
+    "output_tokens": 12914,
+    "actual_cost_microusd": null
+  },
+  "stop": {
+    "boundary": "settled",
+    "work": "work-c09568d7713db606e8cdd7eb8f1f1203",
+    "elapsed_s": 320.839,
+    "seq": 114,
+    "participants": [
+      [
+        "work-c09568d7713db606e8cdd7eb8f1f1203",
+        "mara",
+        13,
+        {
+          "kind": "stop",
+          "reason": "The requested usable ZIP has been delivered and digitally checked. Remaining physical qualification and installation were explicitly deferred by the original brief."
+        }
+      ]
+    ],
+    "states": {
+      "accepted": 13,
+      "rejected": 2
+    },
+    "holds": []
+  },
+  "armed": {
+    "archive": "armed.sqlite",
+    "sha256": "9401c294d45fd9d972bc66671768a43c82d98e925b68db014a25a7ac90461a04",
+    "through_event": 85,
+    "heads": {
+      "mara": {
+        "epoch": 1,
+        "package": "4b93fb925ed8a28e8dec0833fafc1e4b42d11aac795ccf2f73fa98fd97ac85ed"
+      },
+      "oren": {
+        "epoch": 0,
+        "package": null
+      }
+    },
+    "unsettled_calls_or_effects": false
+  },
+  "observation": {
+    "first_event": 85,
+    "last_event": 114,
+    "switch_batches": [],
+    "last_snapshot": {
+      "archive": "ended.sqlite",
+      "sha256": "a5204a9c77d4af6dedfa3114e156b8f5520f7fcc6789c3b953b9b049a17fc8eb",
+      "through_event": 114,
+      "heads": {
+        "mara": {
+          "epoch": 1,
+          "package": "4b93fb925ed8a28e8dec0833fafc1e4b42d11aac795ccf2f73fa98fd97ac85ed"
+        },
+        "oren": {
+          "epoch": 0,
+          "package": null
+        }
+      },
+      "unsettled_calls_or_effects": false
+    }
+  },
+  "eligible_switch_events": [],
+  "paired_arms_run": 0
+}
