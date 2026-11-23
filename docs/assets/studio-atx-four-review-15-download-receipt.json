@@ -1,0 +1,59 @@
+{
+  "url": "https://github.com/ai-personas/ai-personas-runtime/releases/tag/studio-atx-four-review-15-20261123",
+  "checked_utc": "2026-11-23T16:18:08.547554+00:00",
+  "edition": "delivery:delivery-fb53976b77e73a02bed50b42c03882ec@1",
+  "assets": [
+    {
+      "name": "FINDINGS.md",
+      "bytes": 4583,
+      "sha256": "e199b9172925d1ff8310ef2909338795e14956b15d7d130d0dce1591f08fe059"
+    },
+    {
+      "name": "SHA256SUMS",
+      "bytes": 782,
+      "sha256": "ea04111aa6cfd5eb21a08a54e6c1ebdabbf1a297de970d0b5b651f3d9e1895de"
+    },
+    {
+      "name": "Studio-handoff.zip",
+      "bytes": 770357,
+      "sha256": "1c92bdf2c4ba970ec6f656861a616be7dcf314c4602560bcc0e7e540f084f4e5"
+    },
+    {
+      "name": "character-through-issue.json",
+      "bytes": 14139,
+      "sha256": "3e34f2ae8588ed1d9a71ce2c9953785efa3f1e0593d5002d669a17db5f745a1a"
+    },
+    {
+      "name": "independent-replay.zip",
+      "bytes": 282087,
+      "sha256": "a8e8848b1590ec57556b0a81ebf14c3bed01a4a664e962bb9a130c9c8a148788"
+    },
+    {
+      "name": "independent-review.json",
+      "bytes": 166342,
+      "sha256": "a483aafdeb2aa710d407e2a1f6ebecc7c57cd04c7f5de4aeed14bb7bffb0d4c0"
+    },
+    {
+      "name": "parts-and-suppliers.csv",
+      "bytes": 8360,
+      "sha256": "9c60fe9d0eefbd9d3c933148cf117b979144edbaa55ebfdb3d10d736d6a32b58"
+    },
+    {
+      "name": "pc-power-review15.zip",
+      "bytes": 788060,
+      "sha256": "65a87abec98dc624917624cb16c8459614092fd945bba637735a42f86fe97698"
+    },
+    {
+      "name": "schematic.pdf",
+      "bytes": 438295,
+      "sha256": "c8d9d88de129fd65ae6def4f5942be56aa8d8ee61e03d8ed239e5b642a2f8c93"
+    },
+    {
+      "name": "studio-interval.json",
+      "bytes": 4770,
+      "sha256": "f45f6d565115f4215c36f281a9fcaeeda888ccc165154e4288529477b53f9024"
+    }
+  ],
+  "handoff_inner_archive_sha256": "65a87abec98dc624917624cb16c8459614092fd945bba637735a42f86fe97698",
+  "replayed_from_public_downloads_sha256": "a483aafdeb2aa710d407e2a1f6ebecc7c57cd04c7f5de4aeed14bb7bffb0d4c0"
+}

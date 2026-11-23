@@ -14,7 +14,7 @@ On November 21, 2026, a requester entered a PC SMPS brief in native Linux Studio
 
 **Subsequent provisional handoff:** [Download the version with local CAD libraries and wiring instructions](https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-11-20261123/dependency-complete-provisional.zip). It opens with clean ERC and board-only DRC and reproduces all 37 regression tests. The PCB and connector-voltage results are unchanged. [What the handoff fixes](#the-provisional-dependency-handoff).
 
-**Review 15:** At 15:55:13 UTC, Tess issued a [new engineering review in Studio](assets/studio-atx-four-review-15.jpg). Its 97-position PCB includes two fabricated terminals for a parallel standby wire. The [original ZIP](https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-15-20261123/pc-power-review15.zip) includes the editable KiCad design and distinguishes 92 surface-mount parts, three through-hole connectors and the two wire terminals. Tess retained the manufacturing hold.
+**Review 15:** Tess’s [new board and standby wire](#engineering-review-15-a-better-standby-path) raised modeled 2 A standby to **4.940 V** at the motherboard. A motherboard-heavy load that passes the supplied arithmetic checker still gave **10.945 V on +12 V** against an 11.40 V minimum. The [original ZIP](https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-15-20261123/pc-power-review15.zip) contains the editable KiCad design. Tess retained the manufacturing hold.
 
 ## Four-person ATX trial: the opening 48 decisions
 
@@ -158,6 +158,30 @@ Lio's earlier fine-grid command reached a terminal receipt at 11:55:46 UTC after
 At 14:02:32 UTC [Studio showed three peer waits and one scheduling pause](assets/studio-atx-four-noor-pause.jpg). Noor was ready. Her OAuth call received HTTP 200, but stream event 5 failed the added-message `status` check. No complete decision or tool action resulted, and the runtime paused only Noor. The operator clicked **Enable Noor** on the existing listener. At **14:04:42 UTC**, her first fresh `gpt-6.1-sol` / medium decision received the failed receipt and the original brief, then selected a local command to inspect the solver. The accepted provider output matched the stored decision byte for byte. No requester design message was sent. [Recovery evidence and replay](https://github.com/ai-personas/ai-personas-runtime/releases/tag/studio-atx-four-stream-recovery-20261123)
 
 All [five public downloads](assets/studio-atx-four-stream-download-receipt.json) matched their originals; the downloaded verifier reproduced `recovery.json` byte for byte. In a separate [native Studio replay](assets/studio-atx-four-stream-diagnostic.jpg), **Provider receipt** opened the exact failed call. The receipt identifies which field failed, but does not retain the provider's status value.
+
+### Engineering review 15: a better standby path
+
+At 15:55:13 UTC Tess issued [review 15 in native Studio](assets/studio-atx-four-review-15.jpg), `delivery:delivery-fb53976b77e73a02bed50b42c03882ec@1`. The team added a standby bypass, six precision feedback resistors and a resistor/capacitor feed to the input supervisor. The ZIP distinguishes 92 SMT parts, three manual through-hole connectors and two fabricated wire terminals. The saved 788,060 bytes matched the immutable issued asset.
+
+[Editable design](https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-15-20261123/pc-power-review15.zip) · [Schematic PDF](https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-15-20261123/schematic.pdf) · [Parts and sellers](https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-15-20261123/parts-and-suppliers.csv) · [Independent report](https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-review-15-20261123/independent-review.json) · [Handoff and replay](https://github.com/ai-personas/ai-personas-runtime/releases/tag/studio-atx-four-review-15-20261123)
+
+At 12.10 V board input and 300 mm harness length, the independent routed-copper model gave these **receiving-pin** voltages. The bypass is installed at its specified maximum of 5 mΩ of wire plus 2 mΩ of solder joints.
+
+| Load and feedback assumptions | Ideal mated contacts | 10 mΩ per mated end |
+|---|---:|---:|
+| Motherboard standby, 2 A external, 99.8 W mixed load; zero internal standby reserve | **4.940 V** | **4.881 V** |
+| Motherboard standby, 1.85 A external, 99.05 W mixed load; default 0.15 A standby reserve | **4.943 V** | **4.887 V** |
+| Motherboard +12 V, 5.5 A motherboard / 0.5 A CPU, 99.25 W combined; default reserves | **10.945 V** | **10.861 V** |
+
+All three rows use nominal feedback. With the wire absent, the first row instead gives **4.795 V** and **4.735 V**; the standby minimum is 4.75 V. The issued load checker rejects 2 A external standby when the 0.15 A reserve is added. It accepts both default-reserve examples in the table, including the +12 V failure. Tying the CPU and motherboard returns together at the receiving end still gives **10.949 V** in that failing case. In 729 selected DC cases the 162 out-of-limit readings were all motherboard +12 V. Two mesh resolutions differed by at most 0.219 mV. A separate opposing-temperature-coefficient sensitivity gave **3.1399 V** on +3.3 V, too close to its 3.14 V floor to claim a robust margin.
+
+**Schematic and manufacture.** ERC passed. Board-only DRC reported no opens and four warnings: clipped L101 silkscreen and two terminal footprints that differ from their library copies. The full check added **294 parity warnings** (199 net conflicts and 95 footprint/symbol findings). Direct comparison matched 302 of 303 normalized pin/net names; the last is U22's intentional no-connect. Both standby terminals have the correct net and pad geometry, but the native schematic calls them “5VSB soldered bypass terminal” where the BOM and PCB say `5VSB_WIRE_18AWG`. All 97 placements, 11 Gerbers, both drills and 175 orientation-table pad locations reproduced. L3's copper, mask and paste still use the shorter 2.0 × 2.3 mm lands rather than Bourns' recommended 2.0 × 6.0 mm.
+
+**Purchasing and qualification.** All **41 purchased PCB order codes** had exact manufacturer-matched listings and named offers or stock links. [Vishay’s stock table](https://www.vishay.com/en/search/?type=inv&query=TNPW060373K2BEEA) lists the 73.2 kΩ precision resistor under its exact suffix at three distributors; [LCSC C841386](https://www.lcsc.com/product-detail/C841386.html) identifies the exact buck converter. The two fabricated terminals are excluded from that count. All 27 harness wires check against the board; **85 physical inspection fields are untested**. Four load-check test methods passed, but the documented example input and two texts needed by the PGI replay are missing. Independent calculation repeated the **19.165 µA** conditional PGI loading allowance, not a guaranteed device loading or startup result.
+
+Through issuing admission 3763 and requester event 6498, the four personas made **3,724 accepted OAuth decisions** and sent **1,150 peer messages** with no requester design follow-up. All 3,716 ordinary decisions retained their original character. The team repaired the standby path without evaluator input; no parts were ordered and no hardware or PC operation was tested.
+
+All [ten public downloads](assets/studio-atx-four-review-15-download-receipt.json) matched the originals. The downloaded Studio handoff contained the same review 15 ZIP, and the downloaded replay reproduced the independent report byte for byte.
 
 ## The first delivery: PC60 revision A
 
