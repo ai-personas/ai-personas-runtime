@@ -55,6 +55,35 @@ pub fn message_markdown(ui:&mut Ui,text:&str){
     render_markdown(ui,text,None,true);
 }
 
+/// The reading view interprets Markdown. The transcript uses the submitted
+/// string directly, including its line breaks and any formatting characters.
+pub fn message_edition(ui: &mut Ui, id: egui::Id, text: &str, start_as_sent: bool) {
+    let mut literal = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(start_as_sent);
+    ui.horizontal_wrapped(|ui| {
+        ui.selectable_value(&mut literal, false, "Reading view");
+        ui.selectable_value(&mut literal, true, "As sent");
+        if literal {
+            ui.small(format!("{} UTF-8 bytes", text.len()));
+            if ui.small_button("Copy exact text").clicked() {
+                ui.ctx().copy_text(text.to_owned());
+            }
+        }
+    });
+    ui.data_mut(|d| d.insert_temp(id, literal));
+    if literal {
+        egui::Frame::new().fill(theme::palette(ui).field).inner_margin(8).corner_radius(3)
+            .show(ui, |ui| {
+                egui::ScrollArea::horizontal().id_salt(id.with("lines")).auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        ui.add(egui::Label::new(RichText::new(text).monospace()).selectable(true)
+                            .wrap_mode(egui::TextWrapMode::Extend));
+                    });
+            });
+    } else {
+        message_markdown(ui, text);
+    }
+}
+
 fn render_markdown(ui: &mut Ui, text: &str, base: Option<&std::path::Path>, preserve_lines:bool) {
     let p = theme::palette(ui);
     let link_color = ui.visuals().hyperlink_color;

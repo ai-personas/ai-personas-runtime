@@ -1390,6 +1390,8 @@ impl App {
                     }
                 }
                 let text = event_text(event);
+                let original = matches!(kind, "reply" | "message" | "user_message")
+                    .then(|| body["text"].as_str()).flatten().filter(|v| !v.is_empty());
                 let expanded = self.live_board.expanded == Some(seq);
                 let limit = if ui.available_width() < 400. {
                     145
@@ -1399,7 +1401,12 @@ impl App {
                 let full_text = text.lines().nth(1).is_some() || text.chars().nth(limit).is_some();
                 if !text.is_empty() {
                     if expanded {
-                        document::message_markdown(ui, text);
+                        if let Some(original) = original {
+                            let id = egui::Id::new(("message-edition", &self.root, seq, s(event, "digest")));
+                            document::message_edition(ui, id, original, !full_text);
+                        } else {
+                            document::message_markdown(ui, text);
+                        }
                     } else {
                         let key = egui::Id::new(("timeline-message-preview", kind, s(event, "digest"), limit));
                         let preview = ui.ctx().data_mut(|cache| {
@@ -1505,8 +1512,8 @@ impl App {
                     }
                 }
                 ui.horizontal_wrapped(|ui| {
-                    if full_text
-                        && text_action(ui, if expanded { "Show less" } else { "Read more" })
+                    if (full_text || original.is_some())
+                        && text_action(ui, if expanded { "Show less" } else if full_text { "Read more" } else { "Read original" })
                             .clicked()
                     {
                         action = Some(EventAction::Expand(if expanded { None } else { Some(seq) }));
