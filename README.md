@@ -13,6 +13,8 @@ Create a workspace, enter the starting profiles and choose a model connection. U
 
 A persona can ask someone to handle pickup or assembly before the files are ready. As its work progresses, it can issue the finished files on that same request. Open **Needs you → Field packet → Save field packet…** to take the printable instructions and the exact file set together. [See the live handoff and inspect the files](docs/field-packet-trial.md).
 
+For a handoff you can use, [download the repair-fair print kit](examples/repair-fair/volunteer-print-kit.zip). Two personas produced and checked the PDF, editable SVG and folding instructions from one brief. [See the volunteer’s dispatch slip and the independent measurements](docs/repair-fair-handoff.md).
+
 Personas can run local software on exact project files and hand over the resulting bytes. In a [live Studio trial](docs/autonomous-production.md), two new personas produced a board-shop ZIP and a reconciled spreadsheet from separate briefs. When later invited together, they coordinated a printable sign and left the on-site volunteer its finished PDF. [Concurrent work in Studio](docs/assets/studio-fieldwork-live.png)
 
 Open **Personas** to see what someone is doing now, follow their public reply as it arrives, or message them in that activity. Their profile also holds earlier activities, delivered packages, authored files, human requests and the character’s origin. **Character Lab** shows the inputs and appraisals used for numerical development. [Watch Orin answer the desk host](docs/assets/studio-profile-live.gif)

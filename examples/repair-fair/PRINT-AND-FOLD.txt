@@ -1,0 +1,27 @@
+REPAIR FAIR — PRINT AND FOLD
+Print ONLY repair-fair.pdf, one page, on your one A4 cardstock sheet.
+Choose A4, portrait, single-sided, Actual Size / 100%. Disable Fit, Shrink,
+booklet, duplex and multiple pages per sheet. The page is 210 x 297 mm.
+
+1. Lay the sheet printed side up. The upside-down words are intentional.
+2. Measure 148.5 mm from either short edge on BOTH long edges. Make ONE
+   straight cut across the full 210 mm width between those marks, along
+   the solid grey centre line (extend it to the edges).
+3. Each piece is 210 x 148.5 mm. Fold EACH piece once in half along its
+   dashed line, 74.25 mm from either 210 mm edge. Bring the two 210 mm
+   edges together with the PRINTING OUTSIDE. Crease firmly with the ruler.
+   Do not cut the dashed lines.
+4. Open each piece into an inverted V, fold at top, free 210 mm edges on
+   the table. Spread the feet about 80 mm apart and adjust for stability.
+5. Check from both sides: one tent reads CHECK-IN upright on each face;
+   the other reads PICKUP upright on each face.
+
+No tape, tabs or glue needed. Use indoors on a level dry table; this is
+an unlocked V-fold and may slide if disturbed. Grey guides can remain.
+The printed cut guide stops short of the sheet edges to allow printer
+margins; the ruler measurements determine the full cut and folds.
+
+EDITABLE SOURCE: repair-fair.svg, full-size vector layout. No edits needed.
+Use the supplied PDF for printing. SVG font appearance can vary by editor
+(Helvetica/Arial/sans-serif). build.py regenerates both files with Python 3
+and PyMuPDF (pip install pymupdf); regeneration is NOT needed to print.
