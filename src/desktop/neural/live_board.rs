@@ -123,6 +123,7 @@ impl Filter {
             }
             Self::Files => {
                 file || event["tool_outcome"]["retrieved_object"].is_string() || event["tool_outcome"]["captured_zip"].is_string()
+                    || captured_files(event).is_some()
                     || human_file_count(event) > 0 || feedback_reference(event).is_some()
                     || matches!(
                         kind,
@@ -351,6 +352,23 @@ fn recipient(event: &Value) -> &str {
     } else {
         s(event, "target")
     }
+}
+
+fn captured_files(event: &Value) -> Option<(&str, &serde_json::Map<String, Value>)> {
+    if event["kind"] != "tool_result"
+        || !matches!(event["body"]["tool"].as_str(), Some("command.local" | "command.run"))
+    {
+        return None;
+    }
+    let result = &event["tool_outcome"];
+    let receipt = result["receipt"].as_str()?.strip_prefix("command_run:")?;
+    let (_, revision) = receipt.rsplit_once('@')?;
+    revision.parse::<u64>().ok().filter(|n| *n > 0)?;
+    let outputs = result["outputs"].as_object()?;
+    if outputs.is_empty() {
+        return None;
+    }
+    Some((result["receipt"].as_str()?, outputs))
 }
 
 fn human_file_count(event: &Value) -> usize {
@@ -1455,6 +1473,28 @@ impl App {
                             });
                         }
                     });
+                }
+                if let Some((run, files)) = captured_files(event) {
+                    egui::CollapsingHeader::new(format!("Captured files · {}", files.len()))
+                        .id_salt(("command-outputs", seq))
+                        .default_open(self.live_board.filter == Filter::Files)
+                        .show(ui, |ui| {
+                            ui.small("Working files saved with this run");
+                            for (name, file) in files {
+                                let Some(object) = file["object"].as_str() else { continue };
+                                ui.horizontal_wrapped(|ui| {
+                                    theme::glyph(ui, Icon::Files, p.accent);
+                                    if ui.link(name).on_hover_text(format!("{run}\n{object}")).clicked() {
+                                        action = Some(EventAction::SourceFile {
+                                            source: run.into(), object: object.into(), name: name.clone(),
+                                        });
+                                    }
+                                    if let Some(bytes) = file["bytes"].as_u64() {
+                                        ui.weak(RichText::new(size(bytes)).small());
+                                    }
+                                });
+                            }
+                        });
                 }
                 if let (Some(zip), Some(manifest)) = (result["captured_zip"].as_str(), result["member_manifest"].as_str()) {
                     ui.horizontal_wrapped(|ui| {
