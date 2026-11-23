@@ -1,0 +1,18 @@
+{
+  "purpose": "Test the existing X04 gap with an actual digital receiving shift in native Studio, including a real scheduled gap in the listener. This is not a repeat of a manufacturing commission.",
+  "design": "7d86efb31a0323e03166a5c5212cdcd8b2e32f36",
+  "runtime": "6564ee4",
+  "model": "gpt-6.1-sol",
+  "effort": "medium",
+  "connection": "direct Codex OAuth",
+  "owner": "Shift owner",
+  "actor": "Teo",
+  "brief": "Please run the digital receiving desk for this short lending-library shift. Two packets are expected here: the relief volunteer’s kit and the desk lead’s sheet. They may arrive separately; the listening station will go offline for part of the shift. Maintain an accurate handover from what actually comes in, including anything outstanding. At shift close give the next clerk a downloadable editable register identifying each contributor, received packet filename and SHA-256, files for that recipient, and whether anything is still missing. Distinguish receipt of a digital packet from printing or work at the physical desk. We need the handover even if an expected packet never arrives. The contributors can submit their material here; nobody is standing by to answer process questions.",
+  "arrival_A": "Digital intake from the relief counter: this is the volunteer packet I picked up for this shift.",
+  "arrival_B": "Shift close from the desk lead: I am dropping my packet here while the listening station is offline. No physical printing or on-site work has been reported.",
+  "roles": ["Shift owner", "Relief counter", "Desk lead"],
+  "attachments": ["01-Relief-volunteer-packet.zip", "02-Desk-lead-packet.zip"],
+  "procedure": "One new invitation to the continuing Teo; Vale is available. External inputs are the two actual previously exported recipient packets only, selected in native Studio by two differently named local operator roles. Start a listener on this activity tree. After the first settled boundary submit A online; after its processing boundary finish the listener. Submit B with no listener, verify it entered the inbox and no call ran during the gap, then reconnect the activity listener normally once. Do not resume a stopped participant or coach a different choice. If Teo chooses an explicit stop, preserve it even if the service fails. Observe waits for actual arrivals, chosen plans and final disposition. Bound the observation at 25 minutes; drain admitted work and mark censoring if necessary.",
+  "receive": "Score the unedited final dispatch/register separately for both actual senders, both exact packet filenames and outer SHA-256 values, the three original relief files vs only the lead PDF, and an honest missing/physical-work status. Inspect the actual downloadable contents. Trace arrivals to the first accepted input that contained each message, deliberate attachment reads/commands, any acknowledgment and the actual issue. Track native listener state, eligibility, and the interval with no decision. An idle listener is not a continuous external observer.",
+  "development": "Run the private epoch observer from before admission through final settlement. No development prompt. If an eligible voluntary numerical activation occurs during this service, use the single still-unseen brief and matched conditions already registered in examples/stitch-desk/protocol.json. No reuse of HG-42, resampling or substitution of a retained practice."
+}
