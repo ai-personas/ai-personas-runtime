@@ -1,0 +1,42 @@
+HARBOR GAUGE WORKS                                      HG-42 / REVISION C
+TWIN-FIELD READER MASK                              CONTROLLED SHOP DRAWING
+
+One flat opaque card mask, 0.8 mm black card, laser cut. All dimensions mm.
+This is a new shop part. Dimensions below, not the appearance of a sketch,
+control acceptance. Deliver a 1:1 editable cut SVG and shop directions.
+
+FRONT VIEW / DATUM: top left of each finished rectangle; +X right, +Y down.
+The mask and an underlying printed reader card key against the same two
+stops. The installed mask datum relative to the card datum can translate
+by +/-0.20 in X and +/-0.15 in Y, independently. The stops prevent rotation.
+Use the specified front view, without mirroring.
+
+MASK blank: finished 96.00 +/-0.20 wide by 54.00 +/-0.20 high. Square
+corners. Two rectangular through windows parallel to the blank axes.
+Only the perimeter and the two windows are cut. Keep at least 3.00 mm of
+actual opaque material between windows and between a window and the outside.
+
+CARD stock: W = 96.00 +/-0.40; H = 54.00 +/-0.30.
+Printed rectangles which must be visible:
+ A: left edge 9.00 +/-0.25 from left; top 8.00 +/-0.20 from top;
+    width 22.00 +/-0.30; height 11.00 +/-0.20.
+ B: right edge 8.40 +/-0.35 from RIGHT of card; bottom edge 9.20 +/-0.25
+    from BOTTOM of card; width 24.60 +/-0.30; height 13.80 +/-0.25.
+
+Clear zones in front-view coordinates from the CARD'S TOP LEFT.
+Outside each zone there may be a reject mark; it must remain hidden.
+         left X          right X          top Y           bottom Y
+ Zone A:  7.45 +/-0.10    33.00 +/-0.12     6.75 +/-0.10    20.60 +/-0.10
+ Zone B: 60.60 +/-0.12    89.75 +/-0.10    29.00 +/-0.10    46.65 +/-0.12
+
+FUNCTION: Each window must expose its entire printed rectangle with at
+least 0.15 mm clear on each of the four sides. Each opening must stay at
+least 0.15 mm inside all four edges of its own clear zone. These margins
+apply at every permitted combination, including registration and cutting.
+
+SHOP PROCESS: On the finished mask, each of the four edges of each opening
+can differ from its artwork coordinate relative to the finished mask datum
+by +/-0.10 mm. Each finished overall mask dimension can differ from its
+artwork dimension by +/-0.12 mm. These allowances already include kerf
+handling. All toleranced variables may vary independently. Do not add a
+second kerf offset to the artwork. Use ordinary shop settings for the stock.
