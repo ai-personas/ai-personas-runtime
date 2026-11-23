@@ -1005,6 +1005,9 @@ impl App {
             if let Some(recovery) = self.snapshot.inference_recovery.get(id) {
                 let seconds = recovery["not_before_unix"].as_i64().unwrap_or(0)
                     .saturating_sub(ai_personas::neural::now());
+                if recovery["cause"] == "provider_overload" && seconds > 0 {
+                    return format!("Provider busy · retry in {seconds}s");
+                }
                 return if seconds > 0 { format!("Inference recovery · {seconds}s") }
                     else { "Inference recovery eligible".into() };
             }

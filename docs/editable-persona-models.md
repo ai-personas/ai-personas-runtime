@@ -16,6 +16,8 @@ Use `--request-id ID` to retry an operator action with the same inputs. Attached
 
 When an ordinary inference receives a complete non-JSON gateway error page (HTTP 502–504 or 520–524) without a decision or adopted effects, the same backoff as for a dropped connection permits a fresh request. The receipt retains the actual status, and any prior remote charges remain unknown. The runner respects stops and never redispatches an external operation through this recovery.
 
+The same scheduling path applies when an HTTP 200 response stream explicitly reports `service_unavailable_error` / `server_is_overloaded` before completion. Studio shows **Provider busy** with the time to eligibility. The failed input stays in history; a fresh decision still checks the persona’s current continuation and controls.
+
 If the provider instead explicitly ends a response as `incomplete` for `max_output_tokens`, no part of that answer executes. The next ordinary decision keeps its selected sources and receives the exact failed-attempt address and reported output count so it can choose a smaller step. If that recovery also exhausts output before any decision is accepted, the runner pauses rather than repeating the same failed recovery. A content refusal does not enter this path.
 
 Personas may use `human.request` to ask for a real-world action and describe what they need back. The optional `artifacts` list takes exact file revisions. The optional `deliveries` list takes exact issued packages together with their files, authors, supported uses, declared scopes and remaining work. A requester can use `human.withdraw` on an open request. The Studio inbox and `neural status` show these records even when the requesting persona stops or works elsewhere.
