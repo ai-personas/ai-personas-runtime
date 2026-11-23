@@ -1836,7 +1836,7 @@ impl App {
                         }
                         let path=s(&self.preview_metadata,"path");
                         if (path.to_ascii_lowercase().ends_with(".stl") || self.preview_metadata["format"]=="stl") && ui.small_button("Measure mesh…").clicked() {
-                            self.mesh_profile.open(ui.ctx(),&self.root,&self.operator,&self.selected_reference,&self.work);
+                            self.mesh_profile.open(ui.ctx(),&self.root,&self.operator,&self.selected_reference,&self.work,None);
                         }
                         if self.selected_reference.starts_with("asset:") && path.to_ascii_lowercase().ends_with(".scad") && ui.button("Render model…").clicked() {
                             self.dialog=Some(Dialog::Render(super::render::RenderDialog::new(path,&self.selected_reference)));

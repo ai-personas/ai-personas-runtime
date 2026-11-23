@@ -1,5 +1,6 @@
 //! Install and run the published OpenSCAD compiler against exact project files.
 pub mod history;
+mod member;
 pub mod profile;
 use super::{failure, operations, store, workspace::{byte_digest, controlled}, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
@@ -38,8 +39,11 @@ pub struct Render {
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Inspect {
-    /// Exact asset revision or object containing binary or ASCII STL.
+    /// Exact asset revision or byte object. For a ZIP, select the STL member.
     pub reference: String,
+    /// Original case-sensitive path inside the referenced ZIP; omit for a standalone STL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub member: Option<String>,
 }
 
 fn paths(db: &Connection, input: &Render) -> Result<BTreeMap<std::path::PathBuf, String>> {
@@ -239,19 +243,21 @@ pub fn measure(bytes: &[u8]) -> Result<Value> {
     )
 }
 
-pub async fn inspect(root: &std::path::Path, reference: &str) -> Result<Value> {
+pub async fn inspect(root: &std::path::Path, input: Inspect) -> Result<Value> {
     let root = root.to_owned();
-    let reference = reference.to_owned();
     tokio::task::spawn_blocking(move||{
         let mut store=store::Store::open(&root)?;
-        let (digest,bytes,renders)=store.snapshot(|db|{
-            let digest=byte_digest(db,&reference)?;
-            let bytes=store::bytes(db,&digest)?;
-            let renders=history::lookup(db,&history::Lookup::first(&reference))?;
-            Ok((digest,bytes,renders))
-        })?;
-        let geometry=measure(&bytes)?;
-        Ok(json!({"reference":reference,"mesh":format!("object:{digest}"),"bytes":bytes.len(),"geometry":geometry,"render_history":renders}))
+        let source = store.snapshot(|db| member::MeshInput::read(db, &input.reference, input.member.as_deref()))?;
+        let geometry = measure(&source.bytes)?;
+        let object = format!("object:{}", source.digest);
+        let lookup = if source.member.is_some() { &object } else { &input.reference };
+        let mut result = json!({"reference":input.reference,"mesh":object,"bytes":source.bytes.len(),"geometry":geometry});
+        let finish = |db: &rusqlite::Transaction<'_>| -> Result<_> {
+            source.retain(db, &mut result)?;
+            result["render_history"] = history::lookup(db, &history::Lookup::first(lookup))?;
+            Ok(result)
+        };
+        if source.member.is_some() { store.transaction(finish) } else { store.snapshot(finish) }
     }).await?
 }
 

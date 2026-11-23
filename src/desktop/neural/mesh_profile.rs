@@ -16,6 +16,7 @@ enum Answer {
 pub(super) struct Window {
     visible: bool,
     reference: String,
+    member: Option<String>,
     work: String,
     axis: Option<Axis>,
     coordinates: [String; 3],
@@ -33,16 +34,19 @@ impl Window {
         operator: &str,
         reference: &str,
         work: &str,
+        member: Option<String>,
     ) {
         *self = Self {
             visible: true,
             reference: reference.into(),
+            member: member.clone(),
             work: work.into(),
             axis: Some(Axis::X),
             ..Default::default()
         };
         let command = Command::InspectStl {
             reference: reference.into(),
+            member,
         };
         self.start(ctx, root, operator, command, Answer::Bounds);
     }
@@ -112,6 +116,10 @@ impl Window {
             .default_width(660.)
             .default_height(520.)
             .show(ctx, |ui| {
+                if let Some(path) = &self.member {
+                    ui.strong(path);
+                    ui.small("Member of this exact ZIP");
+                }
                 ui.monospace(&self.reference);
                 if let Some(error) = &self.error {
                     ui.colored_label(ui.visuals().error_fg_color, error);
@@ -121,6 +129,15 @@ impl Window {
                 }
                 let Some(bounds) = &self.bounds else { return };
                 let geometry = &bounds["geometry"];
+                if let Some(extent) = geometry["span"].as_array().filter(|v| v.len() == 3) {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.small("Model envelope");
+                        for (axis, span) in ["X", "Y", "Z"].iter().zip(extent) {
+                            if let Some(value) = span.as_f64() { ui.strong(format!("{axis}  {}", number(value))); }
+                        }
+                        ui.small("model units");
+                    });
+                }
                 let mut changed = false;
                 ui.add_enabled_ui(self.pending.is_none(), |ui| {
                     ui.horizontal(|ui| {
@@ -148,7 +165,7 @@ impl Window {
                         if let Some((u, v)) = line {
                             command = Some(Command::MeshProfile {
                                 work: (!self.work.is_empty()).then(|| self.work.clone()),
-                                profile: Profile { reference: self.reference.clone(), axis, u, v },
+                                 profile: Profile { reference: self.reference.clone(), member: self.member.clone(), axis, u, v },
                             });
                         }
                     }

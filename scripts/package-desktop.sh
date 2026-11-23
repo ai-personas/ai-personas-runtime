@@ -82,6 +82,8 @@ When someone hands on the same files, **Receiving checks → Earlier runs on the
 
 If a delivery is a single archive, **Save original ZIP…** in the heading saves the exact issued bytes. In a larger delivery, select an archive in **File preview**, inspect its members and choose **Save this ZIP unchanged…**. **Inputs & outputs** on a command in the timeline opens the persona’s execution receipt.
 
+Select an STL in **File preview → Inside this archive** and choose **Measure mesh…** to inspect its envelope and measure a line through the original file.
+
 Choose **Print preview** on a saved HTML document to see its paginated print layout and save that PDF. Studio and the personas use local WeasyPrint for layout and the Poppler programs `pdfinfo` and `pdftoppm` on PATH to display individual PDF pages. A PDF attachment keeps its original bytes and its page receipts.
 
 [Desktop guide](https://github.com/ai-personas/ai-personas-runtime/blob/main/docs/desktop.md) · [Numerical workspace and terminal guide](https://github.com/ai-personas/ai-personas-runtime/blob/main/docs/editable-persona-models.md) · [Implementation and live observations](https://github.com/ai-personas/ai-personas-runtime/blob/main/docs/design-conformance.md)

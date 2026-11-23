@@ -496,6 +496,7 @@ impl App {
             Save,
             SaveEntry(ZipFile),
             InspectEntry(ZipFile),
+            Measure(Option<String>),
         }
         let desk = &mut self.delivery_desk;
         let mut action = None;
@@ -548,6 +549,10 @@ impl App {
                 ui.add_space(4.);
                 ui.horizontal_wrapped(|ui| {
                     if let Some(entry) = desk.inline.selected_member() {
+                        if entry.path.to_ascii_lowercase().ends_with(".stl") && ui.link("Measure mesh…")
+                            .on_hover_text("Measure this STL at its original path in the issued ZIP").clicked() {
+                            action = Some(Action::Measure(Some(entry.path.clone())));
+                        }
                         if ui.link("Inspect selected file ↗").clicked() {
                             action = Some(Action::InspectEntry(entry.clone()));
                         }
@@ -555,6 +560,8 @@ impl App {
                             .on_hover_text(format!("Save {} from the issued ZIP", entry.path)).clicked() {
                             action = Some(Action::SaveEntry(entry.clone()));
                         }
+                    } else if file.path.to_ascii_lowercase().ends_with(".stl") && ui.link("Measure mesh…").clicked() {
+                        action = Some(Action::Measure(None));
                     }
                     if ui
                         .link(if desk.inline.selected_member().is_some() { "Open full ZIP ↗" } else { "Open full file ↗" })
@@ -586,6 +593,9 @@ impl App {
         }
         let file = &p.files[desk.selected];
         match action {
+            Some(Action::Measure(member)) => self.mesh_profile.open(
+                ui.ctx(), &self.root, &self.operator, &file.reference, s(&p.body, "work"), member,
+            ),
             Some(Action::InspectEntry(entry)) => {
                 self.open_resource(ui.ctx(), file.reference.clone());
                 self.preview_zip_member = Some((entry.index,entry.path));
