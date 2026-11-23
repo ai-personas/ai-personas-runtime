@@ -5,6 +5,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 mod pdf_pages;
+mod command_inputs;
 
 struct Event {
     seq: i64,
@@ -382,6 +383,7 @@ fn receipt(db: &Connection, event: i64) -> Result<Value> {
         serde_json::to_string(&needles)?
     ])?;
     let mut received = Value::Null;
+    let mut mounts = command_inputs::Mounts::default();
     let mut bodies = BTreeMap::new();
     let mut whole = BTreeMap::new();
     let mut unverified = 0;
@@ -417,10 +419,12 @@ fn receipt(db: &Connection, event: i64) -> Result<Value> {
             };
             let Some(via) = via else { continue };
             received = proof.clone();
+            mounts = command_inputs::inspect(db, &update, order, &addresses)?;
             received["via"] = json!(via);
             pages.after_message_receipt(order);
         }
         pages.observe(s, order, &proof);
+        mounts.observe(db, s, &proof)?;
         for source in inputs {
             let Some(reference) = source.value["reference"]
                 .as_str()
@@ -443,7 +447,7 @@ fn receipt(db: &Connection, event: i64) -> Result<Value> {
                 }
             }
         }
-        if whole.len() == addresses.len() && pages.all_supplied() {
+        if whole.len() == addresses.len() && pages.all_supplied() && mounts.complete() {
             break;
         }
     }
@@ -455,6 +459,9 @@ fn receipt(db: &Connection, event: i64) -> Result<Value> {
             if pdfs.contains(&file.reference) {
                 entry["pdf_pages"] = json!(pages.for_file(&file.reference, !received.is_null()));
             }
+            if let Some(runs) = mounts.for_file(&file.reference) {
+                entry["local_command_inputs"] = json!(runs);
+            }
             entry
         })
         .collect::<Vec<_>>();
@@ -462,7 +469,8 @@ fn receipt(db: &Connection, event: i64) -> Result<Value> {
     let mut report = json!({"message":handle,"kind":update.kind,"work":update.work,"sender":update.actor,
         "recipient":update.target,"sent_at":update.created,"text":text,"request":request,"state":update.body["state"],
         "received":received,"read_elsewhere":read_elsewhere,"attachments":files,
-        "unverified_candidates":unverified,"unverified_elsewhere":unverified_elsewhere});
+        "unverified_candidates":unverified,"unverified_elsewhere":unverified_elsewhere,
+        "unverified_command_inputs":mounts.unverified});
     if let Some((reference,title)) = delivery {
         report["delivery"] = json!(reference);
         report["delivery_title"] = title;

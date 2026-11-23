@@ -4,6 +4,7 @@ pub(in crate::neural) mod delivery;
 mod effects;
 pub(super) mod resources;
 pub use delivery::delivery_files;
+pub(in crate::neural) use effects::local_mounts;
 pub use super::experience::prior_checks::{prior_checks, PriorChecks};
 
 use super::{context::Snapshot, failure, provider_evidence, store, Result};

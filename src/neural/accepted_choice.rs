@@ -130,6 +130,10 @@ impl Choice {
         sequence > self.first && self.last.is_none_or(|last| sequence <= last)
     }
 
+    pub(super) fn finished_before(&self, sequence: i64) -> bool {
+        self.last.is_some_and(|last| last < sequence)
+    }
+
     /// Resolve issued handles in the accepted operation order. Each result
     /// must be the unique synchronous event for that operation in this call.
     pub(super) fn operation(

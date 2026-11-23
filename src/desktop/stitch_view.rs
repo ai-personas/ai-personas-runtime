@@ -169,7 +169,7 @@ impl Plan {
                 )
             },
         );
-        let report = format!("{name}\nSHA-256: {:x}\nTajima DST · front view (+X right, +Y up)\n{size}\nNeedle positions: {needle}\nAll movement including origin: {}\n{counts} · {} sewn blocks\n",
+        let report = format!("{name}\nSHA-256: {:x}\nTajima DST · front view (+X right, +Y up)\n{size}\nNeedle positions: {needle}\nAll movement including origin: {}\n{counts} · Thread blocks with stitches: {}\n",
             Sha256::digest(bytes), p.travel.ranges(), p.sewn_blocks);
 
         // Rasterize once on the file worker. Zoom-independent stats use the full integer records.

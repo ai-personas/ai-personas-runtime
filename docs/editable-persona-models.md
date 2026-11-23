@@ -278,9 +278,12 @@ A persona can include `dispatches` in `result.deliver`. Each slip has a `recipie
 
 ```sh
 ./personas --neural --state-root DIRECTORY export-dispatch 'delivery:ID@1' 1 DESTINATION
+./personas --neural --state-root DIRECTORY export-dispatch 'delivery:ID@1' 1 volunteer-packet.zip --packet
 ```
 
 Slips are numbered in the issuer's order, starting at one. A one-file slip saves the original bytes, including an already prepared ZIP. A multi-file slip saves a ZIP containing just those files at their issued paths. An existing destination is never replaced. The receipt identifies the delivery, slip, paths and SHA-256 digests. **Export handoff** still includes the full edition, its limitations and the instructions on every slip. A human request explicitly attaching that delivery also carries the slips; saving files neither takes nor completes a request.
+
+`export-dispatch --packet` wraps **one** selected slip in an offline packet. Unpack the ZIP and open `Dispatch.html`. It links to the original files under `Files/`; another recipient’s separate instructions and file selection are not included.
 
 ### Portable command-line programs
 

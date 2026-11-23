@@ -511,7 +511,9 @@ impl Bench {
                 },
                 exit_label(r),
             );
-            ui.weak(format!("{} · {}", s(r, "origin"), s(r, "actor")));
+            let actor = s(r, "actor");
+            let name = if r["origin"] == "persona" { app.label(actor) } else { actor };
+            ui.weak(format!("{} · {name}", s(r, "origin"))).on_hover_text(actor);
         });
         ui.horizontal_wrapped(|ui| {
             ui.collapsing("Arguments", |ui| {

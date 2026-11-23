@@ -66,6 +66,8 @@ In **Activity → Participate → Agreement book**, read and respond to the exac
 
 In the activity timeline, expand a message and choose **As sent** to inspect or copy its exact text. A late human message can be read even after that activity has stopped: **Delivery status → Read in another activity** identifies the later decision separately from delivery in the original activity.
 
+In **Delivery status**, a file’s **Local command inputs → Inspect run** shows the exact attachment staged for the recipient’s command. **Receiving decision** opens the choice that received its standard output when that input is verified. In a CSV or workbook table, select a row number or **Record** to read and copy each field without scrolling across the sheet.
+
 **Character Lab → Character Atlas** compares each persona’s first and later models on one shared situation. Choose **Inspect decisions → Use situation in Atlas** to use an actual input instead. The source generation and other local comparisons stay distinct. Neither view starts work.
 
 In a delivery, **File origins… → Issuing decision** opens the actual handoff choice. Choose **Character at this decision… → Previous active epoch** in the comparison picker to see whether the edit changed any values on that choice.

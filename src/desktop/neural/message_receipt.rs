@@ -1,4 +1,5 @@
 use super::*;
+use ai_personas::neural::live::RunnerObservation;
 
 #[derive(Default)]
 pub(super) struct Window {
@@ -52,6 +53,7 @@ impl App {
         }
         let mut visible = true;
         let mut inspect = None;
+        let mut inspect_run = None;
         let mut open_file = None;
         let mut open_package = None;
         let mut refresh = false;
@@ -106,6 +108,9 @@ impl App {
                 } else {
                     theme::badge(ui, &format!("{heading} recorded"), PURPLE);
                     ui.label(format!("No verified receipt in {recipient}’s decisions in the original activity."));
+                    if !self.running && !self.snapshot.status.is_null() && matches!(self.runner_observation, RunnerObservation::Unobserved) {
+                        ui.weak("No activity runner is currently observed in this workspace.");
+                    }
                 }
                 let elsewhere = &report["read_elsewhere"];
                 if let Some(call) = elsewhere["decision"].as_str() {
@@ -152,6 +157,35 @@ impl App {
                             }
                         } else if report["received"].is_object() {ui.weak("File reference received");}
                           else {ui.weak("Attachment recorded");}
+                        if let Some(runs) = file["local_command_inputs"].as_array() {
+                            egui::CollapsingHeader::new(format!("Local command inputs · {}", runs.len()))
+                                .id_salt(("attachment-mounts", event, index)).default_open(true).show(ui, |ui| {
+                                ui.small("These exact bytes were staged after the message arrived.");
+                                for run in runs {
+                                    ui.horizontal_wrapped(|ui| {
+                                        ui.strong(s(run, "program"));
+                                        ui.monospace(s(run, "path"));
+                                        if run["process_started"] == false { ui.weak("Did not start"); }
+                                        else if let Some(code) = run["exit_code"].as_i64() { ui.weak(format!("Exit {code}")); }
+                                        else { ui.weak("No exit code"); }
+                                        if ui.add_enabled(!self.busy, egui::Button::new("Inspect run").small()).clicked() {
+                                            inspect_run = Some(s(run,"receipt").to_owned());
+                                        }
+                                    });
+                                    let output = &run["stdout_supplied"];
+                                    if let (Some(call), Some(a), Some(b)) = (output["decision"].as_str(),
+                                        output["range"][0].as_u64(), output["range"][1].as_u64()) {
+                                        ui.horizontal_wrapped(|ui| {
+                                            let size = if a == 0 && output["bytes"].as_u64() == Some(b) {
+                                                format!("{b} bytes")
+                                            } else { format!("bytes {a}..{b}") };
+                                            ui.small(format!("Standard output supplied · {size}"));
+                                            if ui.small_button("Receiving decision").clicked() { inspect = Some(call.to_owned()); }
+                                        });
+                                    }
+                                }
+                            });
+                        }
                         if let Some(pages) = file["pdf_pages"].as_array() {
                             if let Some(reference) = page_receipts(ui, file, pages, recipient) {
                                 inspect = Some(reference);
@@ -159,11 +193,21 @@ impl App {
                         }
                     });
                 }
-                let pending=report["received"].is_null() || elsewhere.is_null() || files.iter().any(|f|f["whole"].is_null());
+                let pending=report["received"].is_null() || elsewhere.is_null() || files.iter().any(|f|
+                    f["whole"].is_null() || f["local_command_inputs"].as_array().into_iter().flatten().any(|run|
+                        run["stdout_bytes"].as_u64().is_some_and(|size| size > 0) && run["stdout_supplied"].is_null()));
                 let unverified=report["unverified_candidates"].as_u64().unwrap_or(0)
                     + report["unverified_elsewhere"].as_u64().unwrap_or(0);
                 if unverified>0 {ui.weak(format!("Unverified candidate inputs · {unverified}"));}
-                refresh = (pending && self.message_receipt.decisions != self.known_decisions.len())
+                if let Some(n) = report["unverified_command_inputs"].as_u64().filter(|n| *n > 0) {
+                    ui.weak(format!("Unverified command inputs · {n}"));
+                }
+                let since = self.message_receipt.cursor;
+                let new_command = !files.is_empty() && self.cursor != since && self.events.iter().rev()
+                    .take_while(|e| e["event"].as_i64().is_some_and(|seq| seq > since))
+                    .any(|e| e["work"] == report["work"] && e["actor"] == report["recipient"]
+                        && e["kind"] == "tool_result" && e["body"]["tool"] == "command.local");
+                refresh = (pending && self.message_receipt.decisions != self.known_decisions.len()) || new_command
                     || (self.message_receipt.cursor != self.cursor && files.iter().any(|f|f["pdf_pages"].is_array()));
             });
         if !visible {
@@ -174,9 +218,13 @@ impl App {
         if let Some((reference, work)) = open_package {
             self.message_receipt = Default::default();
             self.open_home_delivery(&reference, &work);
+        } else if let Some(reference) = inspect_run {
+            self.message_receipt = Default::default();
+            let command = self.command_bench.locate(reference);
+            self.command(ctx, command);
         } else if let Some(reference) = inspect {
             self.message_receipt = Default::default();
-            self.open_resource(ctx, reference);
+            self.open_choice_or_record(ctx, reference);
         } else if let Some((reference, name)) = open_file {
             self.message_receipt = Default::default();
             self.open_named_resource(ctx, reference, Some((format!("experience:event-{event}@1"), name)));

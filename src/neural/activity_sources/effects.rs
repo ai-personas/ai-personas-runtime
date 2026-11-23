@@ -402,7 +402,7 @@ fn execution(
     }
     match op.tool.as_str() {
         "compute.run" => compute(catalog, op, result),
-        "command.run" | "command.local" => command(catalog, time, op, result),
+        "command.run" | "command.local" => command(catalog, time.snapshot, op, result),
         "image.render_svg" => svg(catalog, op, result),
         "document.render_pdf" => {
             let page = crate::neural::pdf_evidence::verify(catalog.db, &op.input, result)?;
@@ -474,9 +474,21 @@ fn compute(catalog: &mut Catalog<'_>, op: &Operation, result: &Value) -> Result<
     ))
 }
 
+/// Share the execution verifier with human attachment receipts. A staged mount
+/// does not assert that the program opened the file or that the model saw its bytes.
+pub(in crate::neural) fn local_mounts(
+    db: &Connection, snapshot: &context::Snapshot, op: &Operation, result: &Value,
+) -> Result<Vec<(String, String)>> {
+    if op.tool != "command.local" { return Err(failure("Expected a local command")); }
+    let mut catalog = Catalog::new(db, &snapshot.work, None);
+    let checked = command(&mut catalog, snapshot, op, result)?;
+    checked.members.into_iter().filter(|m| matches!(m.role, "project_file" | "staged_file"))
+        .map(|m| Ok((m.reference, named(&m.detail["mount"])?.to_owned()))).collect()
+}
+
 fn command(
     catalog: &mut Catalog<'_>,
-    time: &Moment<'_>,
+    snapshot: &context::Snapshot,
     op: &Operation,
     result: &Value,
 ) -> Result<Execution> {
@@ -485,12 +497,12 @@ fn command(
     let r = &receipt.body;
     if receipt.reference.kind != "command_run"
         || receipt.reference.handle() != reference
-        || !store::written_by(catalog.db, &receipt, &time.snapshot.invocation)?
+        || !store::written_by(catalog.db, &receipt, &snapshot.invocation)?
         || r != &result["result"]
         || r["origin"] != "persona"
-        || r["actor"] != time.snapshot.actor
-        || r["work"] != time.snapshot.work
-        || r["invocation"] != time.snapshot.invocation
+        || r["actor"] != snapshot.actor
+        || r["work"] != snapshot.work
+        || r["invocation"] != snapshot.invocation
         || r["operation"] != op.id
     {
         return Err(failure(
@@ -503,7 +515,7 @@ fn command(
         let input: commands::local::Run = serde_json::from_value(op.input.clone())?;
         if input.directory == commands::local::Directory::Workspace
             && (r["host"]["directory_mode"] != "workspace" || !r["host"]["working_directory"].is_string()
-                || r["host"]["working_directory"] != time.snapshot.data["host_working_directory"]) {
+                || r["host"]["working_directory"] != snapshot.data["host_working_directory"]) {
             return Err(failure("Shared command directory differs from the admitted decision"));
         }
         if r["timed_out"] == true && (input.timeout_seconds.is_none() || r["process_started"] != true
