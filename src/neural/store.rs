@@ -411,11 +411,19 @@ pub fn events(db: &Connection, work: &str, actor: &str, after: i64) -> Result<Ve
 }
 
 pub fn has_arrival(db:&Connection, work:&str, actor:&str, after:i64, kinds:&[String])->Result<bool> {
-    let mut query=db.prepare("SELECT e.kind, e.invocation IS NOT NULL AND e.target=?3 AND e.actor<>?3 FROM events e WHERE work=?1 AND seq>?2 AND
+    let specific = kinds.iter().any(|k| k.starts_with("human_request:"));
+    let mut query=db.prepare("SELECT e.kind, e.invocation IS NOT NULL AND e.target=?3 AND e.actor<>?3,
+        CASE WHEN ?4 AND e.invocation IS NULL AND e.target=?3 AND e.kind IN ('user_message','human_request_progress')
+        THEN (SELECT json_extract(CAST(bytes AS TEXT),'$.human_request') FROM objects WHERE digest=e.digest) END
+        FROM events e WHERE work=?1 AND seq>?2 AND
         (target=?3 OR (target='*' AND EXISTS(SELECT 1 FROM events j WHERE j.work=e.work AND j.target=?3 AND j.kind='invitation' AND j.seq<=e.seq)))")?;
-    let mut rows=query.query(params![work,after,actor])?;
+    let mut rows=query.query(params![work,after,actor,specific])?;
     while let Some(row)=rows.next()? {
         let kind: String = row.get(0)?;
+        let report: Option<String> = row.get(2)?;
+        if report.is_some_and(|handle| kinds.iter().any(|k| super::human_requests::newer_report(k, &handle))) {
+            return Ok(true);
+        }
         // Recording one's own next-context selection introduces no new observation.
         let status = matches!(kind.as_str(),"request_joined"|"request_declined"|"request_left");
         let returned = matches!(kind.as_str(), "request_reply" | "request_delivery" | "request_declined" | "request_left");

@@ -742,7 +742,11 @@ async fn effects(root: &Path, actor: &str, selected_work:&str) -> Result<()> {
             if db.execute("UPDATE outbox SET state='completed',result=?2 WHERE id=?1 AND state='dispatched'",params![effect,digest])? != 1 {
                 return Err(failure("Effect completion lost its dispatched outbox entry"));
             }
-            store::event(db,&work,actor,actor,"tool_result",&json!({"operation":op.id,"tool":op.tool,"effect":effect,"result":format!("object:{digest}"),"context":"complete"}),Some(&invocation))?;Ok(())
+            store::event(db,&work,actor,actor,"tool_result",&json!({"operation":op.id,"tool":op.tool,"effect":effect,"result":format!("object:{digest}"),"context":"complete"}),Some(&invocation))?;
+            if op.tool == "command.local" {
+                super::commands::local::publish_receiving_check(db, actor, &invocation, &effect, &value, &digest)?;
+            }
+            Ok(())
         })?;
         eprintln!(
             "{}",

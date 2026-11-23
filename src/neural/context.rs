@@ -13,7 +13,7 @@ use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde::ser::SerializeMap;
 use serde_json::{json, Value};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 mod tool_run;
 
@@ -41,7 +41,7 @@ Your own outcomes are supplied in full. Peer outcome views preserve their comple
 The deliveries list is a discovery index of exact versions, with original authorship, scope, latest attributed human review and remaining work preserved. A null review means no review has been recorded. An index entry does not supply its supported-use description, artifact membership or evidence. Those exact fields remain available through asset.read or next_context selection of the delivery reference. Choose the records useful for your next decision; delivery does not establish overall quality or user acceptance.
 For outside source material, web.fetch takes a URL and an optional expected file signature. Its receipt separates HTTP status, declared type and a recognizable header, and gives an exact object for the complete response, including an error page. Use asset.read, asset.find or document.render_pdf to inspect that object if useful. Retrieving a source is not evidence that its contents support a claim.
 To freeze a review copy directly from an existing project, workspace.bundle takes {"paths":["directory","file.ext"],"exclude":["directory/unwanted.ext"]}. Choose the paths yourself; a named directory includes all descendant files. This captures a ZIP, even if provisional, without changing the project or declaring it finished. The receipt gives the ZIP's immutable object and a separate member manifest. You or a peer can stage that exact object in a scratch command.local file map for checks. Register the ZIP with asset.register to give it a deliverable path. You can register and issue it in one response by using the earlier register operation's $id in result.deliver. Re-listing a project or promising to freeze it makes no review copy.
-Issuing a delivery does not stop your work. When a coherent edition already supports a real use, you can preserve it for the requester with result.deliver and continue improving its successor. Name the exact intended use and outstanding findings of that edition; do not claim readiness from a file count, an earlier revision's checks or an observer's copy.
+Issuing a delivery does not stop your work. You can issue a coherent edition, exercise the recipient's actual use, repair what fails and issue its successor while an outside request remains unanswered. command.local with receiving:{delivery,purpose} stages the unpacked edition at its exported paths in a fresh directory. Add dispatch (one-based) for just that recipient's selection. You choose the program and what result would substantiate use. An earlier result.deliver in this response can be named by $id. The issuer receives a delivery_check event with the exact receipt. Inspect the output: a clean exit alone does not establish that the recipient can use the files or that an outside action occurred.
 current_controls supplies applicable execution-control state and exact history references when retained. control_changed events attribute changes. A running control permits work at that scope; other controls and your continuation still apply. A control change is not a terminal execution receipt and does not resume an explicitly stopped participation.
 Each participant's execution view reports retained inference, unfinished effect and background-job state at this request's snapshot, including the originating work. A ready continuation does not mean that peer is idle: an earlier command or another work may still occupy its execution. Dispatched means awaiting an observed result, not proof that a host process started or succeeded. Uncertain remains unresolved. These observations do not assign duties, rank peers, change controls or establish that a peer has read your message.
 "#;
@@ -950,13 +950,20 @@ pub(super) fn prepare_when(
         // read/selection still supplies the complete immutable record.
         let reviews=store::delivery_reviews(db)?;
         let mandates=store::delivery_mandates(db,Some(work_id))?;
-        let deliveries=store::list(db,"delivery")?.into_iter().filter(|r|r.body["work"]==work_id).map(|r|json!({
+        let checks = if bootstrap { BTreeMap::new() } else { super::commands::local::latest_receiving_checks(db, work_id)? };
+        let deliveries=store::list(db,"delivery")?.into_iter().filter(|r|r.body["work"]==work_id).map(|r| {
+            let mut view = json!({
             "reference":r.reference.handle(),"owner":r.body["owner"],"title":r.body["title"],
             "scope":r.body["scope"],"review":reviews.get(&r.reference.handle()),"remaining":r.body["remaining"],
             "mandate":mandates.get(&r.reference.handle()),
             "artifact_count":r.body["artifacts"].as_array().map(Vec::len),
             "evidence_count":r.body["evidence"].as_array().map(Vec::len)
-        })).collect::<Vec<_>>();
+            });
+            if let Some(check) = checks.get(&r.reference.handle()) {
+                view["latest_receiving_check"] = check.clone();
+            }
+            view
+        }).collect::<Vec<_>>();
         let invocation=id("call")?;
         let config=store::required(db,"config","runtime")?;
         // Keep shared host definitions ahead of changing observations. Retain

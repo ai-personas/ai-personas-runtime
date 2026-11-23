@@ -25,6 +25,7 @@ pub(super) struct Index {
     last_event: BTreeMap<String, (i64, Option<String>)>,
     tool_results: BTreeMap<String, BTreeMap<String, i64>>,
     issued: BTreeMap<String, i64>,
+    receiving_checks: BTreeMap<String, Vec<i64>>,
     request_events: BTreeMap<String, i64>,
     request_origins: BTreeMap<String, i64>,
 }
@@ -32,6 +33,10 @@ pub(super) struct Index {
 impl Index {
     pub(super) fn delivery_issue(&self, reference: &str) -> Option<i64> {
         self.issued.get(reference).copied()
+    }
+
+    pub(super) fn receiving_checks(&self, delivery: &str) -> &[i64] {
+        self.receiving_checks.get(delivery).map(Vec::as_slice).unwrap_or_default()
     }
 
     pub(super) fn request_event(&self, reference: &str) -> Option<i64> {
@@ -94,6 +99,11 @@ impl Index {
             if event["kind"] == "delivery" {
                 if let Some(reference) = body["reference"].as_str() {
                     self.issued.insert(reference.to_owned(), seq);
+                }
+            }
+            if event["kind"] == "delivery_check" {
+                if let Some(reference) = body["delivery"].as_str() {
+                    self.receiving_checks.entry(reference.into()).or_default().push(seq);
                 }
             }
             if event["kind"] == "human_request" && event["target"] == "user" {

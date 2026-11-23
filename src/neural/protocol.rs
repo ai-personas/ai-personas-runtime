@@ -240,6 +240,9 @@ pub enum Continuation {
         wake_at_unix: Option<i64>,
         /// Incoming event kinds that should wake this participation. Use peer_message for a message addressed to you from another persona, request_return for answers or deliveries from an activity you originated, or user_message for a human message.
         /// Empty receives any new event. A chosen wake time is an independent trigger.
+        /// To wait for one outside action, include your exact open human_request:id@revision
+        /// (or $id of a human.request made here). A later human status change or report on that request wakes you.
+        /// Use delivery_check for a receiving run on one of your editions. All triggers are alternatives.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         on_events: Vec<String>,
     },

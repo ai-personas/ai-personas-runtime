@@ -376,7 +376,7 @@ fn execution(
                     (input.files, input.stdin)
                 } else {
                     let input: commands::local::Run = serde_json::from_value(op.input.clone())?;
-                    (input.files, input.stdin)
+                    (input.project_inputs(catalog.db)?, input.stdin)
                 };
                 for (path, r) in inputs {
                     files.push(member(
@@ -507,6 +507,8 @@ fn command(
         if r["format"] != "local-project-run-v1"
             || r["engine"] != "local"
             || r["intent"] != json!(input)
+            || r.get("receiving") != r["intent"].get("receiving")
+            || (input.receiving.is_some() && r["host"]["directory_mode"] != "scratch")
             || r["argv0"] != input.program
             || r["arguments"] != json!(input.arguments)
             || !r["process_started"].is_boolean()
@@ -530,7 +532,10 @@ fn command(
                 &item["bytes"],
             )?;
         }
-        (input.files, input.stdin, input.outputs)
+        if let Some(subject) = &input.receiving {
+            super::delivery::edition(catalog.db, &subject.delivery)?;
+        }
+        (input.project_inputs(catalog.db)?, input.stdin, input.outputs)
     } else {
         let input: commands::Run = serde_json::from_value(op.input.clone())?;
         if r["format"] != "portable-command-run-v1"
@@ -571,12 +576,17 @@ fn command(
     let mounted = r["files_supplied"]
         .as_object()
         .ok_or_else(|| failure("Missing portable project files"))?;
-    if mounted.len() != files.len() {
+    let launched = !local || r["process_started"] == true;
+    // Local staging stops at the first failure. A partially staged prefix
+    // never proves launch or exposure of the remaining files.
+    if (launched && mounted.len() != files.len())
+        || mounted.len() > files.len()
+        || !files.keys().take(mounted.len()).all(|path| mounted.contains_key(path))
+    {
         return Err(failure("Mounted project files differ"));
     }
-    let launched = !local || r["process_started"] == true;
-    for (path, file) in &files {
-        let item = &r["files_supplied"][path];
+    for (path, item) in mounted {
+        let file = &files[path];
         if item["reference"] != *file {
             return Err(failure("Different mounted file"));
         }

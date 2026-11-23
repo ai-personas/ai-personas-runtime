@@ -1002,7 +1002,13 @@ impl App {
                     .into_iter()
                     .flatten()
                     .filter_map(Value::as_str)
-                    .map(|v| v.replace('_', " "))
+                    .map(|v| {
+                        if let Some((id, _)) = v.strip_prefix("human_request:").and_then(|h| h.rsplit_once('@')) {
+                            let title = self.records("human_requests").iter()
+                                .find(|r| r["reference"]["id"] == id).and_then(|r| r["body"]["title"].as_str()).unwrap_or(v);
+                            format!("human update on {title}")
+                        } else { v.replace('_', " ") }
+                    })
                     .collect();
                 let mut triggers = if names.is_empty() {
                     "any new arrival".into()
@@ -1589,7 +1595,7 @@ impl App {
                             }
                         }
                     }
-                    if matches!(kind, "request_delivery" | "delivery") {
+                    if matches!(kind, "request_delivery" | "delivery" | "delivery_check") {
                         if let Some(package) =
                             body["delivery"].as_str().or(body["reference"].as_str())
                         {
@@ -1643,6 +1649,7 @@ impl App {
             "outcome_changed" => "updated an outcome".into(),
             "delivery" if event["target"] == "*" => "announced a delivery".into(),
             "delivery" => format!("delivered a package to {target}"),
+            "delivery_check" => "checked an issued package".into(),
             "request_delivery" => format!("returned a delivery to {target}"),
             "package_review" => "reviewed a package".into(),
             "user_acceptance" if body["decision"]["accepted"] == true => {
@@ -1690,6 +1697,9 @@ impl App {
 
 pub(super) fn event_text(event: &Value) -> &str {
     let body = &event["body"];
+    if event["kind"] == "delivery_check" {
+        return s(body, "purpose");
+    }
     if event["kind"] == "delivery" && body["record"]["title"].is_string() {
         return s(&body["record"], "title");
     }

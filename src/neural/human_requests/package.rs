@@ -105,8 +105,7 @@ fn package_files(db: &Connection, refs: &[String], writer: &mut File) -> Result<
 pub fn export_dispatch(db: &Connection, reference: &str, number: usize, destination: &Path) -> Result<Value> {
     let edition = crate::neural::activity_sources::delivery::edition(db, reference)?;
     let package: SheetDelivery = serde_json::from_value(edition.issue.record.body)?;
-    let slip = number.checked_sub(1).and_then(|i| package.dispatches.get(i))
-        .ok_or_else(|| failure("No dispatch slip with that number in this edition"))?;
+    let slip = package.dispatch(number)?;
     let parent = archive::parent(destination);
     let mut temp = tempfile::NamedTempFile::new_in(parent)?;
     let (format, entries) = if slip.artifacts.len() == 1 {

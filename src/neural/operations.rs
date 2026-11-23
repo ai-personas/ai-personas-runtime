@@ -168,6 +168,9 @@ fn resolve(value: &mut Value, aliases: &BTreeMap<String, String>) -> Result<()> 
 }
 pub(super) fn resolve_operation(op: &mut Operation, aliases: &BTreeMap<String, String>) -> Result<()> {
     if matches!(op.tool.as_str(), "command.run" | "command.local") {
+        if let Some(delivery) = op.input.get_mut("receiving").and_then(|s| s.get_mut("delivery")) {
+            resolve(delivery, aliases)?;
+        }
         if let Some(files) = op.input.get_mut("files").and_then(Value::as_object_mut) {
             for reference in files.values_mut() { resolve(reference, aliases)?; }
         }
@@ -1137,6 +1140,9 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         }
         part.cursor=snapshot.cursor;part.turn=part.turn.checked_add(1).ok_or_else(||failure("turn overflow"))?;
         part.continuation=decision.continuation.clone();part.last_judgment=Some(decision.work.clone());
+        if let Continuation::Wait { on_events, .. } = &mut part.continuation {
+            super::human_requests::bind_waits(db, snapshot, on_events, &aliases)?;
+        }
         part.pending_resume=None;
         if snapshot.model.is_none()&&persona.model.is_some(){
             part.context.clear();part.tools.clear();
@@ -1176,7 +1182,7 @@ pub fn validate_external(db: &Connection, persona: &Persona, op: &Operation) -> 
     match op.tool.as_str() {
         "command.install" => {super::commands::validate_install(db,&decode(&op.input)?)?;}
         "command.run" => super::commands::validate_run(db,&decode(&op.input)?)?,
-        "command.local" => decode::<super::commands::local::Run>(&op.input)?.validate(db)?,
+        "command.local" => {decode::<super::commands::local::Run>(&op.input)?.validated_inputs(db)?;}
         "web.fetch" => { decode::<super::web::Fetch>(&op.input)?.validate()?; }
         "geometry.install" => {
             let input: super::geometry::Install = decode(&op.input)?;

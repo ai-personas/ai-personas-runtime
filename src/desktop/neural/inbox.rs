@@ -389,7 +389,7 @@ impl App {
                         if has_returns {
                             self.request_correspondence(ui, &reference, work, requester, true);
                         } else {
-                            self.request_instructions(ui, body);
+                            self.request_instructions(ui, &reference, body);
                             self.request_materials(ui, body);
                         }
                     },
@@ -400,7 +400,7 @@ impl App {
                     |ui| {
                         ui.set_width(width - thread_width);
                         if has_returns {
-                            self.request_instructions(ui, body);
+                            self.request_instructions(ui, &reference, body);
                             ui.add_space(10.);
                         }
                         if response_visible {
@@ -436,7 +436,7 @@ impl App {
             ui.add_space(7.);
             match tab {
                 DetailTab::Request => {
-                    self.request_instructions(ui, body);
+                    self.request_instructions(ui, &reference, body);
                     self.request_materials(ui, body);
                 }
                 DetailTab::Conversation => {
@@ -447,7 +447,7 @@ impl App {
         }
     }
 
-    fn request_instructions(&mut self, ui: &mut Ui, body: &Value) {
+    fn request_instructions(&mut self, ui: &mut Ui, reference: &str, body: &Value) {
         card(ui).show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.label(RichText::new("Requested action").size(18.).strong());
@@ -465,6 +465,7 @@ impl App {
                 ui.strong("Reason for withdrawal");
                 ui.add(egui::Label::new(reason).wrap());
             }
+            self.requester_continuation(ui, reference, body);
             if let Some(decision) = body["decision"].as_str() {
                 if ui
                     .link("Requesting decision")
@@ -475,6 +476,31 @@ impl App {
                 }
             }
         });
+    }
+
+    fn requester_continuation(&self, ui: &mut Ui, reference: &str, body: &Value) {
+        let (actor, work) = (s(body, "requester"), s(body, "work"));
+        let Some(part) = self.records("participation").iter().map(|r| &r["body"])
+            .find(|p| p["persona"] == actor && p["work"] == work) else { return; };
+        let next = &part["continuation"];
+        let name = self.label(actor);
+        let request_key = reference.rsplit_once('@').map(|pair| pair.0);
+        let tracks_request = next["on_events"].as_array().into_iter().flatten().filter_map(Value::as_str)
+            .any(|t| t.rsplit_once('@').is_some_and(|(key, _)| Some(key) == request_key));
+        ui.add_space(8.);
+        ui.separator();
+        ui.horizontal_wrapped(|ui| {
+            let (portrait, _) = ui.allocate_exact_size(egui::vec2(24., 24.), egui::Sense::hover());
+            design::persona_mark(ui, portrait, name, persona_color(actor));
+            ui.strong(name);
+            ui.small(self.persona_state_in(actor, work));
+        });
+        if next["kind"] == "wait" && tracks_request {
+            ui.label("A human update on this request is a selected wake condition.");
+        }
+        if let Some(reason) = next["purpose"].as_str().or_else(|| next["reason"].as_str()) {
+            ui.add(egui::Label::new(RichText::new(reason).small()).wrap());
+        }
     }
 
     fn request_materials(&mut self, ui: &mut Ui, body: &Value) {
@@ -615,12 +641,12 @@ impl App {
                     .as_array()
                     .filter(|items| !items.is_empty())
                 {
-                    ui.small("Remaining work");
+                    ui.small("Open at issue");
                     for item in items.iter().filter_map(Value::as_str) {
                         ui.add(egui::Label::new(format!("• {item}")).wrap());
                     }
                 } else {
-                    ui.small("Remaining work · None listed");
+                    ui.small("Open at issue · None listed");
                 }
             });
         }
