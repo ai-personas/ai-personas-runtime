@@ -574,6 +574,7 @@ impl App {
 
     fn workspace_notices(&mut self, ui: &mut Ui) {
         let mut enable = None;
+        let mut receipt = None;
         for control in self
             .records("controls")
             .iter()
@@ -587,8 +588,20 @@ impl App {
                         enable = Some(scope.to_owned());
                     }
                 }
-                ui.colored_label(theme::ACCENT, format!("{scope} · {} — {}", s(control, "state"), s(control, "reason")));
+                let last = &control["last_failed_call"];
+                if let (Some(summary), Some(reference)) = (last["summary"].as_str(), last["receipt"].as_str()) {
+                    ui.colored_label(theme::ACCENT, format!("Scheduling paused · Last call: {summary}"))
+                        .on_hover_text(s(control, "reason"));
+                    if ui.small_button("Receipt").on_hover_text(reference).clicked() {
+                        receipt = Some(reference.to_owned());
+                    }
+                } else {
+                    ui.colored_label(theme::ACCENT, format!("{scope} · {} — {}", s(control, "state"), s(control, "reason")));
+                }
             });
+        }
+        if let Some(reference) = receipt {
+            self.open_resource(ui.ctx(), reference);
         }
         if let Some(scope) = enable {
             self.command(ui.ctx(), Command::Control { reason: format!("Operator enabled scheduling for {scope} in Studio"), scope, state: "running".into() });
@@ -992,7 +1005,7 @@ impl App {
         }
         let Some(p) = participation else { return "No task participation".into(); };
         let resuming = p["pending_resume"].is_object();
-        if !resuming && p["accepted"]!=true{return "Invited".into();}
+        let invited = !resuming && p["accepted"] != true;
         if resuming || !matches!(s(&p["continuation"], "kind"), "stop" | "stopped") {
             if let Some(control) = self.records("controls").iter().find(|c| {
                 let scope = s(c, "scope");
@@ -1000,15 +1013,17 @@ impl App {
                     || scope.strip_prefix("persona:") == Some(id)
                     || scope.strip_prefix("work:") == Some(work))
             }) {
-                return format!("Scheduling {}", s(control, "state"));
+                return if invited { format!("Invited · scheduling {}", s(control, "state")) }
+                    else { format!("Scheduling {}", s(control, "state")) };
             }
-            if let Some(recovery) = self.snapshot.inference_recovery.get(id) {
+            if let Some(recovery) = self.snapshot.inference_recovery.get(id).filter(|_| !invited) {
                 let seconds = recovery["not_before_unix"].as_i64().unwrap_or(0)
                     .saturating_sub(ai_personas::neural::now());
                 return if seconds > 0 { format!("Inference recovery · {seconds}s") }
                     else { "Inference recovery eligible".into() };
             }
         }
+        if invited { return "Invited".into(); }
         if resuming { return "Resume requested".into(); }
         match s(&p["continuation"], "kind") {
             "ready" => "Ready to continue",

@@ -10,6 +10,8 @@ To continue a saved workspace with a signed-in Codex account, open **Workspace s
 
 The terminal equivalent is `ai-personas --state-root "$workspace" neural connect-codex --codex-executable "$codex" --host-home "$HOME" --codex-home "${CODEX_HOME:-$HOME/.codex}"`.
 
+If a model call fails, open **Provider receipt** in its timeline entry. When the provider reported insufficient quota, Studio identifies the connection used by that call. A paused persona’s **Receipt** opens the last failed call directly. After switching accounts, enable any paused personas and choose **Run workspace** to continue their eligible work.
+
 In **+ New → Task** or **Social conversation**, describe the result or topic, attach any source files and select invitees by name. **Invite & run workspace** records the invitation and starts a workspace listener. **Save without starting** records it for later. A listening workspace offers **Send invitations**. When scheduling is paused, **Queue invitations** preserves the pause. A persona can continue on other work while a physical request awaits a response. [The invitation desk](assets/studio-fieldwork-invitation.png)
 
 Under **Invite personas**, search by name, ID or words in a starting profile. **Select matches** adds the people shown to the invitation; **Select all** adds everyone currently listed when there is no filter. The selected names remain visible when the search changes. Each invitee decides whether to participate. [Four-person invitation in Studio](assets/studio-atx-four-invitation.jpg)
