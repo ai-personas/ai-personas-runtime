@@ -48,6 +48,10 @@ pub enum Command {
     /// Record the exact need and explicit invitees. Personas choose whether to accept.
     Request {
         need: String,
+        /// Start a new brief about this exact issued delivery revision.
+        #[arg(long, value_name = "DELIVERY")]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        from_edition: Option<String>,
         #[arg(long, required = true, value_delimiter = ',')]
         invite: Vec<String>,
         #[command(flatten)]
@@ -718,9 +722,9 @@ fn operator_action(root: &Path, db: &rusqlite::Connection, operator: &str, comma
             }
             Ok(record)
         }
-        Command::Request{need,invite,files}=>operations::create_activity(db,ActivityKind::Task,need,&invite,operator,None,files.retain(db)?),
+        Command::Request{need,from_edition,invite,files}=>operations::create_activity(db,ActivityKind::Task,need,&invite,operator,None,files.retain(db)?,from_edition),
         Command::HumanRespond{request,response,note,files,field_report}=>super::human_requests::respond(db,operator,&request,response,&note,&files,&field_report),
-        Command::Social{topic,invite,files}=>operations::create_activity(db,ActivityKind::Social,topic,&invite,operator,None,files.retain(db)?),
+        Command::Social{topic,invite,files}=>operations::create_activity(db,ActivityKind::Social,topic,&invite,operator,None,files.retain(db)?,None),
         Command::AddPersona{id: requested,label,seed,provider_from}=>{
             let source:Persona=serde_json::from_value(store::required(db,"persona",&provider_from)?.body)?;
             let seed=Seed{id:match requested{Some(id)=>id,None=>id("persona")?},label,seed};

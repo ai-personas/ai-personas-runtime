@@ -119,16 +119,30 @@ pub(super) fn form(
     brief: &mut String,
     roster: &mut Roster,
     sources: &mut SourceFiles,
+    edition: Option<&SourceEdition>,
 ) -> Option<bool> {
     let body = |ui: &mut Ui| {
         let p = theme::palette(ui);
         egui::Frame::new().fill(p.header).corner_radius(7).inner_margin(12).show(ui, |ui| {
         ui.set_width(ui.available_width());
-        eyebrow(ui, "Persona Studio  /  Invitation");
-        ui.label(RichText::new(if social { "Start a conversation" } else { "Give the society a brief" }).size(22.).strong());
-        ui.label(if social { "An opening topic is optional. Each persona decides whether and how to join." }
-            else { "Describe what you want to receive. Each persona chooses its contribution, tools and collaborators." });
-    });
+            if let Some(source) = edition {
+                eyebrow(ui, "Starting edition");
+                ui.add(egui::Label::new(RichText::new(&source.title).size(20.).strong()).wrap());
+                ui.horizontal_wrapped(|ui| {
+                    avatar(ui, app.label(&source.issuer), app.color(&source.issuer), 20.);
+                    ui.label(format!("Issued by {}", app.label(&source.issuer)));
+                    if let Some((_, rev)) = source.reference.rsplit_once('@') {
+                        ui.weak(format!("· Revision {rev}")).on_hover_text(&source.reference);
+                    }
+                });
+                ui.small("Invite someone to check or revise this edition in a new activity.");
+            } else {
+                eyebrow(ui, "Persona Studio  /  Invitation");
+                ui.label(RichText::new(if social { "Start a conversation" } else { "Give the society a brief" }).size(22.).strong());
+                ui.label(if social { "An opening topic is optional. Each persona decides whether and how to join." }
+                    else { "Describe what you want to receive. Each persona chooses its contribution, tools and collaborators." });
+            }
+        });
         ui.add_space(6.);
         ui.strong(if social {
             "Opening topic"

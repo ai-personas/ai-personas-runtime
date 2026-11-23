@@ -306,6 +306,9 @@ pub struct RequestWork {
     #[serde(default)]
     pub need: String,
     pub invitees: Vec<String>,
+    /// Optional exact, previously issued delivery to inspect or build on in the new activity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_edition: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub materials: Vec<SourceFile>,
 }

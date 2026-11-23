@@ -772,7 +772,7 @@ fn internal(
         "work.request" => {
             let x: tools::RequestWork = decode(input)?;
             let materials = x.retained_materials(db)?;
-            let mut result = create_activity(db, x.kind, x.need, &x.invitees, actor, Some(call), materials)?;
+            let mut result = create_activity(db, x.kind, x.need, &x.invitees, actor, Some(call), materials, x.from_edition)?;
             result["returns"] = json!({"activity":work,"recipient":actor,"on_events":["request_return"],
                 "correspond":"work.respond","history":"work.requests"});
             Ok(result)
@@ -789,6 +789,7 @@ pub(super) fn create_activity(
     requester: &str,
     invocation: Option<&str>,
     materials: Vec<super::input_files::Material>,
+    from_edition: Option<String>,
 ) -> Result<Value> {
     if kind == ActivityKind::Task && need.trim().is_empty() {
         return Err(failure("Describe what you would like the task to accomplish"));
@@ -796,11 +797,14 @@ pub(super) fn create_activity(
     if invitees.iter().collect::<BTreeSet<_>>().len() != invitees.len() {
         return Err(failure("Each persona may appear only once in an invitation"));
     }
+    if let Some(reference) = &from_edition {
+        super::delivery_feedback::issued(db, reference)?;
+    }
     let invitation = match kind {
         ActivityKind::Task => "Choose whether and how to contribute to this need",
         ActivityKind::Social => "An open social invitation. Choose whether to join, what to discuss and when to leave",
     };
-    let activity = Work { id: id("work")?, kind, original_need: need, requester: requester.into(),
+    let activity = Work { id: id("work")?, kind, original_need: need, from_edition, requester: requester.into(),
         phase: "open".into(), last_dissolution:None, amendments: Vec::new(), materials };
     let reference = store::write(db, "work", &activity.id, 0, &activity, invocation)?;
     for actor in invitees {
@@ -808,6 +812,7 @@ pub(super) fn create_activity(
     }
     let mut result=json!({"work":activity.id,"kind":kind,"reference":reference.handle(),"invited":invitees,"need":activity.original_need});
     if !activity.materials.is_empty() {result["materials"]=json!(activity.materials);}
+    if let Some(reference) = activity.from_edition { result["from_edition"] = json!(reference); }
     Ok(result)
 }
 

@@ -22,6 +22,7 @@ pub(super) struct Desk {
     show_references: bool,
     file_page: usize,
     request_page: usize,
+    brief_page: usize,
     check_page: usize,
     origins: Option<origins::Window>,
     file_search: String,
@@ -91,6 +92,7 @@ struct Package {
     by_reference: BTreeMap<String, usize>,
     issued: Option<String>,
     requests: Vec<usize>,
+    briefs: Vec<usize>,
 }
 
 impl Package {
@@ -137,6 +139,8 @@ impl Package {
         Self {
             body: body.clone(),
             requests: requests::using_edition(app, &reference),
+            briefs: app.records("work").iter().enumerate()
+                .filter_map(|(i, w)| (w["body"]["from_edition"] == reference).then_some(i)).collect(),
             reference,
             by_reference: files.iter().enumerate().map(|(i, f)| (f.reference.clone(), i)).collect(),
             files,
@@ -231,6 +235,7 @@ impl App {
                 desk.selected = model.as_ref().map_or(0, |p| p.default_file());
                 desk.file_page = 0;
                 desk.request_page = 0;
+                desk.brief_page = 0;
                 desk.check_page = 0;
                 desk.slip = 0;
                 desk.slip_page = 0;
@@ -303,6 +308,7 @@ impl App {
                 self.receiving_checks(ui, &p);
                 self.dispatch_slips(ui, &p);
                 self.package_human_requests(ui, &p);
+                self.package_briefs(ui, &p);
                 ui.add_space(12.);
                 if ui.available_width() >= 820. && !p.files.is_empty() {
                     ui.columns(2, |columns| {
@@ -470,6 +476,12 @@ impl App {
                             s(b, "owner"),
                             title,
                         );
+                    }
+                    if ui.button("New brief from edition…")
+                        .on_hover_text("Start a separate activity with this exact edition as its source. Choose who to invite.")
+                        .clicked()
+                    {
+                        self.dialog = Some(Dialog::from_edition(&p.reference, title, s(b, "owner")));
                     }
                 });
             });

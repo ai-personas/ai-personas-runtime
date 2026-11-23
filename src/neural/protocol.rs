@@ -327,6 +327,8 @@ pub struct Work {
     #[serde(default)]
     pub kind: ActivityKind,
     pub original_need: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_edition: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub materials: Vec<super::input_files::Material>,
     pub requester: String,
