@@ -1,6 +1,60 @@
 //! A receiving run belongs to a particular edition or dispatch slip. A command
 //! result and the issuer's supported-use judgment are independently inspectable.
 use super::*;
+use std::sync::OnceLock;
+
+type Linked = Arc<OnceLock<Result<Value, String>>>;
+
+/// The two ends can belong to the same decision, different people, or even
+/// different activities. Only offer decision links after checking their origin.
+fn issue_and_check(ui: &mut Ui, app: &App, package: &Package, seq: i64, checker: &str) -> Option<String> {
+    let mut open = None;
+    let reference = format!("experience:event-{seq}@1");
+    egui::CollapsingHeader::new("Issue & check")
+        .id_salt(("receiving-decisions", &app.root, &reference))
+        .show(ui, |ui| {
+            let id = ui.make_persistent_id((&app.root, &reference, app.home_index.generation));
+            let result: Linked = ui.data_mut(|d| d.get_temp_mut_or_insert_with(id, || {
+                let slot = Arc::new(OnceLock::new());
+                let reader = Arc::clone(&slot);
+                let root = app.root.clone();
+                let reference = reference.clone();
+                let ctx = ui.ctx().clone();
+                std::thread::spawn(move || {
+                    let read = data::open(&root).and_then(|db|
+                        ai_personas::neural::context::read(&db, &reference, None, None));
+                    let _ = reader.set(read.map_err(|e| e.to_string()));
+                    ctx.request_repaint();
+                });
+                slot
+            }).clone());
+            match result.get() {
+                None => { ui.spinner(); }
+                Some(Ok(r)) if r["issuance_checked"]["delivery"] == package.reference => {
+                    let link = &r["issuance_checked"];
+                    let issuer = s(link, "issuer");
+                    for (person, role, address) in [
+                        (issuer, "Issued this edition", s(link, "decision").to_owned()),
+                        (checker, "Chose the receiving run", format!("experience:{}@1", s(link, "checking_call"))),
+                    ] {
+                        ui.horizontal_wrapped(|ui| {
+                            avatar(ui, app.label(person), persona_color(person), 20.);
+                            ui.strong(app.label(person));
+                            ui.weak(role);
+                            if ui.link("Open choice ↗").on_hover_text(&address).clicked() {
+                                open = Some(address);
+                            }
+                        });
+                    }
+                }
+                Some(_) => { ui.weak("The issuing and checking choices could not be linked."); }
+            }
+            if ui.small_button("Observation record ↗").on_hover_text(&reference).clicked() {
+                open = Some(reference);
+            }
+        });
+    open
+}
 
 fn observed(check: &Value) -> (String, Color32) {
     if check["timed_out"] == true {
@@ -102,15 +156,13 @@ impl App {
                 {
                     inspect = check["receipt"].as_str().map(str::to_owned);
                 }
-                if ui.link("Check record").on_hover_text("See which issuing decision and checking command this observation belongs to.").clicked() {
-                    record = Some(format!("experience:event-{seq}@1"));
-                }
                 if let Some(work) = check["checking_work"].as_str().filter(|w| *w != s(&package.body, "work")) {
                     if ui.link("Receiving activity ↗").on_hover_text(self.work_name(work)).clicked() {
                         activity = Some(work.to_owned());
                     }
                 }
             });
+            record = issue_and_check(ui, self, package, seq, who);
             if let Some(error) = check["error"].as_str() {
                 ui.colored_label(theme::palette(ui).ink(theme::ACCENT), error);
             }
