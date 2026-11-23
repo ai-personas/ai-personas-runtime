@@ -38,6 +38,8 @@ impl App {
         let events = self.home_index.receiving_checks(&package.reference);
         let mut page = self.delivery_desk.check_page;
         let mut inspect = None;
+        let mut record = None;
+        let mut activity = None;
         ui.add_space(8.);
         panel(ui).show(ui, |ui| {
             ui.set_width(ui.available_width());
@@ -100,6 +102,14 @@ impl App {
                 {
                     inspect = check["receipt"].as_str().map(str::to_owned);
                 }
+                if ui.link("Check record").on_hover_text("See which issuing decision and checking command this observation belongs to.").clicked() {
+                    record = Some(format!("experience:event-{seq}@1"));
+                }
+                if let Some(work) = check["checking_work"].as_str().filter(|w| *w != s(&package.body, "work")) {
+                    if ui.link("Receiving activity ↗").on_hover_text(self.work_name(work)).clicked() {
+                        activity = Some(work.to_owned());
+                    }
+                }
             });
             if let Some(error) = check["error"].as_str() {
                 ui.colored_label(theme::palette(ui).ink(theme::ACCENT), error);
@@ -109,6 +119,10 @@ impl App {
         if let Some(reference) = inspect {
             let command = self.command_bench.locate(reference);
             self.command(ui.ctx(), command);
+        } else if let Some(reference) = record {
+            self.open_resource(ui.ctx(), reference);
+        } else if let Some(work) = activity {
+            self.open_home_activity(&work);
         }
     }
 }

@@ -64,6 +64,13 @@ pub(in crate::neural) fn publish(
     let owner = edition.body["owner"]
         .as_str()
         .ok_or_else(|| failure("Missing issuing persona"))?;
+    let notice = notice(&subject, effect, result, digest);
+    store::event(db, work, actor, owner, "delivery_check", &notice, Some(call))?;
+    Ok(())
+}
+
+pub(in crate::neural) fn notice(subject: &Receiving, effect: &str, result: &Value, digest: &str) -> Value {
+    let run = &result["result"];
     let mut notice = json!({
         "delivery":subject.delivery, "dispatch":subject.dispatch, "purpose":subject.purpose,
         "checking_work":run["work"], "effect":effect, "receipt":result["receipt"],
@@ -76,16 +83,7 @@ pub(in crate::neural) fn publish(
     if let Some(route) = run["host"].get("receiving_environment") {
         notice["receiving_environment"] = route.clone();
     }
-    store::event(
-        db,
-        work,
-        actor,
-        owner,
-        "delivery_check",
-        &notice,
-        Some(call),
-    )?;
-    Ok(())
+    notice
 }
 
 /// A small pointer for rediscovery. Do not replay commands, file lists or

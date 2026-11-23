@@ -9,6 +9,7 @@ use std::collections::BTreeSet;
 
 pub(in crate::neural) struct Edition {
     pub(in crate::neural) issue: delivery_feedback::Issued,
+    pub(in crate::neural) operation: String,
     pub(in crate::neural) members: Vec<String>,
 }
 
@@ -37,7 +38,7 @@ pub(in crate::neural) fn edition(db: &Connection, reference: &str) -> Result<Edi
             "The file list differs from the accepted delivery and its original issue",
         ));
     }
-    Ok(Edition { issue, members })
+    Ok(Edition { issue, operation: op.id, members })
 }
 
 fn version_order(db: &Connection, record: &store::Record) -> Result<i64> {

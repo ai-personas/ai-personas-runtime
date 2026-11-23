@@ -28,8 +28,13 @@ pub(in crate::neural) fn origin(
         )
     };
     let envelope = body(&meta)?;
+    let check = if meta["kind"] == "delivery_check" && meta["target"] == owner {
+        Some(super::receiving::link(db, &super::locate(db, Some(owner), event)?, &envelope)?)
+    } else { None };
     let (call, parent) =
-        if meta["kind"] == "tool_result" && meta["actor"] == owner && meta["target"] == owner {
+        if let Some(check) = &check {
+            (Some(check.call.clone()), None)
+        } else if meta["kind"] == "tool_result" && meta["actor"] == owner && meta["target"] == owner {
             (meta["invocation"].as_str().map(str::to_owned), None)
         } else if matches!(
             meta["kind"].as_str(),
@@ -88,7 +93,7 @@ pub(in crate::neural) fn origin(
         || boundary.body["owner"] != owner
         || boundary.body["work"] != work
         || boundary.body["response"] != metadata(db, Some(owner), &choice)?["source"]
-        || (parent.is_some()
+        || ((parent.is_some() || check.is_some())
             && boundary.body["last_event"]
                 .as_i64()
                 .is_none_or(|n| n >= seq))
@@ -96,7 +101,10 @@ pub(in crate::neural) fn origin(
         return Ok(None);
     }
     let ops = r["operations"].as_array().into_iter().flatten();
-    let (relation, performed) = if let Some(p) = parent {
+    let (relation, performed) = if let Some(check) = check {
+        ("receiving_check", json!({"endpoint":{"kind":"operation","id":check.operation,"tool":"result.deliver"},
+            "delivery":check.edition,"checked_by":meta["actor"],"checking_work":envelope["checking_work"],"receipt":envelope["receipt"]}))
+    } else if let Some(p) = parent {
         let wrote = body(&p)?;
         let Some(text) = wrote["text"].as_str() else {
             return Ok(None);
@@ -175,7 +183,9 @@ pub(in crate::neural) fn origin(
     let mut view = json!({"decision":choice,"outcome":event,"relation":relation,"owner":owner,"work":work,"performed":performed,
         "judgment_before":r["work"]["reason"],"character_then":{"model":s.model,"epoch":s.epoch,"basis":if ctx["outputs"].is_object(){"contextual"}else{"baseline"}},
         "source_response":boundary.body["response"],"response_binding":accepted.binding});
-    view["return_kind"] = json!(if relation == "direct_reply" {
+    view["return_kind"] = json!(if relation == "receiving_check" {
+        "issued_files_checked"
+    } else if relation == "direct_reply" {
         "addressed_response"
     } else if envelope["effect"].is_string() {
         "dispatched_result"
@@ -215,7 +225,7 @@ pub(in crate::neural) fn arrivals(
         .iter()
         .filter_map(|e| {
             let addr = e["experience"].as_str()?;
-            if e["kind"] != "tool_result" && !e["body"]["reply_to"].is_string() {
+            if e["kind"] != "tool_result" && e["kind"] != "delivery_check" && !e["body"]["reply_to"].is_string() {
                 return None;
             }
             // This is an optional addition. If historical evidence is unavailable,

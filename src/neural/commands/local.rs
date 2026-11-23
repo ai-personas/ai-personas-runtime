@@ -7,6 +7,7 @@ mod receiving;
 mod launch;
 pub use receiving::Receiving;
 pub(in crate::neural) use receiving::{latest as latest_receiving_checks, publish as publish_receiving_check};
+pub(in crate::neural) use receiving::notice as receiving_notice;
 pub(in crate::neural) use launch::receiving_launcher;
 use rusqlite::Connection;
 use schemars::JsonSchema;

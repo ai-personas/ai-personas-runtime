@@ -38,6 +38,7 @@ fn relation(value: &str) -> String {
         "direct_reply" => "Direct reply to this choice".into(),
         "operation_result" => "Result of this choice’s operation".into(),
         "delivery_feedback" => "Feedback on the issued package".into(),
+        "receiving_check" => "Receiving run on the issued package".into(),
         "delivery_review" | "requester_review" => "Review of the issued package".into(),
         "asset_feedback" => "Feedback on the exact file".into(),
         "feedback_reply" => "Reply to the file feedback".into(),
