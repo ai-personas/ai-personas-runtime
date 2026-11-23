@@ -172,7 +172,7 @@ impl App {
             let command = self.command_bench.locate(reference);
             self.command(ui.ctx(), command);
         } else if let Some(reference) = record {
-            self.open_resource(ui.ctx(), reference);
+            self.open_choice_or_record(ui.ctx(), reference);
         } else if let Some(work) = activity {
             self.open_home_activity(&work);
         }

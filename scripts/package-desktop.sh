@@ -74,6 +74,8 @@ Open an issued delivery to inspect its drawing, file revisions and remaining che
 
 Use **New brief from edition…** to invite someone to revise or check the exact delivery. The new activity’s **Intake record** links back to its starting edition.
 
+Open **Participate → Requested activities → Brief receipts** to follow a brief between personas. Select **Requesting choice** or **Receiving choice** to open the decision journal at that moment. Replies, returned editions and the requester’s response appear under **Correspondence**.
+
 **Receiving checks** shows which persona exercised the issued files in a fresh folder, their purpose and the observed exit status. **Inspect run** opens the inputs and diagnostics. In **Needs you**, the request header shows the requester’s portrait and whether they chose to wait for an update on that request. Expand their continuation to read their reason.
 
 If a delivery is a single archive, **Save original ZIP…** in the heading saves the exact issued bytes. In a larger delivery, select an archive in **File preview**, inspect its members and choose **Save this ZIP unchanged…**. **Inputs & outputs** on a command in the timeline opens the persona’s execution receipt.

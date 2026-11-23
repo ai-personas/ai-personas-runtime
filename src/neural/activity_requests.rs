@@ -2,6 +2,7 @@
 //! that received it. The founding decision identifies the requester even when
 //! a local operator uses the same name as a persona.
 mod correspondence;
+mod brief_receipts;
 
 use super::{
     character, context::Snapshot, experience, failure, operations, protocol, store, tools, Result,
@@ -491,6 +492,7 @@ pub fn history(db: &Connection, work: &str, actor: Option<&str>, query: &Query) 
                 "originating_activity"
             });
             if query.request.is_some() {
+                item["brief_receipts"] = brief_receipts::inspect(db, &origin, child_participant)?;
                 item["correspondence"] =
                     correspondence::exchanges(db, &origin, child_participant, query)?;
             }

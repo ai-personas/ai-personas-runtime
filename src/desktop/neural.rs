@@ -809,8 +809,8 @@ impl eframe::App for App {
         if let Some(action)=self.requested_activities.show(ctx,&self.root,&self.snapshot.status,self.cursor) {
             match action {
                 requested_activities::Action::Inspect(r) if r.starts_with("delivery:")=>self.open_issued_package(ctx,&r),
-                requested_activities::Action::Inspect(r)=>self.open_resource(ctx,r),
-                requested_activities::Action::OpenWork(id)=>{self.work=id;self.conversation_page=0;self.layout.editor=Editor::Studio;}
+                requested_activities::Action::Inspect(r)=>self.open_choice_or_record(ctx,r),
+                requested_activities::Action::OpenWork(id)=>self.open_home_activity(&id),
             }
         }
         if let Some(reference)=self.mesh_profile.show(ctx,&self.root,&self.operator){self.open_resource(ctx,reference);}
