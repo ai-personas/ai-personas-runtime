@@ -42,6 +42,23 @@ The voltage check used the exact issued track, pad, via and filled-zone geometry
 
 No evaluator findings were sent to the personas. Mara’s synchronous supplier download had not returned by issuance. Lio’s provider reported `server_is_overloaded`; after issuance the operator re-enabled its scheduler in Studio and verified further accepted OAuth decisions without changing the brief.
 
+### Did the four personas change through this work?
+
+**Their starting characters were distinct and persisted. No numerical maturation was observed through Tess’s first issue.** The evaluator recomputed each numerical fingerprint from the actual parameter coordinates and reproduced all 12 baseline inclinations per persona. Those values matched the inputs recorded for all 844 accepted ordinary decisions through issuing admission 859. All 844 chose to keep their model and use baseline again.
+
+| Persona | Nonzero parameters | Ordinary decisions | Baseline verification inclination | Baseline collaboration inclination |
+|---|---:|---:|---:|---:|
+| Lio | 32 | 78 | +0.291 | +0.245 |
+| Mara | 30 | 20 | +0.446 | +0.462 |
+| Noor | 24 | 376 | +0.572 | +0.380 |
+| Tess | 32 | 370 | +0.336 | +0.537 |
+
+These are supplied character values, not measures of skill. Of 1,058 references the personas explicitly cited as experience, 1,056 were new inbox events. Twice Noor cited an earlier decision of her own: once to retain an assumption check after an electrical calculation, once to treat a quoting mistake as a local repair. The record supports both choices; it does not show that changing or keeping a weight caused a better board. [Per-person report](https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-character-20261123/character-to-issue.json) · [Verifier and numerical inputs](https://github.com/ai-personas/ai-personas-runtime/releases/tag/studio-atx-four-character-20261123)
+
+### The supplier command that did not return
+
+Mara chose a foreground program to retrieve a supplier document without a process deadline. At 07:44:56 UTC an operator paused her scheduler in Studio. Its terminal receipt records a process killed after **17,061 seconds (4 h 44 min 21 s)**, no successful result and no captured output file. During that time her peers made **1,396 accepted decisions**: Lio 250, Noor 480 and Tess 666. The peers could work independently, but Mara did not autonomously recover from this wait. A separate provider overload paused Tess. Neither hold was a persona’s choice to stop, and the operator supplied no circuit advice or substitute supplier document. [Both conditions in the native Studio](assets/studio-atx-four-command-stop.jpg)
+
 ## The first delivery: PC60 revision A
 
 The requester asked for an editable circuit and files a manufacturer could use without the requester editing them. Input, output and PC assumptions were left to the personas. Ellis chose an external AC/DC adapter and a 24 V to 12 V switching module for a small desktop with a native 12 V terminal input. Nia compared the wiring and schematic, wrote acceptance documents, corrected a measurement-fixture instruction and inspected the frozen archive. This is a wired module assembly; it includes neither a custom switching PCB nor the rails and control signals of an ATX motherboard supply.
