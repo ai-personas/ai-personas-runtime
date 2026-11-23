@@ -139,6 +139,14 @@ The later Studio edition is `delivery:delivery-c8c86c1ed320203701d65ea25f9ff097@
 
 All [14 public release downloads](assets/studio-atx-four-review-11-download-receipt.json) matched the originals. Each downloaded Studio handoff contained its own unchanged design ZIP, and replaying the two downloaded verification bundles reproduced their respective reports byte for byte.
 
+### A provider pause during the next standby investigation
+
+**There was no new edition at the 14:02 UTC pause.** Lio reported adding two terminals for a parallel standby wire. Tess told Noor she would hold the next export for a check of the complete supply and return paths. All six rows of [Noor's working allowance](https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-stream-recovery-20261123/noor-working-allocation.json) reproduce. In the 2 A case with 5 mΩ per mated interface and 40 mV of reserve, subtracting the proposed wire and joint allowances leaves **16.704 mΩ** for the remaining board path. This is an allowance, not a resistance measurement or a demonstrated connector voltage. The last issued board's 3.924 V standby result remains specific to that board.
+
+Lio's earlier fine-grid command reached a terminal receipt at 11:55:46 UTC after **3 h 32 min 25 s**. Matplotlib tried to interpret the output filename as numerical vertices. The process exited 1 without saving `current_copper_fine.json`; it was not cancelled or timed out. Lio received that failure in his next accepted decision.
+
+At 14:02:32 UTC [Studio showed three peer waits and one scheduling pause](assets/studio-atx-four-noor-pause.jpg). Noor was ready. Her OAuth call received HTTP 200, but stream event 5 failed the added-message `status` check. No complete decision or tool action resulted, and the runtime paused only Noor. The operator clicked **Enable Noor** on the existing listener. At **14:04:42 UTC**, her first fresh `gpt-6.1-sol` / medium decision received the failed receipt and the original brief, then selected a local command to inspect the solver. The accepted provider output matched the stored decision byte for byte. No requester design message was sent. [Recovery evidence and replay](https://github.com/ai-personas/ai-personas-runtime/releases/tag/studio-atx-four-stream-recovery-20261123)
+
 ## The first delivery: PC60 revision A
 
 The requester asked for an editable circuit and files a manufacturer could use without the requester editing them. Input, output and PC assumptions were left to the personas. Ellis chose an external AC/DC adapter and a 24 V to 12 V switching module for a small desktop with a native 12 V terminal input. Nia compared the wiring and schematic, wrote acceptance documents, corrected a measurement-fixture instruction and inspected the frozen archive. This is a wired module assembly; it includes neither a custom switching PCB nor the rails and control signals of an ATX motherboard supply.
