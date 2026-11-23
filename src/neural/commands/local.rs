@@ -3,6 +3,9 @@
 //! separate from their later registration, qualification and delivery.
 use super::{check_run_paths, content, store_output_bytes, Origin};
 use crate::neural::{failure, now, store, workspace, Result};
+mod receiving;
+pub use receiving::Receiving;
+pub(in crate::neural) use receiving::{latest as latest_receiving_checks, publish as publish_receiving_check};
 use rusqlite::Connection;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -30,6 +33,10 @@ pub struct Run {
     /// outputs name real project files. The default scratch tree stages exact files.
     #[serde(default, skip_serializing_if = "Directory::is_scratch")]
     pub directory: Directory,
+    /// Run a receiving check in fresh scratch with the exact exported file selection.
+    /// The issuer also receives the resulting check receipt in the issuing activity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receiving: Option<Receiving>,
     #[serde(default)]
     pub arguments: Vec<String>,
     /// Relative filenames mapped to exact asset revisions or byte objects. In workspace mode publish missing inputs or reuse byte-identical regular files; never overwrite differing content. Each completed input remains if a later one fails; no program starts on a staging error.
@@ -76,7 +83,18 @@ pub enum Stream {
 }
 
 impl Run {
-    pub(crate) fn validate(&self, db: &Connection) -> Result<()> {
+    pub(in crate::neural) fn project_inputs(&self, db: &Connection) -> Result<BTreeMap<String, String>> {
+        if let Some(subject) = &self.receiving {
+            if self.directory != Directory::Scratch || !self.files.is_empty() || self.stdin.is_some() {
+                return Err(failure("A receiving check starts in scratch with only the issued files. Omit files and stdin."));
+            }
+            subject.files(db)
+        } else {
+            Ok(self.files.clone())
+        }
+    }
+
+    pub(crate) fn validated_inputs(&self, db: &Connection) -> Result<BTreeMap<String, String>> {
         if self.program.trim().is_empty() || self.program.contains('\0') {
             return Err(failure("Name the local executable to run"));
         }
@@ -85,11 +103,12 @@ impl Run {
                 "Choose a positive timeout_seconds or omit the deadline",
             ));
         }
-        check_run_paths(&self.arguments, &self.files, &self.outputs)?;
-        for reference in self.files.values().chain(&self.stdin) {
+        let files = self.project_inputs(db)?;
+        check_run_paths(&self.arguments, &files, &self.outputs)?;
+        for reference in files.values().chain(&self.stdin) {
             workspace::byte_digest(db, reference)?;
         }
-        Ok(())
+        Ok(files)
     }
 }
 
@@ -217,7 +236,11 @@ pub(crate) fn run(
     mut stop: impl FnMut() -> bool,
 ) -> Result<Value> {
     let mut workspace = store::Store::open(root)?;
-    input.validate(&workspace.db)?;
+    let inputs = input.validated_inputs(&workspace.db)?;
+    if let Some(subject) = &input.receiving {
+        // At dispatch, including a same-decision issue, the issuing decision is committed.
+        crate::neural::activity_sources::delivery::edition(&workspace.db, &subject.delivery)?;
+    }
     let scratch = input
         .directory
         .is_scratch()
@@ -260,9 +283,9 @@ pub(crate) fn run(
                 project.display()
             )));
         }
-        if !input.files.is_empty() {
+        if !inputs.is_empty() {
             let project_root = File::open(project)?;
-            for (path, reference) in &input.files {
+            for (path, reference) in &inputs {
                 if stop() { cancelled = true; return Err(failure("Stopped before staging all inputs")); }
                 let (digest, bytes) = content(&workspace.db, reference)?;
                 let state = workspace::stage::input(&project_root, path, &digest, &bytes)
@@ -361,13 +384,16 @@ pub(crate) fn run(
             .collect::<Result<BTreeMap<_, _>>>()?;
         let ok = process_started && exit == Some(0) && error.is_none() && !cancelled;
         let id = format!("local-{}", crate::store::sha256_bytes(&serde_json::to_vec(&origin)?));
-        let body = json!({"format":"local-project-run-v1","engine":"local","origin":"persona","actor":origin.actor,
+        let mut body = json!({"format":"local-project-run-v1","engine":"local","origin":"persona","actor":origin.actor,
             "work":origin.work,"invocation":origin.invocation,"operation":origin.operation,"intent":input,
             "argv0":input.program,"arguments":input.arguments,"files_supplied":files,"stdin":stdin_source,"host":host,
             "process_started":process_started,"process_succeeded":ok,"exit_code":exit,"signal":signal,"cancelled":cancelled,"timed_out":timed_out,
             "error":error,"outputs":outputs,"missing_outputs":missing,"file_errors":file_errors,
             "stdout":stream(db,&stdout)?,"stderr":stream(db,&stderr)?,"started":started,"finished":now(),
             "outputs_complete":missing.is_empty(),"success":ok && missing.is_empty()});
+        if let Some(subject) = &input.receiving {
+            body["receiving"] = json!(subject);
+        }
         let r = store::write(db, "command_run", &id, 0, &body, origin.invocation)?;
         Ok(json!({"receipt":r.handle(),"result":body}))
     })

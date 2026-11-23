@@ -341,16 +341,7 @@ impl App {
                 });
                 ui.add_space(3.);
                 ui.add(egui::Label::new(design::display(s(body, "title"), 29.)).wrap());
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(
-                        RichText::new(format!("Requested by {}", self.label(requester))).strong(),
-                    )
-                    .on_hover_text(requester);
-                    let activity = self.work_name(work);
-                    let limit = if ui.available_width() < 520. { 48 } else { 74 };
-                    ui.label(RichText::new(format!("· {}", home::short_text(&activity, limit))).color(p.muted))
-                        .on_hover_text(activity);
-                });
+                self.requester_continuation(ui, &reference, requester, work);
                 ui.add_space(4.);
                 ui.horizontal_wrapped(|ui| {
                     let open_activity = if body["field_packet"].is_object() {
@@ -491,6 +482,35 @@ impl App {
         });
     }
 
+    fn requester_continuation(&self, ui: &mut Ui, reference: &str, actor: &str, work: &str) {
+        let next = self.records("participation").iter().map(|r| &r["body"])
+            .find(|p| p["persona"] == actor && p["work"] == work)
+            .map(|p| &p["continuation"]);
+        let name = self.label(actor);
+        let activity = self.work_name(work);
+        let request_key = reference.rsplit_once('@').map(|pair| pair.0);
+        let tracks_request = next.filter(|c| c["kind"] == "wait")
+            .and_then(|c| c["on_events"].as_array()).into_iter().flatten().filter_map(Value::as_str)
+            .any(|t| t.rsplit_once('@').is_some_and(|(key, _)| Some(key) == request_key));
+        ui.add_space(4.);
+        ui.horizontal_wrapped(|ui| {
+            let (portrait, _) = ui.allocate_exact_size(egui::vec2(24., 24.), egui::Sense::hover());
+            design::persona_mark(ui, portrait, name, persona_color(actor));
+            ui.strong(format!("Requested by {name}")).on_hover_text(actor);
+            if tracks_request {
+                ui.small("Following updates on this request");
+            } else if next.is_some() {
+                ui.small(self.persona_state_in(actor, work));
+            }
+        });
+        let limit = if ui.available_width() < 520. { 48 } else { 74 };
+        ui.weak(home::short_text(&activity, limit)).on_hover_text(activity);
+        if let Some(reason) = next.and_then(|c| c["purpose"].as_str().or_else(|| c["reason"].as_str())) {
+            egui::CollapsingHeader::new(format!("{name}’s continuation")).id_salt(("requester-continuation", reference))
+                .show(ui, |ui| { ui.add(egui::Label::new(reason).wrap()); });
+        }
+    }
+
     fn request_materials(&mut self, ui: &mut Ui, body: &Value) {
         let files = body["artifacts"].as_array().map_or(0, Vec::len);
         if files == 0 && !body["deliveries"].as_array().is_some_and(|d| !d.is_empty()) {
@@ -629,12 +649,12 @@ impl App {
                     .as_array()
                     .filter(|items| !items.is_empty())
                 {
-                    ui.small("Remaining work");
+                    ui.small("Open at issue");
                     for item in items.iter().filter_map(Value::as_str) {
                         ui.add(egui::Label::new(format!("• {item}")).wrap());
                     }
                 } else {
-                    ui.small("Remaining work · None listed");
+                    ui.small("Open at issue · None listed");
                 }
             });
         }

@@ -1,4 +1,4 @@
-//! Fresh inference after an observed transient provider or transport failure. This never retries an
+//! Fresh inference after an observed transport or temporary service failure. This never retries an
 //! external operation or adopts an incomplete provider response.
 use super::{failure, now, store, Result};
 use crate::provider::{Failure, ProviderError};
@@ -47,21 +47,21 @@ pub fn schedule(
     }
     let cause = match (kind, receipt.http_status) {
         (Failure::Network, None | Some(200)) => "network",
-        // A proxy can return a complete error page rather than an SSE stream.
-        // A structured provider diagnostic (including quota, authentication
-        // and request errors) is not classified from its status code alone.
-        (Failure::HttpStatus, Some(502..=504 | 520..=524))
-            if receipt.event_count == 0 && receipt.http_diagnostic.as_ref()
-                .is_some_and(|d| d.body_complete && !d.json_observed) => "gateway_http",
-        // A successful HTTP handshake can be followed by an explicit overload
-        // event. Do not infer overload from a generic provider failure, a
-        // refusal, an unknown error code, or natural-language error text.
+        // An established SSE stream can explicitly reject a request because
+        // the service is overloaded. Only the observed temporary service
+        // diagnostic is eligible; other error events keep their disposition.
         (Failure::RemoteFailure, Some(200)) if receipt.stream_diagnostic.as_ref().is_some_and(|d|
             d.stage == "event" && d.event_type == Some("error")
                 && d.rule == "remote_or_unsupported_output"
                 && d.remote_error_type == Some("service_unavailable_error")
                 && d.remote_error_code == Some("server_is_overloaded")
         ) => "provider_overload",
+        // A proxy can return a complete error page rather than an SSE stream.
+        // A structured provider diagnostic (including quota, authentication
+        // and request errors) is not classified from its status code alone.
+        (Failure::HttpStatus, Some(502..=504 | 520..=524))
+            if receipt.event_count == 0 && receipt.http_diagnostic.as_ref()
+                .is_some_and(|d| d.body_complete && !d.json_observed) => "gateway_http",
         _ => return Ok(false),
     };
     let digest = receipt_reference.strip_prefix("object:").ok_or_else(||failure("Expected exact failed receipt"))?;
@@ -72,7 +72,7 @@ pub fn schedule(
         params![invocation,work,actor,digest], |row| row.get(0),
     )?;
     if !untouched || receipt.audit.invocation_id != invocation {
-        return Err(failure("transport recovery requires a failed inference with no adopted state or effects"));
+        return Err(failure("inference recovery requires a failed attempt with no adopted state or effects"));
     }
     let previous: Option<String> = db.query_row(
         "SELECT id FROM invocations WHERE actor=?1 AND rowid<(SELECT rowid FROM invocations WHERE id=?2) ORDER BY rowid DESC LIMIT 1",
@@ -102,7 +102,7 @@ pub fn schedule(
         "external_operations_replayed":false,
         "remote_stop_confirmed":receipt.remote_stop_confirmed,
         "remote_effects_and_charges_may_remain":receipt.remote_effects_and_charges_may_remain,
-        "meaning":"This transient failure left no complete decision and adopted no state or operations. Fresh inference may be scheduled after this time using current state and selected context. All controls, explicit stops and current authority still apply. This does not establish remote termination or zero charges."
+        "meaning":"A transport or temporary service failure left no complete decision and adopted no state or operations. Fresh inference may be scheduled after this time using current state and selected context. All controls, explicit stops and current authority still apply. This does not establish remote termination or zero charges."
     }), Some(invocation))?;
     Ok(true)
 }

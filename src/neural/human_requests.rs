@@ -127,6 +127,13 @@ pub(super) struct SheetDelivery {
     pub artifacts: Vec<String>,
 }
 
+impl SheetDelivery {
+    pub(super) fn dispatch(&self, number: usize) -> Result<&super::tools::Dispatch> {
+        number.checked_sub(1).and_then(|i| self.dispatches.get(i))
+            .ok_or_else(|| failure("No dispatch slip with that number in this edition"))
+    }
+}
+
 pub fn declared_scope(scope: &str) -> &str {
     match scope {
         "partial" => "Partial",
@@ -195,7 +202,8 @@ pub(super) fn create(db: &Connection, snapshot: &Snapshot, request: Request) -> 
         Some(&snapshot.invocation),
     )?;
     Ok(
-        json!({"reference":record.handle(),"event":event,"state":"open","updates_arrive_as":"user_message"}),
+        json!({"reference":record.handle(),"event":event,"state":"open","updates_arrive_as":"user_message",
+            "wait_for_this_request":record.handle()}),
     )
 }
 
@@ -215,6 +223,46 @@ fn exact(db: &Connection, reference: &str) -> Result<store::Record> {
         return Err(failure("Select an exact human request revision"));
     }
     Ok(record)
+}
+
+/// Validate at adoption, after synchronous operations have bound their aliases.
+/// Keep the chosen edition even if a newer report arrived during inference.
+pub(super) fn bind_waits(
+    db: &Connection, snapshot: &Snapshot, triggers: &mut [String],
+    aliases: &std::collections::BTreeMap<String, String>,
+) -> Result<()> {
+    for trigger in triggers {
+        if let Some(key) = trigger.strip_prefix('$') {
+            *trigger = aliases.get(key).cloned()
+                .ok_or_else(|| failure("Use the id of an earlier human.request in this decision to wait for its return"))?;
+            if !trigger.starts_with("human_request:") {
+                return Err(failure("A wait alias must name a human request"));
+            }
+        } else if !trigger.starts_with("human_request:") {
+            continue;
+        }
+        let record = exact(db, trigger)?;
+        if record.body["requester"] != snapshot.actor || record.body["work"] != snapshot.work
+            || !matches!(record.body["state"].as_str(), Some("open" | "in_progress"))
+        {
+            return Err(failure("Choose an open or taken edition of your own human request in this activity"));
+        }
+        let current = store::required(db, "human_request", &record.reference.id)?;
+        if !matches!(current.body["state"].as_str(), Some("open" | "in_progress")) && !store::has_arrival(
+            db, &snapshot.work, &snapshot.actor, snapshot.cursor, std::slice::from_ref(trigger),
+        )? {
+            return Err(failure(format!("This request is closed. Read {} and reconsider what still needs a human return.", current.reference.handle())));
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn newer_report(trigger: &str, reported: &str) -> bool {
+    let Some((request, basis)) = trigger.rsplit_once('@') else { return false; };
+    let Some((source, revision)) = reported.rsplit_once('@') else { return false; };
+    request.starts_with("human_request:") && source == request
+        && basis.parse::<i64>().ok().zip(revision.parse::<i64>().ok())
+            .is_some_and(|(basis, next)| next > basis)
 }
 
 // The outside action is the one the human took. The requester may issue new

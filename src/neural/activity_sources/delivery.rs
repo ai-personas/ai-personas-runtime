@@ -30,6 +30,8 @@ pub(in crate::neural) fn edition(db: &Connection, reference: &str) -> Result<Edi
         || result_event <= issue.sequence
         || !choice.issued_alias(&op, &issue.record, &result)?
         || operations::package_paths(db, &supplied)? != operations::package_paths(db, &members)?
+        || op.input["dispatches"].as_array().into_iter().flatten()
+            .ne(body["dispatches"].as_array().into_iter().flatten())
     {
         return Err(failure(
             "The file list differs from the accepted delivery and its original issue",

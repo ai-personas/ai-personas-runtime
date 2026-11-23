@@ -14,6 +14,7 @@ use std::collections::BTreeSet;
 
 pub(super) mod deliberation;
 pub mod practice;
+pub(super) mod tested;
 pub mod trial;
 
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
@@ -140,30 +141,22 @@ pub struct FollowUp {
     pub retained_strengths: String,
 }
 
+/// A cue with a reference, forecast, or proposed set of reads is not the record.
+fn observed_record<'a>(snapshot: &'a Snapshot, reference: &str) -> Option<&'a Value> {
+    if !snapshot.data["context_recovery"].is_null() { return None; }
+    let selected = snapshot.data["selected_resources"].as_array().into_iter().flatten();
+    let returned = snapshot.data["new_events"].as_array().into_iter().flatten().filter(|e| {
+        e["kind"] == "tool_result" && matches!(e["body"]["tool"].as_str(),
+            Some("asset.read" | "persona.read" | "development.update" | "development.close"))
+    }).map(|e| &e["supplied_result"]);
+    selected.chain(returned).chain(practice::receipt(snapshot, reference))
+        .find(|b| b["reference"] == reference && b["record"].is_object())
+        .map(|b| &b["record"])
+}
+
 pub(super) fn observed(snapshot: &Snapshot, reference: &str) -> bool {
-    if !snapshot.data["context_recovery"].is_null() {
-        return false;
-    }
-    if practice::receipt(snapshot,reference).is_some() {return true;}
-    let whole = |body: &Value| body["reference"] == reference && body["record"].is_object();
-    snapshot.data["selected_resources"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .any(whole)
-        || snapshot.data["new_events"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|event| {
-                event["experience"] == reference
-                    || (event["kind"] == "tool_result"
-                        && matches!(
-                            event["body"]["tool"].as_str(),
-                            Some("asset.read" | "persona.read" | "development.update" | "development.close")
-                        )
-                        && whole(&event["supplied_result"]))
-            })
+    observed_record(snapshot, reference).is_some() || (snapshot.data["context_recovery"].is_null()
+        && snapshot.data["new_events"].as_array().into_iter().flatten().any(|e| e["experience"] == reference))
 }
 
 fn revisit_condition(db: &Connection, actor: &str, revisit: &Revisit) -> Result<()> {

@@ -124,6 +124,7 @@ impl Filter {
             }
             Self::Files => {
                 file || event["tool_outcome"]["retrieved_object"].is_string() || event["tool_outcome"]["captured_zip"].is_string()
+                    || captured_files(event).is_some()
                     || human_file_count(event) > 0 || feedback_reference(event).is_some()
                     || matches!(
                         kind,
@@ -352,6 +353,23 @@ fn recipient(event: &Value) -> &str {
     } else {
         s(event, "target")
     }
+}
+
+fn captured_files(event: &Value) -> Option<(&str, &serde_json::Map<String, Value>)> {
+    if event["kind"] != "tool_result"
+        || !matches!(event["body"]["tool"].as_str(), Some("command.local" | "command.run"))
+    {
+        return None;
+    }
+    let result = &event["tool_outcome"];
+    let receipt = result["receipt"].as_str()?.strip_prefix("command_run:")?;
+    let (_, revision) = receipt.rsplit_once('@')?;
+    revision.parse::<u64>().ok().filter(|n| *n > 0)?;
+    let outputs = result["outputs"].as_object()?;
+    if outputs.is_empty() {
+        return None;
+    }
+    Some((result["receipt"].as_str()?, outputs))
 }
 
 fn human_file_count(event: &Value) -> usize {
@@ -1003,7 +1021,13 @@ impl App {
                     .into_iter()
                     .flatten()
                     .filter_map(Value::as_str)
-                    .map(|v| v.replace('_', " "))
+                    .map(|v| {
+                        if let Some((id, _)) = v.strip_prefix("human_request:").and_then(|h| h.rsplit_once('@')) {
+                            let title = self.records("human_requests").iter()
+                                .find(|r| r["reference"]["id"] == id).and_then(|r| r["body"]["title"].as_str()).unwrap_or(v);
+                            format!("human update on {title}")
+                        } else { v.replace('_', " ") }
+                    })
                     .collect();
                 let mut triggers = if names.is_empty() {
                     "any new arrival".into()
@@ -1458,6 +1482,28 @@ impl App {
                         }
                     });
                 }
+                if let Some((run, files)) = captured_files(event) {
+                    egui::CollapsingHeader::new(format!("Captured files · {}", files.len()))
+                        .id_salt(("command-outputs", seq))
+                        .default_open(self.live_board.filter == Filter::Files)
+                        .show(ui, |ui| {
+                            ui.small("Working files saved with this run");
+                            for (name, file) in files {
+                                let Some(object) = file["object"].as_str() else { continue };
+                                ui.horizontal_wrapped(|ui| {
+                                    theme::glyph(ui, Icon::Files, p.accent);
+                                    if ui.link(name).on_hover_text(format!("{run}\n{object}")).clicked() {
+                                        action = Some(EventAction::SourceFile {
+                                            source: run.into(), object: object.into(), name: name.clone(),
+                                        });
+                                    }
+                                    if let Some(bytes) = file["bytes"].as_u64() {
+                                        ui.weak(RichText::new(size(bytes)).small());
+                                    }
+                                });
+                            }
+                        });
+                }
                 if let (Some(zip), Some(manifest)) = (result["captured_zip"].as_str(), result["member_manifest"].as_str()) {
                     ui.horizontal_wrapped(|ui| {
                         if text_action(ui, "Inspect captured ZIP").clicked() {
@@ -1548,6 +1594,11 @@ impl App {
                             action = Some(EventAction::Receipt(seq));
                         }
                     }
+                    if let Some(reference) = event["failed_call"]["receipt"].as_str() {
+                        if text_action(ui, "Provider receipt").on_hover_text(reference).clicked() {
+                            action = Some(EventAction::Open(reference.into()));
+                        }
+                    }
                     if let Some(parent) = body["reply_to"].as_str() {
                         if text_action(ui, "In reply to")
                             .on_hover_text(parent)
@@ -1598,7 +1649,7 @@ impl App {
                             }
                         }
                     }
-                    if matches!(kind, "request_delivery" | "delivery") {
+                    if matches!(kind, "request_delivery" | "delivery" | "delivery_check") {
                         if let Some(package) =
                             body["delivery"].as_str().or(body["reference"].as_str())
                         {
@@ -1653,6 +1704,7 @@ impl App {
             "outcome_changed" => "updated an outcome".into(),
             "delivery" if event["target"] == "*" => "announced a delivery".into(),
             "delivery" => format!("delivered a package to {target}"),
+            "delivery_check" => "checked an issued package".into(),
             "request_delivery" => format!("returned a delivery to {target}"),
             "package_review" => "reviewed a package".into(),
             "user_acceptance" if body["decision"]["accepted"] == true => {
@@ -1700,6 +1752,12 @@ impl App {
 
 pub(super) fn event_text(event: &Value) -> &str {
     let body = &event["body"];
+    if event["kind"] == "delivery_check" {
+        return s(body, "purpose");
+    }
+    if let Some(summary) = event["failed_call"]["summary"].as_str() {
+        return summary;
+    }
     if event["kind"] == "delivery" && body["record"]["title"].is_string() {
         return s(&body["record"], "title");
     }

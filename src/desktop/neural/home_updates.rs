@@ -10,6 +10,7 @@ enum Contribution {
     File(FileChange),
     Print,
     Issue,
+    ReceivingCheck,
     Feedback,
     Review,
     Request,
@@ -87,6 +88,10 @@ impl Contribution {
             return None;
         }
         match kind {
+            "delivery_check" if body["receipt"].is_string() => {
+                edition(s(body, "delivery"), "delivery:")?;
+                Some(Self::ReceivingCheck)
+            }
             "reply" if body["operational_persona"] == true && has_text => Some(Self::Reply),
             "message" if has_text => Some(Self::Message),
             "request_message_sent"
@@ -447,12 +452,14 @@ impl App {
         let actor_name = if human { actor } else { self.label(actor) };
         let ico = match row.kind {
             File(_) | Print | Issue | Review | Feedback => Icon::Files,
+            ReceivingCheck => Icon::Activity,
             Request | Return | Withdrawal => Icon::Questions,
             Reply | Message => Icon::Conversation,
         };
         let verb = match row.kind {
             File(change) => change.verb().into(),
             Print => "printed a PDF".into(),
+            ReceivingCheck => "checked an issued package".into(),
             Issue if event["target"] == "user" => "issued a package".into(),
             Issue => format!(
                 "issued a package for {}",
@@ -489,6 +496,7 @@ impl App {
 
         let package = match row.kind {
             Issue => Some((s(body, "reference"), s(&body["record"], "title"))),
+            ReceivingCheck => Some((s(body, "delivery"), self.feedback_title(event, s(body, "delivery")))),
             Feedback | Review => {
                 let reference = if matches!(row.kind, Feedback) {
                     s(body, "delivery")
@@ -547,6 +555,7 @@ impl App {
             _ => {
                 let text = match row.kind {
                     Request if event["kind"] == "human_request_packet" => s(body, "text"),
+                    ReceivingCheck => s(body, "purpose"),
                     Request => s(body, "action"),
                     Withdrawal => s(body, "reason"),
                     Review => s(&body["decision"], "reason"),

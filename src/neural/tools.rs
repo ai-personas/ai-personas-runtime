@@ -376,8 +376,8 @@ pub struct AssetMetadata {
 pub const NAMES: &[(&str,&str)] = &[
     ("command.install","Install Python 3.12 (engine=python, includes its bundled standard library), ngspice, or any retained WASI Preview 1 command for shared use. An omitted source downloads the published Python or ngspice release; an exact matching copy also works offline. Include the installation operation ID in asset_maintenance.operations with kind change. Use the returned installation reference for command.run."),
     ("command.run","Execute a workspace command, including Python scripts you write. Mount exact assets or byte objects under relative filenames, pass literal arguments (e.g. [\"build.py\"]), name outputs to capture. stdout, stderr and files are returned as exact byte references; read the streams for diagnostics or register a finished output for delivery."),
-    ("command.local","Run a program with literal arguments. Use directory:\"workspace\" for continuing work: relative paths start in the shared project, edits stay there and peers can use them. The files map can bring exact retained objects or asset revisions into that project: missing names are created, identical files reused and differing files never replaced. On a staging conflict the program does not start; the receipt lists already staged inputs. Name files in outputs to capture their exact bytes, including existing sources for your next decision. Scratch (default) instead stages files from exact references in a fresh directory. return_text:[\"stdout\"] and/or \"stderr\" supplies complete UTF-8 streams; otherwise read the exact stream object for more. Register exact outputs with asset.register for delivery."),
-    ("command.history","List installed portable commands and discover local and portable executions across activities by exact installation, receipt, source, log or output reference."),
+    ("command.local","Run a program with literal arguments. Use directory:\"workspace\" for continuing work: relative paths start in the shared project, edits stay there and peers can use them. The files map can bring exact retained objects or asset revisions into that project: missing names are created, identical files reused and differing files never replaced. On a staging conflict the program does not start; the receipt lists already staged inputs. Name files in outputs to capture their exact bytes, including existing sources for your next decision. Scratch (default) stages exact files in a fresh directory. For a receiving check, select receiving:{delivery,purpose,dispatch?} to stage the entire issued edition or a one-based recipient slip exactly as exported. The issuer receives the receipt. return_text:[\"stdout\"] and/or \"stderr\" supplies complete UTF-8 streams; otherwise read the exact stream object for more. Register exact outputs with asset.register for delivery."),
+    ("command.history","List installed portable commands and discover local and portable executions across activities by exact installation, checked delivery edition, receipt, source, log or output reference."),
     ("workspace.bundle","Freeze your selected project-relative paths (files or named directory trees) into one reviewable ZIP. Optionally exclude exact paths/subtrees. Returns an immutable ZIP object and a separate manifest with member paths, sizes and SHA-256 hashes. Stages nothing on the host, publishes no asset and issues no delivery. Use the returned reference in asset.register or in a scratch command.local file map to check the exact archive."),
     ("workspace.list","List names and file types in one chosen shared-workspace directory. Import selected file contents separately."),
     ("web.fetch","Retrieve an HTTP(S) source and retain its exact response bytes. Reports final URL, status, declared media type and observed file header. Optionally expect a PDF, HTML, ZIP or image header. Even an error page or unexpected format has its own byte reference when fully received. Read or render the returned object to inspect its contents."),
@@ -404,6 +404,7 @@ pub const NAMES: &[(&str,&str)] = &[
     ("persona.create","Create an attributed pending identity with a fresh own-model initialization. This does not invite or assign responsibility."),
     ("asset.search","Search current shared asset metadata by literal or regex. Set history=true for previous library names. same_content finds registrations of identical retained bytes. Use asset.find for exact text search with optional excerpts, or asset.read for a chosen range."),
     ("asset.history","Inspect a page of editions of an exact shared file, including names, file sizes, attributable editors and whether the bytes changed. Returns metadata and exact asset handles for selective reading."),
+    ("asset.deliveries","Find verified delivery editions across activities that include one exact shared file revision. Returns issuers, activities and the numbered dispatch slips that include the file. Use the delivery address to inspect its instructions or try its exact files with command.local receiving."),
     ("asset.find","Locate literal or regex matches in one exact retained UTF-8 asset or object. Returns byte and line ranges. Set excerpts=true to receive the matched lines directly. before and after choose surrounding lines. You can also select a range later."),
     ("asset.read","Read exact retained text or record, optionally a measured UTF-8 byte range. A read does not rerun a tool."),
     ("asset.feedback","Publish an attributed observation on an exact shared asset revision from this activity. Include evidence you choose to share. It reaches the content author across activities. To answer a report on the same revision, set reply_to to its exact asset_feedback handle."),
@@ -441,7 +442,7 @@ pub const NAMES: &[(&str,&str)] = &[
     ("result.review","Publish your finding on a criterion for an exact issued delivery or proposed set of assets. Choose subject.delivery to assess that delivery under its original brief, or subject.artifacts to assess those files under this activity’s brief."),
     ("result.reviews","Compare published package reviews with subject.delivery or a proposed subject.artifacts set. See matching and changed files, actual brief, evidence and whether each review existed at delivery. Optionally select a particular review."),
     ("result.deliver","Issue exact artifacts with supported use, evidence and remaining gaps. Optional dispatches tell each recipient which issued files to take and what to do with them; nothing is sent or ordered. Claimed completion is separate from user acceptance."),
-    ("human.request","Ask a human for an action or observation outside the workspace. Name the action and what you need back. You can attach exact files or issued deliveries with their files, supported use and remaining work. Human reports arrive as user_message. Taking or releasing the request without a report produces human_request_progress."),
+    ("human.request","Ask a human for an action or observation outside the workspace. Name the action and what you need back. You can attach exact files or issued deliveries with their files, supported use and remaining work. Human reports arrive as user_message. Taking or releasing the request without a report produces human_request_progress. Stay ready while independent work remains. When you need this particular return, wait.on_events accepts its exact edition or the $id of this request."),
     ("human.issue_packet","Give the recipient of your existing open or taken human request a finished or revised delivery. Replace its files together with edition-specific instructions; the human's original action, claim and reports are preserved."),
     ("human.withdraw","Withdraw your own open request for human action by its exact current revision. A request already taken by a human must be discussed with that person."),
 ];
@@ -459,7 +460,7 @@ pub fn describe(name: &str) -> Result<Value> {
         "tools.search" | "history.search" | "development.search" => schema::<Search>()?,
         "experience.search" => schema::<ExperienceQuery>()?,
         "asset.search" => schema::<super::discovery::Catalog>()?,
-        "asset.history" => schema::<super::asset_history::Lookup>()?,
+        "asset.history" | "asset.deliveries" => schema::<super::asset_history::Lookup>()?,
         "asset.find" => schema::<super::discovery::FindText>()?,
         "asset.feedback" => schema::<super::asset_feedback::Feedback>()?,
         "asset.feedback_history" => schema::<super::asset_feedback::History>()?,
@@ -557,7 +558,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
             Ok(())
         }
         "asset.search" => parse::<super::discovery::Catalog>(value),
-        "asset.history" => parse::<super::asset_history::Lookup>(value),
+        "asset.history" | "asset.deliveries" => parse::<super::asset_history::Lookup>(value),
         "asset.find" => parse::<super::discovery::FindText>(value),
         "asset.feedback" => parse::<super::asset_feedback::Feedback>(value),
         "asset.feedback_history" => parse::<super::asset_feedback::History>(value),

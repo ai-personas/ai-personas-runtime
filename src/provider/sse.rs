@@ -367,6 +367,7 @@ impl Collector {
                 "server_error",
                 "invalid_request_error",
                 "rate_limit_error",
+                "insufficient_quota",
                 "service_unavailable_error",
             ],
         );

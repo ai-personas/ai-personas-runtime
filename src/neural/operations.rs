@@ -69,6 +69,10 @@ pub(super) fn evaluate_appraisal(
                     super::development::observed_experience(db, snapshot, event)?;
                 }
             }
+            if snapshot.development_version >= 10 && feature.evidence.iter().any(|r|
+                (r.starts_with("question_use:") || r.starts_with("development:")) && !super::development::observed(snapshot,r)) {
+                return Err(failure("A personal reminder or forecast is not its evidence. Select the exact question or application for a full read before citing that record in an appraisal."));
+            }
         }
     }
     let evaluation = context::model(db, persona)?
@@ -168,6 +172,9 @@ fn resolve(value: &mut Value, aliases: &BTreeMap<String, String>) -> Result<()> 
 }
 pub(super) fn resolve_operation(op: &mut Operation, aliases: &BTreeMap<String, String>) -> Result<()> {
     if matches!(op.tool.as_str(), "command.run" | "command.local") {
+        if let Some(delivery) = op.input.get_mut("receiving").and_then(|s| s.get_mut("delivery")) {
+            resolve(delivery, aliases)?;
+        }
         if let Some(files) = op.input.get_mut("files").and_then(Value::as_object_mut) {
             for reference in files.values_mut() { resolve(reference, aliases)?; }
         }
@@ -422,6 +429,10 @@ fn internal(
             )
         }
         "asset.history" => super::asset_history::shared(db,&decode(input)?),
+        "asset.deliveries" => {
+            let query: super::asset_history::Lookup = decode(input)?;
+            super::asset_history::deliveries(db, &query.reference, query.offset, query.page_size)
+        }
         "asset.search" => super::discovery::catalog(db,&decode(input)?),
         "asset.find" => super::discovery::find(db,&decode(input)?),
         "asset.read" | "persona.read" => {
@@ -1081,7 +1092,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
             resolve_operation(&mut op,&aliases)?;
             if part.departure.is_some(){return Err(failure("work.leave ends your operations in this activity; issue it last and stop"));}
             if persona.model.is_none()&&!matches!(op.tool.as_str(),"persona.initialize"|"persona.read"|"tools.search"|"tools.describe"|"asset.read") {return Err(failure("initialize and activate your character before accepting or doing work"));}
-            if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.search"|"asset.history"|"asset.find"|"history.search"|"experience.search"|"relationship.contacts"|"relationship.history"|"persona.revision_uses"|"persona.paths"|"persona.replay_input"|"peer.message"|"work.requests"|"work.sources"|"work.agreements") {return Err(failure("accept your invitation before ordinary work"));}
+            if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.search"|"asset.history"|"asset.deliveries"|"asset.find"|"history.search"|"experience.search"|"relationship.contacts"|"relationship.history"|"persona.revision_uses"|"persona.paths"|"persona.replay_input"|"peer.message"|"work.requests"|"work.sources"|"work.agreements") {return Err(failure("accept your invitation before ordinary work"));}
             if part.declined{return Err(failure("declined participation cannot perform operations"));}
             if tools::is_external(&op.tool) {
                 validate_external(db,&persona,&op)?;
@@ -1138,6 +1149,9 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         }
         part.cursor=snapshot.cursor;part.turn=part.turn.checked_add(1).ok_or_else(||failure("turn overflow"))?;
         part.continuation=decision.continuation.clone();part.last_judgment=Some(decision.work.clone());
+        if let Continuation::Wait { on_events, .. } = &mut part.continuation {
+            super::human_requests::bind_waits(db, snapshot, on_events, &aliases)?;
+        }
         part.pending_resume=None;
         if snapshot.model.is_none()&&persona.model.is_some(){
             part.context.clear();part.tools.clear();
@@ -1177,7 +1191,7 @@ pub fn validate_external(db: &Connection, persona: &Persona, op: &Operation) -> 
     match op.tool.as_str() {
         "command.install" => {super::commands::validate_install(db,&decode(&op.input)?)?;}
         "command.run" => super::commands::validate_run(db,&decode(&op.input)?)?,
-        "command.local" => decode::<super::commands::local::Run>(&op.input)?.validate(db)?,
+        "command.local" => {decode::<super::commands::local::Run>(&op.input)?.validated_inputs(db)?;}
         "web.fetch" => { decode::<super::web::Fetch>(&op.input)?.validate()?; }
         "geometry.install" => {
             let input: super::geometry::Install = decode(&op.input)?;

@@ -503,7 +503,7 @@ pub async fn run(
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, clap::Args)]
 #[serde(deny_unknown_fields)]
 pub struct History {
-    /// Optional exact installation, command receipt, supplied file, stdout, stderr or output reference.
+    /// Optional exact installation, checked delivery edition, command receipt, supplied file, stdout, stderr or output reference.
     pub reference: Option<String>,
     #[serde(default)]
     #[arg(long, default_value_t = 0)]
@@ -561,6 +561,7 @@ pub fn history(db: &Connection, query: &History) -> Result<Value> {
             && ![
                 json!(handle),
                 body["installation"].clone(),
+                body["receiving"]["delivery"].clone(),
                 body["program"].clone(),
                 body["stdin"]["object"].clone(),
                 body["stdout"]["object"].clone(),
@@ -572,9 +573,13 @@ pub fn history(db: &Connection, query: &History) -> Result<Value> {
             continue;
         }
         if total >= query.offset && runs.len() < query.page_size {
-            runs.push(json!({"receipt":handle,"actor":body["actor"],"origin":body["origin"],"work":body["work"],
+            let mut summary = json!({"receipt":handle,"actor":body["actor"],"origin":body["origin"],"work":body["work"],
                  "installation":body["installation"],"engine":body["engine"],"argv0":body["argv0"],"arguments":body["arguments"],
-                "exit_code":body["exit_code"],"success":body["success"],"outputs":body["outputs"],"finished":body["finished"]}));
+                "exit_code":body["exit_code"],"success":body["success"],"outputs":body["outputs"],"finished":body["finished"]});
+            if let Some(subject) = body.get("receiving") {
+                summary["receiving"] = subject.clone();
+            }
+            runs.push(summary);
         }
         total += 1;
     }

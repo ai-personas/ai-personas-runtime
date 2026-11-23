@@ -4,6 +4,7 @@ use super::*;
 mod dispatch;
 mod origins;
 mod preview;
+mod receiving;
 mod requests;
 use preview::{Format, Inline};
 pub(super) use preview::ZipFile;
@@ -21,6 +22,7 @@ pub(super) struct Desk {
     show_references: bool,
     file_page: usize,
     request_page: usize,
+    check_page: usize,
     origins: Option<origins::Window>,
     file_search: String,
     origin: Option<(String, ReturnTo)>,
@@ -229,6 +231,7 @@ impl App {
                 desk.selected = model.as_ref().map_or(0, |p| p.default_file());
                 desk.file_page = 0;
                 desk.request_page = 0;
+                desk.check_page = 0;
                 desk.slip = 0;
                 desk.slip_page = 0;
                 desk.origins = None;
@@ -297,6 +300,7 @@ impl App {
                 if compact {
                     self.delivery_breadcrumb(ui, Some(&p), true);
                 }
+                self.receiving_checks(ui, &p);
                 self.dispatch_slips(ui, &p);
                 self.package_human_requests(ui, &p);
                 ui.add_space(12.);
@@ -774,11 +778,11 @@ fn supported_use(ui: &mut Ui, p: &Package) {
 fn remaining_work(ui: &mut Ui, p: &Package) {
     let items = strings(&p.body["remaining"]).collect::<Vec<_>>();
     ui.horizontal_wrapped(|ui| {
-        heading(ui, "Remaining work");
+        heading(ui, "Open at issue");
         ui.weak(number(items.len() as u64));
     });
     if items.is_empty() {
-        ui.weak("The author listed no remaining work.");
+        ui.weak("The issuer listed no open items.");
     }
     for item in items {
         ui.add(egui::Label::new(format!("•  {item}")).wrap());

@@ -6,6 +6,24 @@ On November 21, 2026, a requester entered a PC SMPS brief in native Linux Studio
 
 **Successor C:** Nia issued [harness and fixture support](#issued-successor-c-auxiliary-support-v1), a [reserve/control design](#issued-reserve-and-control-candidate-c), a [loaded-startup study](#issued-loaded-startup-supplement-v1), a [switching-path review](#issued-switching-path-review-v1) and a [portable DC voltage study](#issued-portable-dc-screen-v1). The voltage study’s 23.7 kΩ feedback resistor differs from the PCB’s 22.9 kΩ label. With the board value, the modeled +3.3 V connector minimum drops to **3.085 V**, below 3.14 V. The board’s three main regulator enable pins remain disconnected from their control divider.
 
+## Four-person ATX trial: the opening 48 decisions
+
+On November 23 the requester opened a fresh Studio workspace and [invited Lio, Mara, Noor and Tess](assets/studio-atx-four-invitation.jpg). They received the **same 398-byte conventional ATX brief**, no attachments and an empty shared project. Their four starting profiles describe personality, with no engineering roles assigned. This is a separate trial from Nia and Ellis’s work above.
+
+The existing OpenAI Platform key reached the provider four times. All four streams returned `insufficient_quota` during character initialization. No completed output, accepted decision or tool operation resulted. The operator then selected **Workspace settings → Use Codex login**, enabled the four paused schedulers and clicked **Run workspace**. The runtime used Codex for authentication and made the model calls directly. The activity, invitations, identities, model and reasoning efforts were preserved.
+
+| Verified in the same saved activity | Lio | Mara | Noor | Tess |
+|---|---:|---:|---:|---:|
+| Accepted `gpt-6.1-sol` / medium decisions using OAuth | 10 | 15 | 11 | 12 |
+| Ordinary decisions bound to that persona’s numerical character | 8 | 13 | 9 | 10 |
+| Independently chose to join the original brief | Yes | Yes | Yes | Yes |
+
+All **48** completed responses matched the retained output bytes. Eight were initialization decisions; each of the 40 ordinary inputs contained the original brief. The four personas exchanged **47 peer messages** in these calls. The only requester task input through event 178 was the opening invitation. No manufacturing package was issued in these 48 decisions. This verifies a working four-person OAuth run, not a manufactured or qualified supply.
+
+[Reports, replay scripts and Studio screenshots](https://github.com/ai-personas/ai-personas-runtime/releases/tag/studio-atx-four-oauth-20261123) · [Four failed Platform attempts](https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-oauth-20261123/api-key-intake.json) · [48 verified OAuth decisions](https://github.com/ai-personas/ai-personas-runtime/releases/download/studio-atx-four-oauth-20261123/four-oauth-opening.json)
+
+**Later working-file check.** In a saved snapshot with 156 accepted decisions and no issued package, nine commands had captured 12 named files. In [the native activity timeline](assets/studio-atx-four-working-capture.jpg), the evaluator selected Noor and opened `circuits/connectors.json` from event 187. **Save file…** exported all 1,558 bytes unchanged (SHA-256 `56d423d49784cc60bf5a93b2c3bfce2b09e7186b3d9868d4b1850e84a2e1464a`). Its 24 motherboard and four CPU signal labels agree with [ATX12V v2.2, pp. 37–38](https://web.archive.org/web/20080920191034id_/http://www.formfactors.org/developer/specs/ATX12V_PSDG_2_2_public_br2.pdf), including the reserved motherboard pin 20. Both provisional Molex board-header codes, [39-28-1243](https://octopart.com/part/molex/39-28-1243) and [39-28-1043](https://octopart.com/part/molex/39-28-1043), had exact listings with named distributor offers. This checks a working file’s labels and two catalogue identities; mating, PCB connectivity, receiving-pin voltages and physical operation remain separate checks.
+
 ## The first delivery: PC60 revision A
 
 The requester asked for an editable circuit and files a manufacturer could use without the requester editing them. Input, output and PC assumptions were left to the personas. Ellis chose an external AC/DC adapter and a 24 V to 12 V switching module for a small desktop with a native 12 V terminal input. Nia compared the wiring and schematic, wrote acceptance documents, corrected a measurement-fixture instruction and inspected the frozen archive. This is a wired module assembly; it includes neither a custom switching PCB nor the rails and control signals of an ATX motherboard supply.
