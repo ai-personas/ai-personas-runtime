@@ -103,7 +103,7 @@ pub(super) fn observe(
             continue;
         };
         let result: Value = store::object(catalog.db, digest)?;
-        if external(&op.tool) || matches!(op.tool.as_str(), "result.deliver" | "human.request") {
+        if external(&op.tool) || matches!(op.tool.as_str(), "result.deliver" | "human.request" | "human.issue_packet") {
             if operations::resolve_operation(&mut op, &aliases).is_err() {
                 page.unverified_receipts += 1;
                 continue;
@@ -185,12 +185,13 @@ fn package(
         .as_str()
         .ok_or_else(|| failure("Missing issued package"))?;
     let package = store::exact(catalog.db, reference)?;
+    let packet = op.tool == "human.issue_packet";
     if package.reference.handle() != reference
         || package.reference.kind != kind
-        || package.reference.revision != 1
+        || (!packet && package.reference.revision != 1)
         || package.body[author_key] != time.snapshot.actor
         || package.body["work"] != time.snapshot.work
-        || package.body["title"] != op.input["title"]
+        || (!packet && package.body["title"] != op.input["title"])
         || !store::written_by(catalog.db, &package, &time.snapshot.invocation)?
     {
         return Err(failure(
@@ -203,7 +204,12 @@ fn package(
         .map(|a| serde_json::from_value(a.clone()))
         .transpose()?
         .unwrap_or_default();
-    if kind == "human_request" {
+    if packet {
+        let prior = store::exact(catalog.db, op.input["base"].as_str().ok_or_else(|| failure("Missing base request"))?)?;
+        crate::neural::human_requests::packet::verify(catalog.db, &prior, &package)?;
+        let delivery = store::exact(catalog.db, op.input["delivery"].as_str().ok_or_else(|| failure("Missing field packet delivery"))?)?;
+        requested = serde_json::from_value(delivery.body["artifacts"].clone())?;
+    } else if kind == "human_request" {
         let deliveries: Vec<String> = op
             .input
             .get("deliveries")

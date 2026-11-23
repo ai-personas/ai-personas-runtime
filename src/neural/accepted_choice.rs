@@ -277,7 +277,7 @@ impl Choice {
                         .as_object()
                         .is_some_and(|values| values.iter().all(|(k, v)| b.get(k) == Some(v)))
             }
-            "human.request" | "human.withdraw" => {
+            "human.request" | "human.issue_packet" | "human.withdraw" => {
                 record.reference.kind == "human_request"
                     && b["requester"] == snapshot.actor
                     && b["work"] == snapshot.work

@@ -206,6 +206,12 @@ pub(super) fn render(request: &RequestSheet<'_>) -> String {
         field(&mut html, "Latest status", status);
         field(&mut html, "Latest revision", reference);
         html.push_str("</dl></aside>");
+        if request.newer_packet {
+            html.push_str("<p><strong>A newer field packet has been issued.</strong> This sheet and its files belong to the earlier edition. Open the current request in Studio for the replacement.</p>");
+        }
+    }
+    if let Some(packet) = request.packet {
+        prose_section(&mut html, "Field packet · issuer’s instructions", packet["instructions"].as_str().unwrap_or(""));
     }
     prose_section(&mut html, "Requested action", request.action);
     prose_section(
@@ -238,8 +244,6 @@ pub(super) fn render(request: &RequestSheet<'_>) -> String {
         append_text(&mut html, digest);
         html.push_str(r#"" data-format=""#);
         html.push_str(field_report::FORMAT);
-        html.push_str(r#"" data-limit=""#);
-        html.push_str(&field_report::MAX_BYTES.to_string());
         html.push_str("\">");
         html.push_str(include_str!("field_report.html"));
         html.push_str("</section><script>");

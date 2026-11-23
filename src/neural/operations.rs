@@ -180,7 +180,7 @@ pub(super) fn resolve_operation(op: &mut Operation, aliases: &BTreeMap<String, S
     Ok(())
 }
 pub(super) fn returns_alias(tool: &str) -> bool {
-    matches!(tool, "asset.save" | "asset.register" | "relationship.record" | "relationship.retire" | "result.review" | "result.deliver" | "human.request" | "human.withdraw" | "work.propose_agreement" | "work.agreement_position")
+    matches!(tool, "asset.save" | "asset.register" | "relationship.record" | "relationship.retire" | "result.review" | "result.deliver" | "human.request" | "human.issue_packet" | "human.withdraw" | "work.propose_agreement" | "work.agreement_position")
 }
 
 pub(super) fn apply_organization(body: &mut Value, previous: &str, actor: &str, work: &str, change: &tools::AssetMetadata) {
@@ -689,6 +689,7 @@ fn internal(
             Ok(json!({"reference":r.handle()}))
         }
         "human.request" => super::human_requests::create(db,snapshot,decode(input)?),
+        "human.issue_packet" => super::human_requests::issue_packet(db,snapshot,decode(input)?),
         "human.withdraw" => super::human_requests::withdraw(db,snapshot,decode(input)?),
         "result.review" => super::package_review::publish(db,work,actor,Some(call),&decode(input)?),
         "result.reviews" => super::package_review::lookup_for(db,Some(work),Some(actor),&decode(input)?),
@@ -1064,7 +1065,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
                 super::development::trial::propose(db,snapshot,&persona,trial,decision.considered_experience.as_deref().unwrap_or(&[]))?;
             }
         }
-        maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"result.review"|"asset.feedback"|"image.read"|"image.render_svg"|"document.print_html"|"document.render_pdf"|"command.run"|"command.local"|"geometry.render"|"geometry.inspect_stl"|"geometry.profile_stl"|"work.outcome"|"result.deliver"),false)
+        maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"result.review"|"asset.feedback"|"image.read"|"image.render_svg"|"document.print_html"|"document.render_pdf"|"command.run"|"command.local"|"geometry.render"|"geometry.inspect_stl"|"geometry.profile_stl"|"work.outcome"|"result.deliver"|"human.issue_packet"),false)
             .map_err(|e|failure(format!("asset_maintenance: {e}")))?;
         super::development::practice::consider(db,snapshot,decision,part.accepted && !part.declined)?;
         super::development::record_applications(db,snapshot,decision)?;

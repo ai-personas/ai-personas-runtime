@@ -36,7 +36,7 @@ impl Kind {
         }
         match k {
             "message" | "reply" => Some(Self::Message),
-            "human_request" if e["target"] == "user" => Some(Self::Request),
+            "human_request" | "human_request_packet" if e["target"] == "user" => Some(Self::Request),
             // Ignore the second, broadcast summary of the very same issue.
             "delivery" if body["record"]["owner"] == e["actor"] && e["target"] != "*" => {
                 Some(Self::Issue)

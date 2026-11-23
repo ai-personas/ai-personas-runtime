@@ -2,6 +2,7 @@ use super::*;
 use ai_personas::neural::human_requests::{FieldReport, Response, ReturnForm};
 mod correspondence;
 mod field_report;
+mod packet;
 
 #[derive(Default)]
 pub(super) struct Inbox {
@@ -192,8 +193,9 @@ impl App {
                 }
                 return;
             }
+            ui.label(design::caption("Persona Studio  /  Field desk", theme::palette(ui).accent));
             ui.heading("Needs you");
-            ui.label("Requests and messages addressed to a human across this workspace.");
+            ui.label("Take an outside action, collect the files a persona issued, or send back what happened.");
             ui.add_space(12.);
             let mut requests=self.records("human_requests").to_vec();
             requests.sort_by_key(|r|std::cmp::Reverse((r["body"]["updated"].as_i64(),r["reference"]["id"].as_str().unwrap_or("").to_owned())));
@@ -283,7 +285,8 @@ impl App {
                 let n = body["artifacts"].as_array().map_or(0, Vec::len);
                 if n > 0 {
                     theme::glyph(ui, Icon::Files, theme::palette(ui).muted);
-                    ui.weak(format!("{n} attached {}", if n == 1 { "file" } else { "files" }));
+                    if body["field_packet"].is_object() { ui.strong("Field packet"); }
+                    ui.weak(counted(n as u64, "attached file", "attached files"));
                 }
                 if let Some(who) = body["claimed_by"].as_str() {
                     let verb = if body["state"] == "in_progress" { "Taken by" } else { "Reported by" };
@@ -337,19 +340,26 @@ impl App {
                     ui.small(context.join("  ·  ")).on_hover_text(&reference);
                 });
                 ui.add_space(3.);
-                ui.add(egui::Label::new(RichText::new(s(body, "title")).size(25.).strong()).wrap());
+                ui.add(egui::Label::new(design::display(s(body, "title"), 29.)).wrap());
                 ui.horizontal_wrapped(|ui| {
                     ui.label(
                         RichText::new(format!("Requested by {}", self.label(requester))).strong(),
                     )
                     .on_hover_text(requester);
-                    ui.label(RichText::new(format!("· {}", self.work_name(work))).color(p.muted))
-                        .on_hover_text(work);
+                    let activity = self.work_name(work);
+                    let limit = if ui.available_width() < 520. { 48 } else { 74 };
+                    ui.label(RichText::new(format!("· {}", home::short_text(&activity, limit))).color(p.muted))
+                        .on_hover_text(activity);
                 });
                 ui.add_space(4.);
                 ui.horizontal_wrapped(|ui| {
+                    let open_activity = if body["field_packet"].is_object() {
+                        egui::Button::new("Open live activity")
+                    } else {
+                        theme::primary("Open live activity")
+                    };
                     if ui
-                        .add(theme::primary("Open live activity"))
+                        .add(open_activity)
                         .on_hover_text(format!(
                             "Open this activity with the composer addressed to {}",
                             self.label(requester)
@@ -359,7 +369,7 @@ impl App {
                         self.open_home_message(work, requester);
                     }
                     let handoff = "Save the printable request and its exact attachments. Active requests with a verified origin include a fillable field report.";
-                    if ui.button("Save handoff…").on_hover_text(handoff).clicked() {
+                    if !body["field_packet"].is_object() && ui.button("Save handoff…").on_hover_text(handoff).clicked() {
                         self.save_request_handoff(&reference, s(body, "title"), files);
                     }
                     if files > 0
@@ -373,6 +383,10 @@ impl App {
                 });
             });
         ui.add_space(12.);
+        if body["field_packet"].is_object() {
+            self.field_packet(ui, record);
+            ui.add_space(10.);
+        }
         let wide = ui.available_width() >= 870.;
         if wide {
             let gap = 16.;

@@ -96,7 +96,7 @@ impl Index {
                     self.issued.insert(reference.to_owned(), seq);
                 }
             }
-            if event["kind"] == "human_request" && event["target"] == "user" {
+            if matches!(s(event, "kind"), "human_request" | "human_request_packet") && event["target"] == "user" {
                 if let Some(reference) = body["reference"].as_str() {
                     self.request_origins.entry(reference.to_owned()).or_insert(seq);
                 }

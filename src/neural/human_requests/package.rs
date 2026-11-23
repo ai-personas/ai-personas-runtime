@@ -35,6 +35,8 @@ struct RequestSheet<'a> {
     requester: &'a str,
     action: &'a str,
     return_requested: Option<&'a str>,
+    packet: Option<&'a Value>,
+    newer_packet: bool,
     reference: &'a str,
     state: &'a str,
     current: Option<(&'a str, &'a str)>,
@@ -60,6 +62,7 @@ struct IssuedRequest {
     artifacts: Vec<String>,
     #[serde(default)]
     deliveries: Vec<String>,
+    field_packet: Option<Value>,
 }
 
 fn state_label(state: &str) -> &str {
@@ -134,6 +137,11 @@ pub fn export_package(db: &Connection, reference: &str, destination: &Path) -> R
             "Select an exact delivery or human request to export",
         ));
     }
+    if record.reference.kind == "human_request" {
+        super::correspondence::issued_origin(db, &record)?;
+    } else {
+        crate::neural::activity_sources::delivery::edition(db, reference)?;
+    }
     let refs: Vec<String> = serde_json::from_value(record.body["artifacts"].clone())?;
     if refs.is_empty() {
         return Err(failure("This request has no attached files"));
@@ -155,12 +163,14 @@ fn request_sheet(
 ) -> Result<(String, Value)> {
     let reference = record.reference.handle();
     let latest = store::required(db, "human_request", &record.reference.id)?;
-    if !super::same_issue(&record.body, &latest.body) {
+    if !super::same_terms(&record.body, &latest.body) {
         return Err(failure(
-            "Request instructions or attachments differ between retained editions.",
+            "The outside action differs between retained editions.",
         ));
     }
+    let newer_packet = !super::same_materials(&record.body, &latest.body);
     let origin = super::correspondence::issued_origin(db, &record)?;
+    if newer_packet { super::correspondence::issued_origin(db, &latest)?; }
     let latest_reference = latest.reference.handle();
     let latest_state = latest.body["state"]
         .as_str()
@@ -190,6 +200,8 @@ fn request_sheet(
         requester: &requester,
         action: &request.action,
         return_requested: request.return_requested.as_deref(),
+        packet: request.field_packet.as_ref(),
+        newer_packet,
         reference: &reference,
         state: state_label(&request.state),
         current: (latest_reference != reference)

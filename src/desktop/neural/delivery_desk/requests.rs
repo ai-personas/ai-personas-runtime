@@ -15,7 +15,8 @@ pub(super) fn using_edition(app: &App, edition: &str) -> Vec<usize> {
             if !strings(&body["deliveries"]).any(|r| r == edition) {
                 return None;
             }
-            let origin = format!("human_request:{}@1", record["reference"]["id"].as_str()?);
+            let origin = body["field_packet"]["edition"].as_str().map(str::to_owned)
+                .unwrap_or_else(|| format!("human_request:{}@1", s(&record["reference"], "id")));
             let seq = app.home_index.request_origin(&origin)?;
             let pos = app
                 .events
@@ -23,13 +24,16 @@ pub(super) fn using_edition(app: &App, edition: &str) -> Vec<usize> {
                 .ok()?;
             let issue = &app.events[pos];
             let call = issue["invocation"].as_str()?;
-            (issue["kind"] == "human_request"
+            let (kind, decision) = if body["field_packet"].is_object() {
+                ("human_request_packet", &body["field_packet"]["decision"])
+            } else { ("human_request", &body["decision"]) };
+            (issue["kind"] == kind
                 && issue["target"] == "user"
                 && issue["work"] == body["work"]
                 && issue["actor"] == body["requester"]
                 && issue["body"]["reference"] == origin
                 && issue["body"]["deliveries"] == body["deliveries"]
-                && body["decision"] == format!("experience:{call}@1"))
+                && decision == &format!("experience:{call}@1"))
             .then_some(index)
         })
         .collect();

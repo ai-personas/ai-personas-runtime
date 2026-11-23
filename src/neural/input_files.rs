@@ -63,14 +63,6 @@ impl fmt::Debug for CapturedFile {
 
 impl CapturedFile {
     pub fn read(path: &Path) -> Result<Self> {
-        Self::capture(path, None)
-    }
-
-    pub(super) fn read_bounded(path: &Path, limit: u64) -> Result<Self> {
-        Self::capture(path, Some(limit))
-    }
-
-    fn capture(path: &Path, limit: Option<u64>) -> Result<Self> {
         let name = path
             .file_name()
             .and_then(|n| n.to_str())
@@ -82,19 +74,15 @@ impl CapturedFile {
             use std::os::unix::fs::OpenOptionsExt;
             options.custom_flags(libc::O_NONBLOCK);
         }
-        let file = options
+        let mut file = options
             .open(path)
             .map_err(|e| failure(format!("Could not open {name}: {e}")))?;
         if !file.metadata()?.is_file() {
             return Err(failure(format!("{name} is not a regular file")));
         }
         let mut bytes = Vec::new();
-        file.take(limit.map_or(u64::MAX, |n| n.saturating_add(1)))
-            .read_to_end(&mut bytes)
+        file.read_to_end(&mut bytes)
             .map_err(|e| failure(format!("Could not read {name}: {e}")))?;
-        if limit.is_some_and(|n| bytes.len() as u64 > n) {
-            return Err(failure("This field report exceeds 1 MiB. Supply larger observations as separate evidence files."));
-        }
         Ok(Self::from_bytes(name, bytes))
     }
 

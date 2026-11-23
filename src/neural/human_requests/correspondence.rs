@@ -3,7 +3,7 @@
 mod choices;
 mod operator;
 
-use super::{attachments, exact, same_issue, Request};
+use super::{attachments, exact, packet, same_materials, same_terms, Request};
 use crate::neural::accepted_choice::Choice;
 use crate::neural::{failure, input_files::Material, store, Result};
 use rusqlite::{params, Connection, OptionalExtension, Row};
@@ -75,6 +75,7 @@ fn origin(
     let b = &first.body;
     if b["decision"] != format!("experience:{call}@1")
         || b["state"] != "open"
+        || b.get("field_packet").is_some()
         || !b["claimed_by"].is_null()
         || b["title"] != request.title
         || b["action"] != request.action
@@ -105,11 +106,7 @@ fn origin(
 
 pub(super) fn issued_origin(db: &Connection, selected: &store::Record) -> Result<Option<Value>> {
     let first = exact(db, &format!("human_request:{}@1", selected.reference.id))?;
-    if !same_issue(&selected.body, &first.body) {
-        return Err(failure(
-            "The request edition differs from the original issue.",
-        ));
-    }
+    packet::check_history(db, &first, selected)?;
     // A retained request can predate a verifiable decision. Its printable
     // record stays readable. A contradiction in an existing choice is an error.
     let has_decision: bool = db.query_row(
@@ -155,6 +152,9 @@ impl Entry {
         }
         if let Some(refs) = b.get("references") {
             row["references"] = refs.clone();
+        }
+        if self.kind == "field_packet" {
+            row["deliveries"] = b["deliveries"].clone();
         }
         Ok(row)
     }
@@ -366,23 +366,30 @@ pub fn correspondence(
     }
     let mut entries = Vec::new();
     let mut parents = BTreeMap::new();
-    let mut previous = first.body.clone();
+    let mut previous = first.clone();
     let mut previous_event = source;
     let actions = operator::Actions::load(db, id)?;
-    let (mut reports, mut progress, mut unverified) = (0, 0, 0);
+    let (mut reports, mut progress, mut packets, mut unverified) = (0, 0, 0, 0);
     for n in 2..=current.reference.revision {
         let handle = format!("human_request:{id}@{n}");
         let edition = exact(db, &handle)?;
-        if !same_issue(&edition.body, &first.body) {
-            return Err(failure("A request edition differs from its original issue"));
+        if !same_terms(&edition.body, &first.body) {
+            return Err(failure("The outside action differs from its original issue"));
         }
         let writer: Option<String> = db.query_row(
             "SELECT invocation FROM versions WHERE kind='human_request' AND id=?1 AND revision=?2",
             params![id, n],
             |r| r.get(0),
         )?;
-        if let Some(call) = writer {
-            previous_event = withdrawal(db, &edition, &call, &previous, previous_event)?;
+        if !same_materials(&previous.body, &edition.body) {
+            let seq = packet::verify(db, &previous, &edition)?;
+            if seq <= previous_event { return Err(failure("Field packet is out of order")); }
+            let event = db.query_row(&format!("SELECT {FIELDS} FROM events e WHERE e.seq=?1"), [seq], Event::load)?;
+            entries.push(Entry { event, request:handle, kind:"field_packet", binding:"accepted_packet_issue", action:"issue" });
+            packets += 1;
+            previous_event = seq;
+        } else if let Some(call) = writer {
+            previous_event = withdrawal(db, &edition, &call, &previous.body, previous_event)?;
         } else {
             let mut valid = Vec::new();
             for event in updates.remove(&handle).unwrap_or_default() {
@@ -392,7 +399,7 @@ pub fn correspondence(
                 if let Some(data) = human_report(
                     db,
                     &event,
-                    &previous,
+                    &previous.body,
                     &edition.body,
                     &handle,
                     &origin_handle,
@@ -428,9 +435,9 @@ pub fn correspondence(
                 unverified += 1;
             }
         }
-        previous = edition.body;
+        previous = edition;
     }
-    if previous != current.body {
+    if previous.reference != current.reference {
         return Err(failure(
             "The request head differs from its exact retained edition",
         ));
@@ -483,7 +490,7 @@ pub fn correspondence(
         .collect::<Result<Vec<_>>>()?;
     Ok(
         json!({"request":reference,"current_request":current.reference.handle(),"work":work,"requester":requester,"origin":issued,
-        "rows":rows,"offset":offset,"page_size":page_size,"total":entries.len(),"report_count":reports,"progress_count":progress,
+         "rows":rows,"offset":offset,"page_size":page_size,"total":entries.len(),"report_count":reports,"progress_count":progress,"packet_count":packets,
         "reply_count":reply_count,"unverified_report_count":unverified,"unverified_reply_count":unverified_replies}),
     )
 }

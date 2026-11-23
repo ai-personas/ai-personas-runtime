@@ -99,7 +99,8 @@ impl Filter {
                     | "reply"
                     | "user_message"
                     | "initialization_note"
-                    | "human_request"
+                     | "human_request"
+                     | "human_request_packet"
                     | "human_request_progress"
                     | "human_request_withdrawn"
                     | "asset_feedback"
@@ -126,7 +127,7 @@ impl Filter {
                     || human_file_count(event) > 0 || feedback_reference(event).is_some()
                     || matches!(
                         kind,
-                        "delivery" | "request_delivery" | "package_review" | "user_acceptance" | "asset_feedback"
+                         "delivery" | "request_delivery" | "human_request_packet" | "package_review" | "user_acceptance" | "asset_feedback"
                     )
                     || (is_tool && matches!(
                         tool,
@@ -1551,6 +1552,7 @@ impl App {
                     if matches!(
                         kind,
                         "human_request"
+                            | "human_request_packet"
                             | "human_request_progress"
                             | "human_request_withdrawn"
                             | "user_message"
@@ -1628,6 +1630,7 @@ impl App {
             "reply" | "request_reply" => format!("replied to {target}"),
             "initialization_note" => "recorded an initialization note".into(),
             "human_request" => "requested your help".into(),
+            "human_request_packet" => "issued files for your request".into(),
             "human_request_progress" => "updated a request".into(),
             "human_request_withdrawn" => "withdrew a request".into(),
             "invitation" => format!("invited {target}"),

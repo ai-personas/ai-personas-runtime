@@ -295,6 +295,7 @@ fn contribution(event: &Value) -> Option<(Identity, Option<Identity>)> {
                     | "result.review"
                     | "asset.feedback"
                     | "human.request"
+                    | "human.issue_packet"
             );
             if has_notice && event["tool_outcome"]["problem"] == false {
                 return None;
@@ -319,6 +320,7 @@ fn contribution(event: &Value) -> Option<(Identity, Option<Identity>)> {
         | "invitation_response"
         | "contribution_proposal"
         | "human_request"
+        | "human_request_packet"
         | "human_request_withdrawn"
         | "human_request_progress"
         | "delivery"

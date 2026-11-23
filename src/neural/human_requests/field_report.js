@@ -50,9 +50,6 @@
                 });
             }
             const blob = new Blob([JSON.stringify(report, null, 2) + "\n"], {type: "application/json"});
-            if (blob.size > Number(sheet.dataset.limit)) {
-                throw new Error("The report exceeds 1 MiB. Put longer observations in a separate evidence file.");
-            }
             const link = document.createElement("a");
             const url = URL.createObjectURL(blob);
             link.href = url;

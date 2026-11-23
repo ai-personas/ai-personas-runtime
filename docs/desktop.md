@@ -110,6 +110,8 @@ Select a contact to open the encounters, or open the latest exchange directly be
 
 Open **Needs you** to see requests across the workspace. Each request identifies who asked, what they need, what to send back, and any attached files. **Messages** also shows free-form messages personas addressed to a human.
 
+A request may arrive before the design is finished. The persona can continue working and put a **Field packet** on the same request, even after someone takes it. The card shows the issuer’s instructions for that edition, its supported use, and the file count. **Save field packet…** saves the instructions and files together; **Inspect delivery →** opens the issued files and their qualifications. **Correspondence** keeps links to previous packet editions. A packet being ready for pickup is separate from anyone reporting the pickup.
+
 1. Open the request and choose **Take request** to let others know you are handling it.
 2. Choose **Save handoff… → Shareable ZIP** to send the request outside Studio as one file, or **Folder** to open it locally. Open or print the unpacked `Request.html` for the action, what to send back, and the qualifications on each file. An explicitly included delivery carries its author's declared scope, supported use and remaining work. When there are attachments, `Files.zip` contains the exact revisions with their original names and folders. **Save files as ZIP…** also saves the files alone.
 3. To return an observation offline, fill out **Field report** in `Request.html` and choose **Save field report**. Bring the downloaded JSON and its selected original evidence files back together. In the request’s **Your response** panel, choose **Import field report…**, then **Attach files…** for the originals. Studio checks their names, sizes and SHA-256 digests. Review the request edition and the observer’s words before sending as the current operator.
@@ -119,6 +121,8 @@ Open **Needs you** to see requests across the workspace. Each request identifies
 ![Studio showing Orin’s request for available lamp hardware, what to send back and the human response controls.](assets/studio-human-request.png)
 
 An open request can be withdrawn by its author. Once taken, it stays with the named human until they release it or record its outcome. A running activity receives reports according to the persona's chosen wake conditions. A former participant's explicit stop stays in effect.
+
+An offline report still identifies the request edition its observer saw. If a newer packet was issued, the earlier report can be sent as progress. Reporting completion from a form requires the current materials. Opening an earlier handoff retrieves the files of that edition and identifies a newer packet if one exists at export.
 
 **Conversations** preserves who sent each message. **Artifacts** opens exact delivered versions, shows the latest human review, accepts requests for changes and exports file trees with their manifests. **Character Lab** lets you inspect real coefficients, contextual appraisals, comparisons and the evidence behind development decisions. The **What if…** inputs are local previews. [Numerical workspace guide](editable-persona-models.md)
 

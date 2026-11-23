@@ -9,6 +9,8 @@ use std::collections::BTreeSet;
 
 mod package;
 pub use package::{export_dispatch, export_handoff, export_package, HandoffFormat};
+pub(super) mod packet;
+pub(super) use packet::issue as issue_packet;
 mod correspondence;
 pub use correspondence::correspondence;
 mod field_report;
@@ -215,21 +217,25 @@ fn exact(db: &Connection, reference: &str) -> Result<store::Record> {
     Ok(record)
 }
 
-fn same_issue(a: &Value, b: &Value) -> bool {
+// The outside action is the one the human took. The requester may issue new
+// files for it, but cannot change those terms, its claimant or its disposition.
+fn same_terms(a: &Value, b: &Value) -> bool {
     [
         "work",
         "requester",
         "title",
         "action",
         "return_requested",
-        "artifacts",
-        "deliveries",
-        "delivery_details",
         "decision",
         "created",
     ]
     .iter()
     .all(|key| a.get(*key) == b.get(*key))
+}
+
+fn same_materials(a: &Value, b: &Value) -> bool {
+    ["artifacts", "deliveries", "delivery_details", "field_packet"]
+        .iter().all(|key| a.get(*key) == b.get(*key))
 }
 
 pub(super) fn respond(
@@ -277,7 +283,7 @@ pub(super) fn respond(
             ))
         }
     };
-    let field_source = field_report.receipt(db, &record, files.captured())?;
+    let field_source = field_report.receipt(db, &record, files.captured(), matches!(response, Response::Complete))?;
     let mut body = record.body;
     let attachments = files.retain(db)?;
     let text = if note.trim().is_empty() {
