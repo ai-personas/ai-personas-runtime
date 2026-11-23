@@ -112,7 +112,7 @@ pub enum Command {
     },
     /// Inspect a selected activity, its requested activities and their participants.
     ActivityTree { work: String },
-    /// Check when a human message and its attached material reached an accepted ordinary decision.
+    /// Check receipt in the original activity, its attached material, and a later full message read elsewhere.
     MessageReceipt { event: i64 },
     /// Read a physical request's original issue, human updates and explicitly addressed requester responses.
     RequestCorrespondence {

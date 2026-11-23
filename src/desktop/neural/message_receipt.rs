@@ -105,11 +105,18 @@ impl App {
                     if ui.button("Inspect decision").clicked() {inspect=Some(call.to_owned());}
                 } else {
                     theme::badge(ui, &format!("{heading} recorded"), PURPLE);
-                    if delivery.is_some() {
-                        ui.label(format!("Studio has yet to verify this feedback in one of {recipient}’s accepted decisions."));
-                    } else {
-                        ui.label(format!("Studio will show a receipt when it verifies this {noun} in an accepted decision."));
-                    }
+                    ui.label(format!("No verified receipt in {recipient}’s decisions in the original activity."));
+                }
+                let elsewhere = &report["read_elsewhere"];
+                if let Some(call) = elsewhere["decision"].as_str() {
+                    ui.add_space(6.);
+                    theme::badge(ui, "Read in another activity", TEAL);
+                    let work = s(elsewhere, "work");
+                    let title = self.home_index.activity(work).map_or(work, |a| a.title.as_str());
+                    let when = time_label(elsewhere["accepted_at"].as_i64().unwrap_or_default());
+                    ui.label(format!("{recipient} received the complete {noun} in a later decision · {when}"));
+                    ui.label(excerpt(title, 120)).on_hover_text(title);
+                    if ui.small_button("Inspect later decision").clicked() { inspect = Some(call.into()); }
                 }
                 let files=report["attachments"].as_array().map(Vec::as_slice).unwrap_or_default();
                 let source = format!("experience:event-{event}@1");
@@ -118,6 +125,7 @@ impl App {
                     ui.add_space(8.);
                     ui.separator();
                     ui.strong(if report["request"].is_string() { "Returned files" } else { "Attached files" });
+                    if elsewhere.is_object() { ui.weak("File and page receipts below refer to the original activity."); }
                 }
                 for (index,file) in files.iter().enumerate() {
                     ui.push_id(index, |ui| {
@@ -151,8 +159,9 @@ impl App {
                         }
                     });
                 }
-                let pending=report["received"].is_null() || files.iter().any(|f|f["whole"].is_null());
-                let unverified=report["unverified_candidates"].as_u64().unwrap_or(0);
+                let pending=report["received"].is_null() || elsewhere.is_null() || files.iter().any(|f|f["whole"].is_null());
+                let unverified=report["unverified_candidates"].as_u64().unwrap_or(0)
+                    + report["unverified_elsewhere"].as_u64().unwrap_or(0);
                 if unverified>0 {ui.weak(format!("Unverified candidate inputs · {unverified}"));}
                 refresh = (pending && self.message_receipt.decisions != self.known_decisions.len())
                     || (self.message_receipt.cursor != self.cursor && files.iter().any(|f|f["pdf_pages"].is_array()));

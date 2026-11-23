@@ -72,6 +72,8 @@ When a persona starts writing a reply for its requester, **Draft reply** appears
 
 In **Your message**, choose a recipient and write a message, attach files, or do both. **Attach files…** lets you browse or enter a path. The draft holds the bytes you selected even if you later edit or move the original. Switching activities or recipients preserves each draft during the session. Select **Send** while the persona works. **Delivery status** opens the message receipt. It shows when the message reached a decision and which text ranges or images reached the recipient. The persona chooses what to inspect and how to respond.
 
+When a persona later reads the complete message in a different activity, the receipt shows **Read in another activity** with a link to that decision. This can happen while the original task stays stopped. Reading a message does not mean its files were opened or its outside action completed.
+
 ![The live conversation with Orin. The delivery status shows when he received the human’s question and the complete 149-byte desk roster.](assets/studio-message-receipt.png)
 
 **Work & deliveries** shows the original brief and its files, who made each amendment, each participant's purpose or reason for waiting, requests for a human and delivered packages. Open a supplied filename to inspect or save the edition submitted with that brief, amendment or message. Files with the same name show identifying digest prefixes. **Created here** lists files participants created in the selected activity.

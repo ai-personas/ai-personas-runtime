@@ -45,6 +45,8 @@ Only after the two comparisons, the evaluator linked the actual failed screen to
 
 [The failed screen and the exact reply it answered, reopened in Studio](assets/studio-remi-greenhouse-readback.png)
 
+The updated [Studio message receipt](assets/studio-remi-read-elsewhere.png) locates the first complete read of message 114 in another activity: `experience:call-168ea935968fa20b6bae41d8a604bcaa@1`, through a returned `asset.read`. The previous decision had the address and requested the read; its own input did not yet contain the returned message. The greenhouse inbox has no later receipt. All three earlier depot read-backs have both an original inbox receipt and a distinct retrospective read.
+
 Remi deferred a numerical change and recorded: **“Can I carry actionable-first communication across assignments by checking the recipient’s visible beginning, rather than treating audience labels and semantic completeness as sufficient?”** Its reason was that the evidence isolated a formatting lapse more clearly than a durable numerical cause. Its chosen condition was a future constrained-channel handoff.
 
 For this follow-up, the evaluator fixed a different museum brief before either museum answer. The comparison copy came directly from the original backup, without any desk practice or retrospective. Remi’s question reached **both** experienced museum decisions, and its acceptance explicitly mentioned the reminder. There was no recorded application against a predicted outcome. The two copies began:

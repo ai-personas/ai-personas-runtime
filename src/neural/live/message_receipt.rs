@@ -251,6 +251,46 @@ fn supplied<'a>(
         .collect())
 }
 
+/// A late human reply can be read elsewhere without resuming this activity.
+/// Only look for a complete copy of this exact experience; an address does
+/// not establish receipt, and attached bytes have their own evidence.
+fn read_elsewhere(db: &Connection, update: &Event) -> Result<(Option<Value>, usize)> {
+    let handle = update.reference();
+    let wanted = BTreeSet::from([handle.as_str()]);
+    let mut q = db.prepare_cached(
+        "SELECT i.id,i.updated FROM invocations i JOIN objects s ON s.digest=i.snapshot
+         WHERE i.actor=?1 AND i.work<>?2 AND i.state='accepted' AND i.created>=?3
+         AND instr(s.bytes,CAST(?4 AS BLOB))>0 AND (
+           EXISTS(SELECT 1 FROM json_each(CAST(s.bytes AS TEXT),'$.data.selected_resources') r
+                  WHERE json_extract(r.value,'$.record.reference')=?4)
+           OR EXISTS(SELECT 1 FROM json_each(CAST(s.bytes AS TEXT),'$.data.new_events') e
+                  WHERE json_extract(e.value,'$.supplied_result.record.reference')=?4))
+         ORDER BY i.created,i.rowid"
+    )?;
+    let mut rows = q.query(params![update.target, update.work, update.created, handle])?;
+    let mut unverified = 0;
+    while let Some(row) = rows.next()? {
+        let call: String = row.get(0)?;
+        let Ok(accepted) = provider_evidence::accepted(db, &update.target, &call, true) else {
+            unverified += 1;
+            continue;
+        };
+        let s = &accepted.snapshot;
+        if s.model.is_none() || !s.data["context_recovery"].is_null()
+            || s.observation_through.is_some_and(|n| n < update.seq)
+        {
+            continue;
+        }
+        if let Some(read) = supplied(db, s, &wanted)?.into_iter().find(|r|
+            matches!(r.via, "selection" | "asset.read" | "persona.read") && update.experience_matches(r.value)
+        ) {
+            return Ok((Some(json!({"decision":format!("experience:{call}@1"),"work":s.work,
+                "accepted_at":row.get::<_,i64>(1)?,"binding":accepted.binding,"via":read.via})), unverified));
+        }
+    }
+    Ok((None, unverified))
+}
+
 fn byte_observation(
     s: &context::Snapshot,
     value: &Value,
@@ -418,9 +458,11 @@ fn receipt(db: &Connection, event: i64) -> Result<Value> {
             entry
         })
         .collect::<Vec<_>>();
+    let (read_elsewhere, unverified_elsewhere) = read_elsewhere(db, &update)?;
     let mut report = json!({"message":handle,"kind":update.kind,"work":update.work,"sender":update.actor,
         "recipient":update.target,"sent_at":update.created,"text":text,"request":request,"state":update.body["state"],
-        "received":received,"attachments":files,"unverified_candidates":unverified});
+        "received":received,"read_elsewhere":read_elsewhere,"attachments":files,
+        "unverified_candidates":unverified,"unverified_elsewhere":unverified_elsewhere});
     if let Some((reference,title)) = delivery {
         report["delivery"] = json!(reference);
         report["delivery_title"] = title;
