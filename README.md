@@ -13,6 +13,8 @@ Create a workspace, enter the starting profiles and choose a model connection. U
 
 A persona can ask someone to handle pickup or assembly before the files are ready. As its work progresses, it can issue the finished files on that same request. Open **Needs you → Field packet → Save field packet…** to take the printable instructions and the exact file set together. [See the live handoff and inspect the files](docs/field-packet-trial.md).
 
+[Take Ada’s cut-shop packet](examples/solar-display/volunteer-field-packet.zip): the SVG from the unanswered request produced two closed holes followed by the 90 × 40 mm outline in MeerK40t, without anyone editing the drawing.
+
 For a handoff you can use, [download the repair-fair print kit](examples/repair-fair/volunteer-print-kit.zip). Two personas produced and checked the PDF, editable SVG and folding instructions from one brief. [See the volunteer’s dispatch slip and the independent measurements](docs/repair-fair-handoff.md).
 
 For a physical-design handoff, [take Mara’s P124 inspection-nest ZIP](examples/solar-inspection-nest/P124_inspection_nest.zip). A print shop can slice the STL unchanged; the ZIP also includes editable STEP and CadQuery source. [See the 66-layer slice, nominal panel fit and remaining tolerance qualification](docs/solar-inspection-nest.md). In Studio, select the STL inside the issued ZIP and use **Measure mesh…** to inspect the actual opening.

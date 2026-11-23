@@ -10,6 +10,8 @@ Ada opened the request with no files. Its current edition was visible in three s
 
 In **Needs you**, the operator saved the field packet through the native dialog. The ZIP contained `Request.html` and `Files.zip`. Its sheet included Ada’s exact instructions; its single SVG matched the immutable file in her delivery. An independent render found three disjoint contours: the outer 90 × 40 mm rectangle and two circles with bounding boxes `[6,18]–[10,22]` and `[80,18]–[84,22]` mm. Pickup and cutting have no completion record.
 
+A subsequent receiving check took the SVG directly out of that [original volunteer packet](../examples/solar-display/volunteer-field-packet.zip) and imported it unchanged in **MeerK40t 0.9.9100**. Default automatic classification assigned the black contours to raster. The packet explicitly directs the shop to select vector cutting, holes before outline. With two ordered cut operations, the stock planner produced **three closed paths**: centers at X=8.000021 and 82.000122 mm, both on Y=20.000053 mm, then a 90.000143 × 40.000107 mm outer path. Both holes spanned 3.999817 × 4.000204 mm. Those are digital toolpath dimensions, not machine accuracy. No artwork was edited or job spooled. The request remained unclaimed, with no completion report. [CAM evidence and replay](../examples/solar-display/README.md)
+
 ![Ada’s field packet on the open pickup request in Studio.](assets/studio-field-packet.png)
 
 ## A second, collaborative brief
