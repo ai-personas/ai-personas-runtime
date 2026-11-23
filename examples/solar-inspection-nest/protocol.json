@@ -1,0 +1,27 @@
+{
+  "operator": "Solar bench",
+  "brief": "Our bench team needs a printable inspection nest for an unwired Voltaic Systems P124 R4G solar panel. An operator should be able to lower one panel cell-side down, reach both exposed rear solder pads with probes, and lift it out by hand without pressing or sliding the cells against the fixture. It should take panels throughout the drawing's size tolerance. Our print shop has a 180 × 180 × 180 mm FDM machine, a 0.4 mm nozzle and PLA. They need one support-free piece at original scale, no hardware and no mesh repair or CAD editing. Please issue one ZIP the shop can take unchanged, with the printable STL, editable source and instructions for printing and use. The manufacturer's original documents and STEP file are in reference/. How you get there and what you can substantiate are up to you. No physical print or purchase is authorized.",
+  "invite": ["mara"],
+  "available_personas": [
+    {"id":"mara","label":"Mara","seed":"OCEAN: open-minded, fairly conscientious, moderately sociable, warm but comfortable disagreeing, steady under uncertainty. VAD: interested, alert and usually self-assured. I enjoy figuring things out and sharing a specific observation when it might help."},
+    {"id":"oren","label":"Oren","seed":"OCEAN: imaginative, patient, more reserved than talkative, cooperative and generally calm. VAD: quietly positive, moderately energized and comfortable taking initiative. I like looking at things from another person's point of view."}
+  ],
+  "model": "gpt-6.1-sol",
+  "effort": "medium",
+  "connection": "Direct inference with Codex OAuth; packaged Linux desktop.",
+  "source_revision": "c0148fc",
+  "observation_minutes": 40,
+  "boundary": "One native invitation from an empty activity history. No follow-up, assigned reviewer, design help, correction, forced resumption or repeat to obtain a pass. Stop on a settled participation, a provider/control hold, or the time boundary, draining any admitted work.",
+  "score": [
+    "Score the last shop-facing edition and instructions as issued. Compare the native download and a separate export to the retained asset. Report no delivery or a stated hold as such.",
+    "Load the STL in millimetres without geometry repair or rescaling. Check a single connected closed orientable solid, footprint, stable print face and bed envelope. Slice that file with a stock slicer, supports off and 0.4 mm nozzle; verify deposited paths, not merely an exit code.",
+    "Compare the manufactured geometry to the R4G drawing: insertion and removal path for largest panel; retention and support of smallest panel; contact outside the active cell area, open rear probe access and manual lift access. Document model assumptions and unresolved tolerances.",
+    "Relocate the issued editable source and reproduce the printed geometry where the toolchain supports it. Inspect actual instructions, quantity, orientation, settings and limits.",
+    "Verify the actual provider choices, voluntary peer or human contacts, judgments and stopping point. Separate digital release from physical fit, printing and electrical performance. No factory upload, print, probe or procurement."
+  ],
+  "sources": {
+    "drawing": ["https://voltaicsystems.com/content/P124_dwg.pdf", "8439a6f4dd57c1d503e8cdea9341622d16c294261dbb5f9d12c029a7c0255d64"],
+    "datasheet": ["https://voltaicsystems.com/content/P124_ds.pdf", "3f1e940242cd36be0e34c8b388bc7415edd00ffc33e72ec9453f19dad40c2f5d"],
+    "step": ["https://voltaicsystems.com/content/P124_3D.stp", "4df76ee10f0e8657e4fa3d43d5c0deefb3c840cc11203657527cf07ac666287b"]
+  }
+}
