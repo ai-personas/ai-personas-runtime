@@ -242,6 +242,7 @@ pub enum Continuation {
         /// Empty receives any new event. A chosen wake time is an independent trigger.
         /// To wait for one outside action, include your exact open human_request:id@revision
         /// (or $id of a human.request made here). A later human status change or report on that request wakes you.
+        /// You can also name a supplied active edition of a peer's outside step here. A newer edition makes that wait eligible; you get its register status, not the peer's incoming report.
         /// Use delivery (also result_delivery) for an edition published here or returned to you here, delivery_check for a receiving run on one of your editions, or package_review (also result_review) for a published package finding in this activity or a peer’s published finding returned to you here on your exact edition. A finding is not a delivery acceptance. All triggers are alternatives.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         on_events: Vec<String>,
@@ -311,6 +312,9 @@ pub struct Participation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub closed_by_activity: Option<String>,
     pub continuation: Continuation,
+    /// Edition watermarks for the peer outside steps in this wait, separate from the inbox cursor.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub peer_request_cursors: std::collections::BTreeMap<String, i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_resume: Option<PendingResume>,
     pub cursor: i64,
