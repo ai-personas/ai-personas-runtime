@@ -228,8 +228,15 @@ impl App {
         let scroll = matches!(&draft, Dialog::Participation { .. } | Dialog::Resume(_) | Dialog::Agreement(_) | Dialog::Settings(_))
             || (invitation && ctx.content_rect().height() < 370.);
         let width=(ctx.content_rect().width()-24.).max(1.);
-        let mut window=egui::Window::new(draft.title());
-        if matches!(draft,Dialog::Agreement(_) | Dialog::Activity {..}) { window=window.min_width(1.).max_width(width); }
+        let title = if matches!(draft, Dialog::Settings(_)) && width < 360. {
+            "Settings"
+        } else { draft.title() };
+        let mut window=egui::Window::new(title);
+        if matches!(draft,Dialog::Agreement(_) | Dialog::Activity {..} | Dialog::Settings(_)) {
+            // Persisted settings dimensions were measured at the previous zoom.
+            // Clamp them again after scaling so the close control stays reachable.
+            window=window.min_width(1.).max_width(width);
+        }
         if invitation {
             let bounds = ctx.content_rect();
             let initial = egui::vec2(552.0_f32.min(width), 575.0_f32.min((bounds.height()-84.).max(64.)));
@@ -493,7 +500,7 @@ impl App {
 
     fn workspace_settings(&mut self, ui: &mut Ui, ctx: &egui::Context, connection: &mut connection::Form) -> Option<Command> {
         ui.strong("Operator name");
-        ui.text_edit_singleline(&mut self.operator);
+        ui.add(egui::TextEdit::singleline(&mut self.operator).desired_width(f32::INFINITY));
         ui.small("Used for new messages, invitations, reviews and settings changes in this window.");
         ui.separator();
         let command = connection.show(ui, self);
@@ -507,7 +514,7 @@ impl App {
         let zoom = ui
             .add(
                 egui::Slider::new(&mut self.layout.scale, theme::MIN_ZOOM..=theme::MAX_ZOOM)
-                    .text("Interface scale")
+                    .text(if ui.available_width() < 360. { "Scale" } else { "Interface scale" })
                     .step_by(0.05),
             )
             .changed();
@@ -520,7 +527,7 @@ impl App {
         ui.checkbox(&mut self.layout.outliner, "Outliner");
         ui.checkbox(&mut self.layout.inspector, "Inspector");
         ui.checkbox(&mut self.layout.activity, "Activity dock");
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             if ui.button("Reset layout").clicked() {
                 self.layout = Layout::default();
                 theme::apply(ctx, self.layout.dark, self.layout.scale);
