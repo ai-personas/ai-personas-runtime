@@ -1,7 +1,9 @@
 //! Install portable commands and run them against an exact file tree.
 //! Installations, executions and registered output assets have separate identities.
+mod history;
 mod wasi;
 pub mod local;
+pub use history::{history, History};
 pub use wasi::worker as wasi_worker;
 
 use super::{failure, store, workspace, Result};
@@ -498,100 +500,4 @@ pub async fn run(
         let r=store::write(c,"command_run",&id,0,&body,origin.invocation)?;
         Ok(json!({"receipt":r.handle(),"result":body}))
     })
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, clap::Args)]
-#[serde(deny_unknown_fields)]
-pub struct History {
-    /// Optional exact installation, checked delivery edition, command receipt, supplied file, stdout, stderr or output reference.
-    pub reference: Option<String>,
-    #[serde(default)]
-    #[arg(long, default_value_t = 0)]
-    pub offset: usize,
-    #[serde(default = "default_page")]
-    #[arg(long, default_value_t = 20)]
-    pub page_size: usize,
-}
-fn default_page() -> usize {
-    20
-}
-
-pub fn history(db: &Connection, query: &History) -> Result<Value> {
-    let mut reference = query.reference.clone();
-    let mut digest = None;
-    if let Some(r) = query.reference.as_deref() {
-        if r.starts_with("asset:") || r.starts_with("object:") {
-            digest = Some(format!("object:{}", workspace::byte_digest(db, r)?));
-        } else {
-            reference = Some(store::exact(db, r)?.reference.handle());
-        }
-    }
-    let matches = |v: &Value| {
-        query.reference.is_none()
-            || v.as_str()
-                .is_some_and(|s| Some(s) == reference.as_deref() || Some(s) == digest.as_deref())
-    };
-    let selected = if let Some(receipt) = reference
-        .as_deref()
-        .filter(|r| r.starts_with("command_run:"))
-    {
-        Some(json!({"receipt":receipt,"result":store::exact(db,receipt)?.body}))
-    } else {
-        None
-    };
-    let mut total = 0;
-    let mut runs = Vec::new();
-    let mut statement = db.prepare(
-        "SELECT id,revision,digest FROM versions WHERE kind='command_run' ORDER BY rowid DESC",
-    )?;
-    let mut rows = statement.query([])?;
-    while let Some(row) = rows.next()? {
-        let id: String = row.get(0)?;
-        let rev: i64 = row.get(1)?;
-        let handle = format!("command_run:{id}@{rev}");
-        let body: Value = store::object(db, &row.get::<_, String>(2)?)?;
-        let file_match = ["files_supplied", "outputs"].iter().any(|&k| {
-            body[k]
-                .as_object()
-                .into_iter()
-                .flatten()
-                .any(|(_, f)| matches(&f["reference"]) || matches(&f["object"]))
-        });
-        if !file_match
-            && ![
-                json!(handle),
-                body["installation"].clone(),
-                body["receiving"]["delivery"].clone(),
-                body["program"].clone(),
-                body["stdin"]["object"].clone(),
-                body["stdout"]["object"].clone(),
-                body["stderr"]["object"].clone(),
-            ]
-            .iter()
-            .any(matches)
-        {
-            continue;
-        }
-        if total >= query.offset && runs.len() < query.page_size {
-            let mut summary = json!({"receipt":handle,"actor":body["actor"],"origin":body["origin"],"work":body["work"],
-                 "installation":body["installation"],"engine":body["engine"],"argv0":body["argv0"],"arguments":body["arguments"],
-                "exit_code":body["exit_code"],"success":body["success"],"outputs":body["outputs"],"finished":body["finished"]});
-            if let Some(subject) = body.get("receiving") {
-                summary["receiving"] = subject.clone();
-            }
-            runs.push(summary);
-        }
-        total += 1;
-    }
-    let installations: Vec<_> = store::list(db, "installation")?
-        .into_iter()
-        .filter(|r| r.body["format"] == "portable-command-v1")
-        .map(|r| {
-            json!({"reference":r.reference.handle(),"name":r.body["name"],"engine":r.body["engine"],
-            "program":r.body["program"],"installed_by":r.body["installed_by"]})
-        })
-        .collect();
-    Ok(
-        json!({"installations":installations,"runs":runs,"total":total,"offset":query.offset,"selected":selected}),
-    )
 }

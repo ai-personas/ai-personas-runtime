@@ -540,6 +540,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
             super::connection::change(root, operator, super::connection::Route::Codex(route)).await,
         Command::ConnectPlatform { platform_key_file } =>
             super::connection::change(root, operator, super::connection::Route::PlatformKeyFile(platform_key_file)).await,
+        Command::CommandHistory(query)=>super::commands::history(&store::open_inspection(root)?,&query),
         Command::ExperienceSearch{persona,search}=>super::experience::search(&store::open_inspection(root)?,&persona,&search),
         Command::RecallChoice{persona,decision,event}=>super::experience::recall::read(&store::open_inspection(root)?,&persona,&decision,&event),
         Command::IntakeHistory{work,page}=>super::intake::inspect(&store::open_inspection(root)?,&work,&page),
@@ -676,7 +677,6 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
                     export(db,&delivery,number,&destination)
                 }),
                 Command::ExportHandoff{reference,destination,format}=>store.snapshot(|db|super::human_requests::export_handoff(db,&reference,&destination,format)),
-                Command::CommandHistory(query)=>store.snapshot(|db|super::commands::history(db,&query)),
                 Command::GeometryHistory{reference,offset,page_size}=>store.snapshot(|db|super::geometry::history::lookup(db,&super::geometry::history::Lookup{reference,offset,page_size})),
                 Command::PackageReviews{work,query}=>store.snapshot(|db|super::package_review::lookup(db,work.as_deref(),&query)),
                 Command::Relationships{observer,page}=>store.snapshot(|db|super::relationships::contacts(db,&observer,&page)),

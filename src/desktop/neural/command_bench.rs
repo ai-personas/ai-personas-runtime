@@ -94,7 +94,12 @@ impl Bench {
                 self.history = Value::Null;
                 self.tab = Tab::History;
             }
-            Some(Pending::List) => self.history = v,
+            Some(Pending::List) => {
+                // A pasted exact receipt can be opened immediately. A different
+                // edition or an empty page must not inherit the previous detail.
+                self.detail = v["selected"].clone();
+                self.history = v;
+            }
             Some(Pending::Inspect) => self.detail = v["selected"].clone(),
             None => {}
         }
@@ -113,8 +118,10 @@ impl Bench {
         offset: usize,
         detail: bool,
     ) {
+        self.detail = Value::Null;
         if !detail {
             self.page_reference = reference.clone();
+            self.history = Value::Null;
         }
         self.submit(
             ui,
@@ -432,13 +439,14 @@ impl Bench {
     }
     fn receipts(&mut self, ui: &mut Ui, app: &mut App) {
         ui.heading("Execution receipts");
-        ui.horizontal(|ui| {
-            ui.add(
+        ui.horizontal_wrapped(|ui| {
+            let field = ui.add(
                 egui::TextEdit::singleline(&mut self.filter)
                     .desired_width((ui.available_width() - 135.).clamp(80., 435.))
                     .hint_text("All activity, or filter by exact reference"),
             );
-            if ui.button("Find receipts").clicked() {
+            let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if ui.button("Find receipts").clicked() || enter {
                 self.lookup(
                     ui,
                     app,
@@ -453,13 +461,19 @@ impl Bench {
             let offset = self.history["offset"].as_u64().unwrap_or(0) as usize;
             let count = self.history["runs"].as_array().map_or(0, Vec::len);
             let mut selected = None;
+            if count > 0 && self.history["reference"].is_string() {
+                ui.small("A matching byte address need not name this edition. An input file is not proof the program read it.");
+            }
             for row in self.history["runs"].as_array().into_iter().flatten() {
                 let label = format!(
                     "{}  ·  {}  ·  {}  ·  {}",
                     row["argv0"].as_str().unwrap_or_else(|| s(row, "engine")),
                     if row["origin"] == "persona" { app.label(s(row,"actor")) } else { s(row,"actor") },
                     exit_label(row),
-                    counted(row["outputs"].as_object().map_or(0, |v|v.len()) as u64, "file", "files")
+                    row["captured_file_count"].as_u64().map_or_else(
+                        || "File count unavailable".to_owned(),
+                        |n| counted(n, "captured file", "captured files"),
+                    )
                 );
                 if ui
                     .selectable_label(row["receipt"] == self.detail["receipt"], label)
@@ -468,30 +482,43 @@ impl Bench {
                 {
                     selected = Some(s(row, "receipt").to_owned());
                 }
+                if let Some(hits) = row["matches"].as_array() {
+                    if let [hit] = hits.as_slice() {
+                        ui.small(match_label(hit));
+                    } else if !hits.is_empty() {
+                        egui::CollapsingHeader::new(format!("Why this run matched · {}", hits.len()))
+                            .id_salt(("command-history-matches", s(row, "receipt")))
+                            .show(ui, |ui| {
+                                for hit in hits { ui.small(match_label(hit)); }
+                            });
+                    }
+                }
             }
             if let Some(receipt) = selected {
                 self.lookup(ui, app, Some(receipt), 0, true);
             }
-            ui.horizontal(|ui| {
-                let anchor = self.page_reference.clone();
-                if ui
-                    .add_enabled(offset > 0, egui::Button::new("Previous"))
-                    .clicked()
-                {
-                    self.lookup(ui, app, anchor.clone(), offset.saturating_sub(12), false);
-                }
-                ui.weak(if count == 0 {
-                    format!("0 shown of {total}")
+            if total == 0 {
+                ui.weak(if self.history["reference"].is_string() {
+                    "No recorded run matches this reference."
                 } else {
-                    format!("{}–{} of {total}", offset + 1, offset + count)
+                    "No command runs recorded."
                 });
-                if ui
-                    .add_enabled(offset + count < total, egui::Button::new("Next"))
-                    .clicked()
-                {
-                    self.lookup(ui, app, anchor, offset + count, false);
-                }
-            });
+            } else {
+                ui.horizontal_wrapped(|ui| {
+                    let anchor = self.page_reference.clone();
+                    if ui.add_enabled(offset > 0, egui::Button::new("Previous")).clicked() {
+                        self.lookup(ui, app, anchor.clone(), offset.saturating_sub(12), false);
+                    }
+                    ui.weak(if count == 0 {
+                        format!("0 shown of {total}")
+                    } else {
+                        format!("{}–{} of {total}", offset + 1, offset + count)
+                    });
+                    if ui.add_enabled(offset + count < total, egui::Button::new("Next")).clicked() {
+                        self.lookup(ui, app, anchor, offset + count, false);
+                    }
+                });
+            }
         } else if self.detail.is_null() {
             ui.weak("Find receipts to inspect runs from personas and operators.");
         }
@@ -625,9 +652,27 @@ impl Bench {
         }
     }
 }
+fn match_label(hit: &Value) -> String {
+    let role = match s(hit, "role") {
+        "file_input" => "File input", "captured_output" => "Captured output",
+        "stdin" => "Standard input", "stdout" => "Standard output", "stderr" => "Standard error",
+        "installation" => "Installation", "program" => "Installed program", "receiving_edition" => "Receiving edition",
+        "receipt" => "Receipt", other => other,
+    };
+    let basis = match s(hit, "basis") {
+        "exact_reference" => "Named reference",
+        "same_content_address" => "Same byte address",
+        _ => "Match type unavailable",
+    };
+    let mut label = format!("{role} · {basis}");
+    if let Some(path) = hit["path"].as_str() { label.push_str(" · "); label.push_str(path); }
+    label
+}
 fn exit_label(value: &Value) -> String {
+    if value["process_started"] == false { return "Not launched".into(); }
     match value["exit_code"].as_i64() {
-        Some(code) if value["success"] == false && code == 0 => "Exit 0 · output missing".into(),
+        Some(0) if value["outputs_complete"] == false => "Exit 0 · output missing".into(),
+        Some(0) if value["success"] == false => "Exit 0 · incomplete".into(),
         Some(code) => format!("Exit {code}"),
         None => "Execution failed".into(),
     }
