@@ -5,6 +5,16 @@ use crate::provider::{Failure, ProviderError};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 
+fn temporary_overload(d: &crate::provider::StreamDiagnostic) -> bool {
+    d.stage == "event" && d.event_type == Some("error")
+        && matches!(d.rule, "provider_error" | "remote_or_unsupported_output")
+        && d.remote_error_type == Some("service_unavailable_error")
+        && d.remote_error_code == Some("server_is_overloaded")
+}
+
+#[cfg(test)]
+mod tests;
+
 pub fn scheduled(db: &Connection, invocation: &str) -> Result<Option<Value>> {
     let digest: Option<String> = db.query_row(
         "SELECT digest FROM events WHERE invocation=?1 AND kind='inference_recovery_scheduled' ORDER BY seq DESC LIMIT 1",
@@ -50,12 +60,8 @@ pub fn schedule(
         // An established SSE stream can explicitly reject a request because
         // the service is overloaded. Only the observed temporary service
         // diagnostic is eligible; other error events keep their disposition.
-        (Failure::RemoteFailure, Some(200)) if receipt.stream_diagnostic.as_ref().is_some_and(|d|
-            d.stage == "event" && d.event_type == Some("error")
-                && d.rule == "remote_or_unsupported_output"
-                && d.remote_error_type == Some("service_unavailable_error")
-                && d.remote_error_code == Some("server_is_overloaded")
-        ) => "provider_overload",
+        (Failure::RemoteFailure, Some(200)) if receipt.stream_diagnostic.as_ref()
+            .is_some_and(temporary_overload) => "provider_overload",
         // A proxy can return a complete error page rather than an SSE stream.
         // A structured provider diagnostic (including quota, authentication
         // and request errors) is not classified from its status code alone.
