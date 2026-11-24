@@ -308,7 +308,18 @@ impl Panel {
             let Some(rows) = report["decisions"].as_array() else {
                 return;
             };
-            refresh = page_controls(ui, report, rows.len(), &mut query);
+            let unavailable = report["unavailable_decisions"].as_array().map(Vec::as_slice).unwrap_or_default();
+            refresh = page_controls(ui, report, rows.len() + unavailable.len(), &mut query);
+            if !unavailable.is_empty() {
+                egui::CollapsingHeader::new(format!("Evidence unavailable for {} on this page", unavailable.len()))
+                    .default_open(rows.is_empty()).show(ui, |ui| {
+                        ui.weak("Not counted as a changed or equal result.");
+                        for entry in unavailable {
+                            ui.label(s(entry, "decision"));
+                            ui.weak(s(entry, "reason"));
+                        }
+                    });
+            }
             if !rows.is_empty() {
                 let width = ui.available_width();
                 ui.add_space(4.);

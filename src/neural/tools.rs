@@ -387,7 +387,7 @@ pub const NAMES: &[(&str,&str)] = &[
     ("persona.initialize","Author your initial network as explicit sparse numerical parameters. Unspecified coordinates are zero; no training or random initialization."),
     ("persona.read","Read an exact candidate, evaluation, record or retained model object. Use object:<digest> for raw immutable JSON."),
     ("persona.evaluate","Evaluate your active network on evidence-linked contextual features; missing features are unknown."),
-    ("persona.revision_uses","Inspect the decisions and linked responses for one actual character activation or rollback. A candidate query instead compares its proposed values on actual inputs that used its predecessor. Page counts describe numerical differences."),
+    ("persona.revision_uses","Inspect the decisions and linked responses for one actual character activation or rollback. A candidate query instead compares its proposed values on actual inputs that used its predecessor. Page counts describe verified numerical differences. unavailable_decisions are index entries, not evidence of use or an outcome."),
     ("persona.paths","Trace an accepted choice of your own to the actual appraisal, output weights and active or inactive hidden paths. Optionally compare a retained package on that exact input, offline."),
     ("persona.patch","Directly replace literal parameters against an exact predecessor and return forward-only before/after probes. Does not activate."),
     ("persona.replay_input","Inspect the exact frozen situation, observed local command outputs, selected resources and available source handles for replaying one of your own choices. No model call or tool re-execution."),

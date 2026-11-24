@@ -155,11 +155,22 @@ pub fn inspect(db: &Connection, actor: Option<&str>, query: &Query) -> Result<Va
         bounded(query.offset)
     ])?;
     let mut decisions = Vec::new();
+    let mut unavailable = Vec::new();
     let (mut different, mut equal) = (0, 0);
     while let Some(row) = rows.next()? {
         let call: String = row.get(0)?;
-        let mut item = projection(db, &subject, &call)?;
-        item["accepted_utc"] = json!(row.get::<_, String>(1)?);
+        let accepted_utc: String = row.get(1)?;
+        // Discovery spans independent choices. One failed verification supplies only
+        // its index address, not a character use, zero delta or recipient outcome.
+        let mut item = match projection(db, &subject, &call) {
+            Ok(item) => item,
+            Err(error) => {
+                unavailable.push(json!({"decision":format!("experience:{call}@1"),
+                    "accepted_utc":accepted_utc,"reason":error.to_string()}));
+                continue;
+            }
+        };
+        item["accepted_utc"] = json!(accepted_utc);
         if let Some(changes) = item["changed_outputs"].as_array() {
             if changes.is_empty() {
                 equal += 1;
@@ -172,8 +183,8 @@ pub fn inspect(db: &Connection, actor: Option<&str>, query: &Query) -> Result<Va
     Ok(
         json!({"subject":subject.detail,"owner":subject.owner,"supplied_package":format!("object:{}",subject.supplied),
         "comparison_package":subject.alternate.map(|d|format!("object:{d}")),"basis_filter":query.basis,"work_filter":query.work,
-        "total_decisions":count,"offset":query.offset,"on_page":{"inspected":decisions.len(),"different_outputs":different,"equal_outputs":equal},
-        "decisions":decisions}),
+        "total_decisions":count,"offset":query.offset,"on_page":{"inspected":decisions.len(),"unavailable":unavailable.len(),
+            "different_outputs":different,"equal_outputs":equal},"decisions":decisions,"unavailable_decisions":unavailable}),
     )
 }
 
