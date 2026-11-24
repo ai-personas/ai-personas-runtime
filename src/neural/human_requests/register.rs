@@ -20,6 +20,9 @@ pub struct Lookup {
     page_size: usize,
 }
 
+#[cfg(test)]
+mod tests;
+
 fn default_page_size() -> usize {
     20
 }
