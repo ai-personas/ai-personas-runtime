@@ -234,6 +234,26 @@ impl Window {
                                         }
                                     },
                                 );
+                                if let Some(ranges) = report["selected_text_for_next_choice"].as_array() {
+                                    let unit = if ranges.len() == 1 { "range" } else { "ranges" };
+                                    ui.collapsing(format!("Text behind the next appraisal · {} {unit}", ranges.len()), |ui| {
+                                        ui.weak("The persona read this text before pausing and selected it again. A selection does not mean the next decision ran.");
+                                        for item in ranges {
+                                            let reference = s(item, "reference");
+                                            let label = item["path"].as_str().map(|p| excerpt(p, 48)).unwrap_or_else(|| {
+                                                format!("Retained text · {}", excerpt(reference.trim_start_matches("object:"), 12))
+                                            });
+                                            ui.horizontal_wrapped(|ui| {
+                                                ui.strong(label).on_hover_text(reference);
+                                                if ui.small_button("Copy range").on_hover_text("Copy the exact file selection, not the whole file").clicked() {
+                                                    ui.ctx().copy_text(serde_json::json!({"reference":reference,"start":item["range"][0],"end":item["range"][1]}).to_string());
+                                                }
+                                            });
+                                            ui.small(format!("UTF-8 bytes [{}..{}) of {}", item["range"][0], item["range"][1], item["resource_bytes"]))
+                                                .on_hover_text(format!("SHA-256 of this range: {}", s(item, "text_sha256")));
+                                        }
+                                    });
+                                }
                                 if let Some(axis) = query.axis.as_deref() {
                                     if let Some(axis) =
                                         contract.outputs.iter().find(|a| a.id == axis)

@@ -2,61 +2,80 @@
 //! evidence the owner actually used on the first call, for one fresh choice.
 use crate::{
     neural::{
-        context::Snapshot, experience::recall, failure, protocol::Persona, provider_evidence,
-        Result,
+        context::Snapshot,
+        experience::recall,
+        failure,
+        protocol::{ContextResource, Persona},
+        provider_evidence, Result,
     },
     persona_model::Appraisal,
 };
 use rusqlite::Connection;
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
+mod text;
 
-pub(in crate::neural) fn evidence(s: &Snapshot, a: &Appraisal) -> Result<Vec<Value>> {
-    let mut out = BTreeMap::new();
+pub(in crate::neural) struct Grounds {
+    events: Vec<Value>,
+    pub(in crate::neural) text: Vec<text::TextRange>,
+}
+
+pub(in crate::neural) fn evidence(
+    s: &Snapshot,
+    a: &Appraisal,
+    next: &[ContextResource],
+) -> Result<Grounds> {
+    let mut out = Grounds {
+        events: Vec::new(),
+        text: Vec::new(),
+    };
     for r in a
         .features
         .values()
         .filter(|f| f.value.is_some())
         .flat_map(|f| &f.evidence)
+        .collect::<BTreeSet<_>>()
     {
         if s.data["work"]["reference"] == *r {
             continue;
         } // The full brief is mandatory.
+        if r.starts_with("object:") || r.starts_with("asset:") {
+            out.text.extend(text::reselected(&s.data, next, r)?);
+            continue;
+        }
         let Some(body) =
             recall::previous_observation(s, r).filter(|_| r.starts_with("experience:event-"))
         else {
-            return Err(failure("For before_action, use the supplied work reference or exact observed event bodies. Use evaluate and select other materials for a different appraisal."));
+            return Err(failure("For before_action, cite the current work, an observed event body or selected file text you choose to keep for the next decision."));
         };
-        out.entry(r.clone()).or_insert_with(|| {
-            let mut item = json!({"experience":r,"observation":body});
-            // Keep the acting choice with its consequence if they were both on the owner's desk.
-            let live = s.data["development"]["action_results"]
-                .as_array()
-                .into_iter()
-                .flatten();
-            let selected = s.data["selected_resources"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter(|v| v["considered"] == *r && recall::authentic_selection(s, v))
-                .map(|v| &v["action_before_observation"]);
-            let retained = s.data["decision_continuity"]["before_action"]["evidence_then"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter(|v| v["experience"] == *r && observed(s, r).is_some())
-                .map(|v| &v["action_before_observation"]);
-            if let Some(action) = live
-                .chain(selected)
-                .chain(retained)
-                .find(|v| v["outcome"] == *r && v["owner"] == s.actor && v["performed"].is_object())
-            {
-                item["action_before_observation"] = action.clone()
-            }
-            item
-        });
+        let mut item = json!({"experience":r,"observation":body});
+        // Keep the acting choice with its consequence if they were both on the owner's desk.
+        let live = s.data["development"]["action_results"]
+            .as_array()
+            .into_iter()
+            .flatten();
+        let selected = s.data["selected_resources"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|v| v["considered"] == *r && recall::authentic_selection(s, v))
+            .map(|v| &v["action_before_observation"]);
+        let retained = s.data["decision_continuity"]["before_action"]["evidence_then"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|v| v["experience"] == *r && observed(s, r).is_some())
+            .map(|v| &v["action_before_observation"]);
+        if let Some(action) = live
+            .chain(selected)
+            .chain(retained)
+            .find(|v| v["outcome"] == *r && v["owner"] == s.actor && v["performed"].is_object())
+        {
+            item["action_before_observation"] = action.clone()
+        }
+        out.events.push(item);
     }
-    Ok(out.into_values().collect())
+    Ok(out)
 }
 
 pub(in crate::neural) fn carry(
@@ -93,9 +112,15 @@ pub(in crate::neural) fn carry(
             "Pre-action appraisal does not match the fresh decision basis",
         ));
     }
-    Ok(Some(
-        json!({"owner":owner,"work":work,"source":format!("experience:{id}@1"),"model":p.model,"epoch":p.epoch,"evaluation":e["reference"],"reason":choice["reason"],"alternatives":choice["alternatives"],"evidence_then":evidence(&s,&a)?,"scope":"The decision is still yours. These JSON observations informed your appraisal before action, not new events or fresh files. Image bytes require explicit selection. Check any new arrivals before proceeding."}),
-    ))
+    let next: Vec<ContextResource> =
+        serde_json::from_value(r["next_context"]["references"].clone())?;
+    let grounds = evidence(&s, &a, &next)?;
+    let mut frame = json!({"owner":owner,"work":work,"source":format!("experience:{id}@1"),"model":p.model,"epoch":p.epoch,"evaluation":e["reference"],"reason":choice["reason"],"alternatives":choice["alternatives"],"evidence_then":grounds.events,"scope":"The decision is still yours. These JSON observations informed your appraisal before action, not new events or fresh files. Image bytes require explicit selection. Check any new arrivals before proceeding."});
+    if !grounds.text.is_empty() {
+        text::verify_next(data, &grounds.text)?;
+        frame["selected_text_for_next_choice"] = serde_json::to_value(grounds.text)?;
+    }
+    Ok(Some(frame))
 }
 
 pub(super) fn choice_observed(s: &Snapshot, decision: &str) -> bool {

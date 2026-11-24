@@ -132,7 +132,7 @@ pub(super) fn select_appraisal(
                 || !matches!(&decision.continuation,super::protocol::Continuation::Ready{..}) || reason.trim().is_empty() || alternatives.iter().any(|s|s.trim().is_empty()) || alternatives[0].trim()==alternatives[1].trim() {
                 return Err(failure("Before acting, appraise two distinct alternatives on an ordinary input, keep the model, choose ready and hold the actual operations and reply for the fresh decision. Use evaluate if acting independently now."));
             }
-            super::development::deliberation::evidence(snapshot,appraisal)?;
+            super::development::deliberation::evidence(snapshot, appraisal, &decision.next_context.references)?;
             let result=super::operations::evaluate_appraisal(db,snapshot,persona,part,appraisal)?;
             let digest=store::put(db,&result)?;
             store::event(db,&snapshot.work,&snapshot.actor,&snapshot.actor,"appraisal_selected",&json!({"method":"before_action","result":format!("object:{digest}"),"reason":reason}),Some(&snapshot.invocation))?;

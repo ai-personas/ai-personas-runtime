@@ -245,14 +245,25 @@ pub fn inspect(db: &Connection, actor: Option<&str>, query: &Query) -> Result<Va
         || identity.body["model"] != digest || identity.body["epoch"] != verified["epoch"] {
         return Err(failure("The recorded identity differs from the character supplied at this choice"));
     }
-    Ok(
-        json!({"decision":decision,"character_use":usage.map(|u| u.reference.handle()),"owner":owner,"owner_label":identity.body["label"],
+    let mut report = json!({"decision":decision,"character_use":usage.map(|u| u.reference.handle()),"owner":owner,"owner_label":identity.body["label"],
         "choice":{"response":verified["response"],"judgment":choice["work"],"reply":choice["reply"]},
         "work":meta["work"],"epoch":verified["epoch"],"provider_receipt":verified["provider_receipt"],
         "snapshot":verified["snapshot"],"prompt_sha256":verified["prompt_sha256"],"basis":basis,
         "evaluation":supply["reference"],"appraisal":appraisal,"axis":query.axis,"hidden_unit":query.hidden_unit,
         "supplied":{"package":format!("object:{digest}"),"numerical":numerical,"paths":paths},"alternate":alternate,
         "coordinates":"Direct terms use direct[row,column]. Hidden inputs use hidden[unit,column], hidden_bias[unit,0] and output[row,unit]. Unlisted weights are zero. By default only hidden units with a nonzero output weight appear.",
-        "scope":"Verified supplied inclinations and local forward arithmetic. Any alternate is evaluated on this decision's recorded appraisal."}),
-    )
+        "scope":"Verified supplied inclinations and local forward arithmetic. Any alternate is evaluated on this decision's recorded appraisal."});
+    // These texts grounded the *requested next* appraisal, not the values
+    // above. A pause alone does not establish a subsequent model input.
+    let next = &choice["next_context"];
+    if next["appraisal"]["kind"] == "before_action" {
+        let source = super::provider_evidence::accepted(db, owner, call, true)?;
+        let appraisal = serde_json::from_value(next["appraisal"]["appraisal"].clone())?;
+        let selection: Vec<_> = serde_json::from_value(next["references"].clone())?;
+        let grounds = super::development::deliberation::evidence(&source.snapshot, &appraisal, &selection)?;
+        if !grounds.text.is_empty() {
+            report["selected_text_for_next_choice"] = serde_json::to_value(grounds.text)?;
+        }
+    }
+    Ok(report)
 }
