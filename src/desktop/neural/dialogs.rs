@@ -127,6 +127,9 @@ fn multiline(ui: &mut Ui, value: &mut String, hint: &str) {
     );
 }
 
+#[cfg(test)]
+mod layout_tests;
+
 fn dialog_contents(ui: &mut Ui, scroll: bool, show: impl FnOnce(&mut Ui)) {
     if scroll {
         egui::ScrollArea::vertical()
@@ -227,7 +230,9 @@ impl App {
         let invitation = matches!(draft, Dialog::Activity { .. });
         let scroll = matches!(&draft, Dialog::Participation { .. } | Dialog::Resume(_) | Dialog::Agreement(_) | Dialog::Settings(_))
             || (invitation && ctx.content_rect().height() < 370.);
-        let width=(ctx.content_rect().width()-24.).max(1.);
+        // The resize width excludes the window frame and inner margins.
+        let margin = if matches!(draft, Dialog::Settings(_)) { 40. } else { 24. };
+        let width=(ctx.content_rect().width()-margin).max(1.);
         let title = if matches!(draft, Dialog::Settings(_)) && width < 360. {
             "Settings"
         } else { draft.title() };
