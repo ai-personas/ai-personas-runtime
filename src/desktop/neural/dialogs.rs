@@ -228,20 +228,30 @@ impl App {
         let mut command = None;
         let mut start_workspace = false;
         let invitation = matches!(draft, Dialog::Activity { .. });
-        let scroll = matches!(&draft, Dialog::Participation { .. } | Dialog::Resume(_) | Dialog::Agreement(_) | Dialog::Settings(_))
-            || (invitation && ctx.content_rect().height() < 370.);
-        // The resize width excludes the window frame and inner margins.
-        let margin = if matches!(draft, Dialog::Settings(_)) { 40. } else { 24. };
-        let width=(ctx.content_rect().width()-margin).max(1.);
-        let title = if matches!(draft, Dialog::Settings(_)) && width < 360. {
-            "Settings"
+        // Invitation owns its normal-height body scrolling; other forms must
+        // remain scrollable even when a draft grows after the window opens.
+        let scroll = !invitation || ctx.content_rect().height() < 370.;
+        // Resize width excludes the frame, margins and vertical scrollbar.
+        let width=(ctx.content_rect().width()-40.).max(1.);
+        let title = if width < 360. {
+            match &draft {
+                Dialog::Settings(_) => "Settings",
+                Dialog::Reasoning { .. } => "Reasoning",
+                Dialog::Resume(_) => "Resume",
+                Dialog::Review { .. } => "Review",
+                Dialog::Agreement(_) => "Agreement",
+                Dialog::Activity { social: true, .. } => "Conversation",
+                Dialog::Participation { action: Action::Message, .. } => "Message",
+                Dialog::Participation { action: Action::Amend, .. } => "Amend brief",
+                Dialog::Participation { action: Action::Invite, .. } => "Invite",
+                Dialog::Activity { edition: Some(_), .. } => "New brief",
+                Dialog::Render(_) => "Render project",
+                _ => draft.title(),
+            }
         } else { draft.title() };
-        let mut window=egui::Window::new(title);
-        if matches!(draft,Dialog::Agreement(_) | Dialog::Activity {..} | Dialog::Settings(_)) {
-            // Persisted settings dimensions were measured at the previous zoom.
-            // Clamp them again after scaling so the close control stays reachable.
-            window=window.min_width(1.).max_width(width);
-        }
+        // Persisted dimensions were measured at the previous zoom. Clamp every
+        // dialog, not only settings, so its close control stays reachable.
+        let mut window=egui::Window::new(title).min_width(1.).max_width(width);
         if invitation {
             let bounds = ctx.content_rect();
             let initial = egui::vec2(552.0_f32.min(width), 575.0_f32.min((bounds.height()-84.).max(64.)));
@@ -287,7 +297,7 @@ impl App {
                         provider,
                     } => {
                         ui.strong("Display name");
-                        ui.text_edit_singleline(name);
+                        ui.add(egui::TextEdit::singleline(name).desired_width(f32::INFINITY));
                         ui.strong("Initial character");
                         multiline(
                             ui,
@@ -404,10 +414,10 @@ impl App {
                         title,
                         reason,
                     } => {
-                        ui.heading(title.as_str());
+                        ui.add(egui::Label::new(egui::RichText::new(title.as_str()).heading()).wrap());
                         ui.small(reference.as_str());
                         multiline(ui, reason, "Which parts meet the brief or need changes?");
-                        ui.horizontal(|ui| {
+                        ui.horizontal_wrapped(|ui| {
                             for (reject, label) in
                                 [(false, "Accept delivery"), (true, "Request changes")]
                             {
@@ -428,11 +438,11 @@ impl App {
                         });
                     }
                     Dialog::Reasoning { persona, expected, model, effort, reason } => {
-                        ui.heading(self.label(persona));
+                        ui.add(egui::Label::new(egui::RichText::new(self.label(persona)).heading()).wrap());
                         ui.label("Model ID");
-                        ui.text_edit_singleline(model);
+                        ui.add(egui::TextEdit::singleline(model).desired_width(f32::INFINITY));
                         ui.label("Reasoning effort");
-                        ui.text_edit_singleline(effort);
+                        ui.add(egui::TextEdit::singleline(effort).desired_width(f32::INFINITY));
                         multiline(ui, reason, "Why are you changing this connection setting?");
                         if ui.add_enabled(!model.trim().is_empty() && !effort.trim().is_empty() && !reason.trim().is_empty(),
                             theme::primary("Save reasoning settings")).clicked() {
