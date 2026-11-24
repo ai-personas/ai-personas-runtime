@@ -9,6 +9,7 @@ pub mod document_print;
 pub mod http_fetch;
 pub mod host_command;
 pub mod files;
+pub mod library_folders;
 pub mod mock_effects;
 pub mod persona_model;
 pub mod pdf_preview;

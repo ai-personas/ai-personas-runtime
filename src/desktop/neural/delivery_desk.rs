@@ -21,6 +21,7 @@ pub(super) struct Desk {
     slip_page: usize,
     show_references: bool,
     file_page: usize,
+    file_folders: crate::desktop::folder_nav::Folders,
     request_page: usize,
     brief_page: usize,
     check_page: usize,
@@ -241,6 +242,7 @@ impl App {
                 desk.slip_page = 0;
                 desk.origins = None;
                 desk.file_search.clear();
+                desk.file_folders.directory.clear();
                 desk.focus_preview = false;
                 desk.inline.clear();
             }
@@ -634,8 +636,7 @@ impl App {
                 return;
             }
             ui.horizontal_wrapped(|ui| {
-                if p.files.len() > PAGE
-                    && ui
+                if ui
                         .add(
                             egui::TextEdit::singleline(&mut self.delivery_desk.file_search)
                                 .hint_text("Find a file in this package…")
@@ -651,21 +652,31 @@ impl App {
                 );
             });
             let query = self.delivery_desk.file_search.trim().to_lowercase();
-            let matching: Vec<_> = p
-                .files
-                .iter()
-                .enumerate()
-                .filter(|(_, f)| {
-                    query.is_empty()
-                        || f.path.to_lowercase().contains(&query)
-                        || f.reference.to_lowercase().contains(&query)
-                })
-                .collect();
+            use ai_personas::library_folders::{self, Entry};
+            let folders = &mut self.delivery_desk.file_folders;
+            if folders.location(ui, "Issued folders", !query.is_empty()) {
+                self.delivery_desk.file_page = 0;
+            }
+            let matching = library_folders::entries(query.is_empty().then_some(&folders.directory),
+                p.files.iter().enumerate().filter(|(_, f)| query.is_empty()
+                    || f.path.to_lowercase().contains(&query) || f.reference.to_lowercase().contains(&query))
+                    .map(|(i, f)| (i, f.path.as_str())));
             let last = matching.len().saturating_sub(1) / PAGE;
             self.delivery_desk.file_page = self.delivery_desk.file_page.min(last);
             let start = self.delivery_desk.file_page * PAGE;
             let end = (start + PAGE).min(matching.len());
-            for &(index, file) in &matching[start..end] {
+            for row in &matching[start..end] {
+                let index = match row {
+                    Entry::Folder { name, files } => {
+                        if self.delivery_desk.file_folders.open_button(ui, name, *files) {
+                            self.delivery_desk.file_page = 0;
+                        }
+                        continue;
+                    }
+                    Entry::File(i) => *i,
+                };
+                let file = &p.files[index];
+                let name = if query.is_empty() { library_folders::split(&file.path).1 } else { &file.path };
                 ui.add_space(4.);
                 ui.separator();
                 ui.add_space(3.);
@@ -674,7 +685,7 @@ impl App {
                         theme::glyph(ui, Icon::Files, theme::palette(ui).muted);
                         if ui
                             .link(
-                                RichText::new(&file.path)
+                                RichText::new(name)
                                     .color(theme::palette(ui).accent)
                                     .strong(),
                             )
@@ -742,7 +753,7 @@ impl App {
                     if ui
                         .add_enabled(
                             self.delivery_desk.file_page > 0,
-                            egui::Button::new("Previous files").small(),
+                            egui::Button::new("Previous").small(),
                         )
                         .clicked()
                     {
@@ -751,7 +762,7 @@ impl App {
                     if ui
                         .add_enabled(
                             self.delivery_desk.file_page < last,
-                            egui::Button::new("Next files").small(),
+                            egui::Button::new("Next").small(),
                         )
                         .clicked()
                     {

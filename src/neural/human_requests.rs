@@ -89,15 +89,6 @@ pub(super) fn files(db: &Connection, refs: &[String]) -> Result<Vec<(String, Str
                     .ok_or_else(|| failure("Invalid package filename"))
             })
             .collect::<Result<Vec<_>>>()?;
-        if components
-            .iter()
-            .any(|p| p.contains(['\\', ':', '\0']) || p.ends_with([' ', '.']))
-        {
-            return Err(failure(format!(
-                "Cannot package {} ({reference}): use portable relative filenames without colons, backslashes or trailing spaces/dots",
-                path.display()
-            )));
-        }
         let name = components.join("/");
         let folded = name.to_lowercase();
         if directories.contains(&folded) || !names.insert(folded.clone()) {

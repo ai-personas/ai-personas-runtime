@@ -75,6 +75,7 @@ pub struct Read {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Save {
+    /// Your chosen relative library path, including the folder structure appropriate to this work.
     pub path: String,
     pub text: String,
     /// Exact asset handle for a revision; null creates a new resource.
@@ -97,6 +98,7 @@ pub struct Resource {
 pub struct Register {
     /// Exact object:<digest> supplied in this input. For an earlier command capture, command.history can locate its receipt by this reference; select that receipt to use the original bytes.
     pub reference: String,
+    /// Your chosen relative library path; folders use / and need not be created first.
     pub path: String,
     /// An exact asset revision to update, or null to create a new library entry.
     pub base: Option<String>,
@@ -109,6 +111,7 @@ pub struct Register {
 #[serde(deny_unknown_fields)]
 pub struct Import {
     pub host_path: String,
+    /// Destination in the retained library, distinct from the host file path.
     pub path: String,
     pub base: Option<String>,
     pub cues: Vec<String>,
@@ -370,6 +373,7 @@ pub struct AssessModel {
 #[serde(deny_unknown_fields)]
 pub struct AssetMetadata {
     pub reference: String,
+    /// Complete new relative library path including filename. Earlier revisions keep their paths.
     pub path: String,
     pub cues: Vec<String>,
     pub retired: bool,
@@ -405,6 +409,7 @@ pub const NAMES: &[(&str,&str)] = &[
     ("experience.search","Search your lifetime by keyword or regular expression. Use considered=true to find observations you explicitly considered and select them together with your choice at the time. Filter by exact work, author and event kind. For reader feedback, kind=user_message with the named operator retrieves their messages across activities. Matches return exact origin and reference. Read chosen records with asset.read or select them for context."),
     ("history.search","Rediscover authored/addressed events in this work by literal or regex search, with exact prior request, response, tool-result and provider-receipt references. Returns metadata, not replayed history. Empty query lists events; results are paginated."),
     ("persona.create","Create an attributed pending identity with a fresh own-model initialization. This does not invite or assign responsibility."),
+    ("asset.list","Browse one retained library folder by path, or . for the root. Returns immediate folders and current non-retired file references without loading file bodies. Use this to inspect the shared organization before choosing or revising paths."),
     ("asset.search","Search current shared asset metadata by literal or regex. Set history=true for previous library names. same_content finds registrations of identical retained bytes. Use asset.find for exact text search with optional excerpts, or asset.read for a chosen range."),
     ("asset.history","Inspect a page of editions of an exact shared file, including names, file sizes, attributable editors and whether the bytes changed. Returns metadata and exact asset handles for selective reading."),
     ("asset.deliveries","Find verified delivery editions across activities that include one exact shared file revision. Returns issuers, activities and the numbered dispatch slips that include the file. Use the delivery address to inspect its instructions or try its exact files with command.local receiving."),
@@ -420,7 +425,7 @@ pub const NAMES: &[(&str,&str)] = &[
     ("geometry.inspect_stl","Measure a retained STL mesh object or exact asset, or select an STL member by its path in a ZIP. Returns bounds, axis spans, triangles, distinct vertices, a mesh validation result, and historical render receipts for those exact mesh bytes."),
     ("geometry.history","Look up actual OpenSCAD render receipts, source assets, mesh objects, compiler warnings and attributed origins across activities. Search by exact source revision, STL asset, mesh object or render receipt. Results distinguish persona decisions and operator checks."),
     ("asset.import","Retain exact bytes read from a host file after dispatch; metadata is not prior body supply. The exact asset reference arrives in a later tool receipt. Same-response $operation_id references cannot name this import; read its result before selecting or citing the resulting asset."),
-    ("asset.organize","Move/update discovery metadata or retire a resource while preserving exact prior bytes and history."),
+    ("asset.organize","Move an exact library edition to a folder/path you choose, update its discovery metadata or retire it. Creates a revision with the same bytes; does not move host files or rewrite issued packages. A later operation in this decision can use $operation_id for the organized edition."),
     ("image.read","Capture a host image and supply its exact bytes as image input in the next decision."),
     ("image.render_svg","Render an exact retained SVG drawing, diagram or card. The following decision receives the actual PNG pixels. External image files are omitted."),
     ("document.print_html","Print an exact retained HTML document to PDF using its print layout and CSS. Attach local stylesheets, fonts and images by relative path. The receipt returns the PDF object, page count and exact input references."),
@@ -464,6 +469,7 @@ pub fn describe(name: &str) -> Result<Value> {
     let inputs = match name {
         "tools.search" | "history.search" | "development.search" => schema::<Search>()?,
         "experience.search" => schema::<ExperienceQuery>()?,
+        "asset.list" => schema::<super::discovery::FolderQuery>()?,
         "asset.search" => schema::<super::discovery::Catalog>()?,
         "asset.history" | "asset.deliveries" => schema::<super::asset_history::Lookup>()?,
         "asset.find" => schema::<super::discovery::FindText>()?,
@@ -564,6 +570,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
             }
             Ok(())
         }
+        "asset.list" => parse::<super::discovery::FolderQuery>(value),
         "asset.search" => parse::<super::discovery::Catalog>(value),
         "asset.history" | "asset.deliveries" => parse::<super::asset_history::Lookup>(value),
         "asset.find" => parse::<super::discovery::FindText>(value),

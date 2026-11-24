@@ -1,4 +1,5 @@
 mod artifacts;
+mod folder_nav;
 mod file_desk;
 mod document;
 mod html_view;

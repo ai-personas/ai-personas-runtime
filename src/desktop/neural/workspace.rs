@@ -906,6 +906,7 @@ impl App {
                             self.layout.editor = Editor::Artifacts;
                             self.artifact_mode = 0;
                             self.artifact_scope = 0;
+                            self.reset_library_view();
                             self.compact_browser = false;
                         }
                         if ui
@@ -925,6 +926,7 @@ impl App {
                             self.layout.editor = Editor::Artifacts;
                             self.artifact_mode = 0;
                             self.artifact_scope = 1;
+                            self.reset_library_view();
                             self.compact_browser = false;
                         }
                         if ui
@@ -1613,11 +1615,16 @@ impl App {
             .max(ui.text_style_height(&egui::TextStyle::Small))
             .max(16.)
     }
+    pub(super) fn compact_artifact_height(&self, ui: &Ui, show_path: bool) -> f32 {
+        let lines = if show_path { 3. } else { 2. };
+        lines * Self::artifact_line_height(ui) + (lines - 1.) * ui.spacing().item_spacing.y
+            + 2. * f32::from(COMPACT_ARTIFACT_PADDING) + ARTIFACT_ROW_GAP
+    }
     pub(super) fn artifact_row(&mut self, ui: &mut Ui, asset: &Value, compact: bool) {
         let line_height = Self::artifact_line_height(ui);
         let b = &asset["body"];
         let path = s(b, "path");
-        let filename = path.rsplit('/').next().unwrap_or(path);
+        let (folder, filename) = ai_personas::library_folders::split(path);
         let extension = std::path::Path::new(path)
             .extension()
             .unwrap_or_default()
@@ -1639,6 +1646,12 @@ impl App {
                     theme::glyph(ui, Icon::Files, theme::ACCENT);
                     ui.add(egui::Label::new(RichText::new(filename).strong()).truncate());
                 });
+                if compact && !self.asset_filter.trim().is_empty() {
+                    ui.horizontal(|ui| {
+                        ui.set_height(line_height);
+                        ui.add(egui::Label::new(RichText::new(if folder.is_empty() { "Library root" } else { folder }).small()).truncate()).on_hover_text(path);
+                    });
+                }
                 ui.horizontal(|ui| {
                     ui.set_height(line_height);
                     ui.add(
@@ -1675,9 +1688,21 @@ impl App {
     }
     pub(super) fn artifacts(&mut self, ui: &mut Ui) {
         self.delivery_return_link(ui);
-        ui.horizontal_wrapped(|ui| {
-            ui.heading("Artifacts");
-            ui.add_space(10.);
+        let compact = ui.available_width() < 620. || ui.available_height() < 500.;
+        if compact {
+            ui.horizontal_wrapped(|ui| {
+                ui.strong("Artifacts");
+                ui.menu_button("Browse & tools", |ui| self.artifact_tools(ui));
+                if self.artifact_mode == 0 && !self.selected_reference.is_empty() && ui.small_button("← Library").clicked() {
+                    self.clear_file_preview();
+                }
+            });
+        } else {
+            ui.horizontal_wrapped(|ui| { ui.heading("Artifacts"); ui.add_space(10.); self.artifact_tools(ui); });
+        }
+        self.artifact_body(ui, compact);
+    }
+    fn artifact_tools(&mut self, ui: &mut Ui) {
             ui.selectable_value(&mut self.artifact_mode, 0, "Retained library");
             if ui
                 .selectable_value(&mut self.artifact_mode, 1, "Workspace files")
@@ -1713,8 +1738,9 @@ impl App {
             if ui.button("Export deliveries…").clicked() {
                 self.export_deliveries(ui.ctx());
             }
-        });
-        ui.add_space(8.);
+    }
+    fn artifact_body(&mut self, ui: &mut Ui, compact: bool) {
+        ui.add_space(if compact { 2. } else { 8. });
         if self.artifact_mode == 1 {
             let directory = self.snapshot.directory.clone();
             if directory.as_os_str().is_empty() {
@@ -1725,10 +1751,10 @@ impl App {
             }
             return;
         }
-        ui.small(
-            "Browse exact retained versions. A retained artifact may still be intermediate work.",
-        );
-        ui.add_space(8.);
+        if !compact {
+            ui.small("Folders follow the paths chosen by the personas. Retained files may be intermediate; open an issued package to browse its contents.");
+            ui.add_space(8.);
+        }
         if self.artifact_scope == 1 {
             let deliveries: Vec<_> = self
                 .records("deliveries")
@@ -1760,42 +1786,14 @@ impl App {
                 },
             );
         }
-        egui::SidePanel::left("retained-artifact-list").resizable(true).default_width(255.).width_range(180.0..=420.0).frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(0,4))).show_inside(ui,|ui|{
-            ui.add(egui::TextEdit::singleline(&mut self.asset_filter).hint_text("Search name, path or cues…").desired_width(f32::INFINITY));
-            egui::ComboBox::from_id_salt("artifact-scope").selected_text(["Current artifacts","Delivered for this task","Retired artifacts"][self.artifact_scope]).width(ui.available_width()).show_ui(ui,|ui|{for(i,label)in["Current artifacts","Delivered for this task","Retired artifacts"].iter().enumerate(){ui.selectable_value(&mut self.artifact_scope,i,*label);}});
-            let owner=if self.asset_owner.is_empty(){"All personas"}else{self.label(&self.asset_owner)}.to_owned();
-            egui::ComboBox::from_id_salt("artifact-owner").selected_text(owner).width(ui.available_width()).show_ui(ui,|ui|{ui.selectable_value(&mut self.asset_owner,String::new(),"All personas");for p in self.records("personas").to_vec(){ui.selectable_value(&mut self.asset_owner,s(&p["body"],"id").into(),s(&p["body"],"label"));}});
-            let query=self.asset_filter.to_lowercase();let delivered=self.delivered_refs();
-            let mut assets:Vec<Value>=self.snapshot.assets.iter().filter(|a|{
-                let b=&a["body"];(self.asset_owner.is_empty()||b["owner"]==self.asset_owner)&&(query.is_empty()||s(b,"path").to_lowercase().contains(&query)||b["cues"].to_string().to_lowercase().contains(&query))&&match self.artifact_scope{1=>delivered.contains(s(a,"reference")),2=>b["retired"]==true,_=>b["retired"]!=true&&a["current"]!=false}
-            }).cloned().collect();
-            // An exact older delivered revision remains accessible even when a
-            // newer head exists. Its receipt supplies the exact content on click.
-            if self.artifact_scope==1{for reference in delivered{if !assets.iter().any(|a|a["reference"]==reference)&&query.is_empty()&&self.asset_owner.is_empty(){assets.push(serde_json::json!({"reference":reference,"body":{"path":reference,"owner":"","cues":[]},"size":0}));}}}
-            ui.small(format!("{} {}", assets.len(), if assets.len() == 1 { "file" } else { "files" }));ui.add_space(5.);
-            if assets.is_empty() {
-                ui.weak("No artifacts match these filters.");
-            } else {
-                // Two single-line lanes and fixed padding keep card heights
-                // stable, so offscreen cards need no widget layout or painting.
-                let row_height = 2. * Self::artifact_line_height(ui)
-                    + ui.spacing().item_spacing.y
-                    + 2. * f32::from(COMPACT_ARTIFACT_PADDING)
-                    + ARTIFACT_ROW_GAP;
-                egui::ScrollArea::vertical()
-                    .id_salt("retained-artifacts")
-                    .auto_shrink([false, false])
-                    .show_rows(ui, row_height, assets.len(), |ui, range| {
-                        for index in range {
-                            let asset = &assets[index];
-                            ui.push_id(s(asset, "reference"), |ui| {
-                                self.artifact_row(ui, asset, true);
-                            });
-                            ui.add_space(ARTIFACT_ROW_GAP);
-                        }
-                    });
+        if compact {
+            if self.selected_reference.is_empty() {
+                self.retained_library(ui);
+                return;
             }
-        });
+        } else {
+            egui::SidePanel::left("retained-artifact-list").resizable(true).default_width(255.).width_range(180.0..=420.0).frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(0,4))).show_inside(ui,|ui| self.retained_library(ui));
+        }
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
@@ -1817,7 +1815,7 @@ impl App {
                     ui.label("Preview drawings, images, documents, data, 3D models and packages.");
                     ui.weak("The inspector shows its owner, exact version and qualifications.");
                 } else {
-                    ui.horizontal_wrapped(|ui| {
+                    let actions = |ui: &mut Ui| {
                         let projected=self.preview_metadata["view"]=="provider_receipt_metadata";
                         if !projected && (self.selected_reference.starts_with("asset:") || self.selected_reference.starts_with("object:"))
                             && print_preview::is_html(s(&self.preview_metadata,"path"), s(&self.preview_metadata, "media")) {
@@ -1863,7 +1861,8 @@ impl App {
                                 self.library_search.registrations(ui.ctx(),&self.root,self.selected_reference.clone());
                             }
                         }
-                    });
+                    };
+                    if compact { ui.menu_button("File actions", actions); } else { ui.horizontal_wrapped(actions); }
                     ui.separator();
                     self.viewer.preview_ui(ui);
                 }

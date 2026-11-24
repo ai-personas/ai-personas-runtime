@@ -29,7 +29,11 @@ impl Member {
     }
 
     /// Export streams to an unpublished file, independent of preview limits.
-    pub fn copy_to(&self, bytes: &[u8], output: &mut impl Write) -> ai_personas::neural::Result<()> {
+    pub fn copy_to(
+        &self,
+        bytes: &[u8],
+        output: &mut impl Write,
+    ) -> ai_personas::neural::Result<()> {
         let mut zip = zip::ZipArchive::new(Cursor::new(bytes))?;
         let mut entry = zip.by_index(self.index)?;
         if entry.name() != self.path
@@ -56,6 +60,7 @@ pub(super) struct Listing {
     entries: Vec<Member>,
     page: usize,
     query: String,
+    folders: crate::desktop::folder_nav::Folders,
 }
 
 impl Listing {
@@ -78,6 +83,7 @@ impl Listing {
             entries,
             page: 0,
             query: String::new(),
+            folders: Default::default(),
         })
     }
 
@@ -96,8 +102,7 @@ impl Listing {
                 ui.label(
                     RichText::new(counted(self.entries.len() as u64, "file", "files")).strong(),
                 );
-                if self.entries.len() > PAGE
-                    && ui
+                if ui
                         .add(
                             egui::TextEdit::singleline(&mut self.query)
                                 .hint_text("Find a member…")
@@ -108,30 +113,58 @@ impl Listing {
                     self.page = 0;
                 }
                 let needle = self.query.trim().to_lowercase();
-                let mut found = 0;
+                use ai_personas::library_folders::{self, Entry};
+                if self
+                    .folders
+                    .location(ui, "Package folders", !needle.is_empty())
+                {
+                    self.page = 0;
+                }
+                let rows = library_folders::entries(
+                    needle.is_empty().then_some(&self.folders.directory),
+                    self.entries
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, m)| {
+                            needle.is_empty() || m.path.to_lowercase().contains(&needle)
+                        })
+                        .map(|(i, m)| (i, m.path.as_str())),
+                );
+                let found = rows.len();
+                self.page = self.page.min(found.saturating_sub(1) / PAGE);
                 let start = self.page * PAGE;
-                for member in &self.entries {
-                    let (path, bytes) = (&member.path, member.bytes);
-                    if !needle.is_empty() && !path.to_lowercase().contains(&needle) {
-                        continue;
+                for row in rows.into_iter().skip(start).take(PAGE) {
+                    match row {
+                        Entry::Folder { name, files } => {
+                            if self.folders.open_button(ui, &name, files) {
+                                self.page = 0;
+                            }
+                        }
+                        Entry::File(i) => {
+                            let member = &self.entries[i];
+                            let name = if needle.is_empty() {
+                                library_folders::split(&member.path).1
+                            } else {
+                                &member.path
+                            };
+                            ui.push_id(member.index, |ui| {
+                                ui.horizontal_wrapped(|ui| {
+                                    if ui
+                                        .link(RichText::new(name).monospace().small())
+                                        .on_hover_text(&member.path)
+                                        .clicked()
+                                    {
+                                        selected = Some(member.clone());
+                                    }
+                                    ui.weak(RichText::new(size(member.bytes)).small())
+                                        .on_hover_text(format!(
+                                            "{} bytes uncompressed in the issued ZIP",
+                                            member.bytes
+                                        ));
+                                })
+                            });
+                        }
                     }
-                    if (start..start + PAGE).contains(&found) {
-                        ui.push_id(member.index, |ui| {
-                            ui.horizontal_wrapped(|ui| {
-                                let text = RichText::new(path).monospace().small();
-                                if ui.link(text)
-                                    .on_hover_text("Inspect or save this file from the issued ZIP")
-                                    .clicked() {
-                                    selected = Some(member.clone());
-                                }
-                                ui.weak(RichText::new(size(bytes)).small())
-                                    .on_hover_text(format!(
-                                        "{bytes} bytes uncompressed, as listed in the ZIP"
-                                    ));
-                            })
-                        });
-                    }
-                    found += 1;
                 }
                 if found == 0 {
                     ui.weak("No matching file entries.");

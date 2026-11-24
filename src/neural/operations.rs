@@ -89,7 +89,7 @@ pub fn package_paths(
     db: &Connection,
     references: &[String],
 ) -> Result<BTreeMap<std::path::PathBuf, String>> {
-    use std::path::{Component, Path, PathBuf};
+    use std::path::PathBuf;
     let mut paths = BTreeMap::<PathBuf, String>::new();
     for reference in references {
         let asset = store::exact(db, reference)?;
@@ -99,16 +99,12 @@ pub fn package_paths(
         let path = asset.body["path"]
             .as_str()
             .ok_or_else(|| failure("asset has no logical path"))?;
-        if path.is_empty()
-            || Path::new(path)
-                .components()
-                .any(|c| !matches!(c, Component::Normal(_)))
-        {
+        if !crate::library_folders::portable_path(path) {
             return Err(failure(format!(
-                "Organize {reference} under a relative file path before delivery: {path}"
+                "Organize {reference} under a portable relative file path before delivery: {path}"
             )));
         }
-        let path = Path::new(path).components().collect::<PathBuf>();
+        let path = PathBuf::from(path);
         for (existing, old_reference) in &paths {
             if (&path == existing && reference != old_reference)
                 || (&path != existing
@@ -187,7 +183,7 @@ pub(super) fn resolve_operation(op: &mut Operation, aliases: &BTreeMap<String, S
     Ok(())
 }
 pub(super) fn returns_alias(tool: &str) -> bool {
-    matches!(tool, "asset.save" | "asset.register" | "relationship.record" | "relationship.retire" | "result.review" | "result.deliver" | "human.request" | "human.issue_packet" | "human.withdraw" | "work.propose_agreement" | "work.agreement_position")
+    matches!(tool, "asset.save" | "asset.register" | "asset.organize" | "relationship.record" | "relationship.retire" | "result.review" | "result.deliver" | "human.request" | "human.issue_packet" | "human.withdraw" | "work.propose_agreement" | "work.agreement_position")
 }
 
 pub(super) fn apply_organization(body: &mut Value, previous: &str, actor: &str, work: &str, change: &tools::AssetMetadata) {
@@ -247,6 +243,14 @@ fn maintenance(
     Ok(())
 }
 
+fn check_library_path(path: &str, cues: &[String]) -> Result<()> {
+    if !crate::library_folders::portable_path(path) {
+        return Err(failure("Choose a portable relative library path such as project/folder/filename. Use / between names; avoid unsafe characters, reserved device names, trailing spaces or dots, and empty, . or .. components."));
+    }
+    if cues.iter().any(|s| s.trim().is_empty()) { return Err(failure("Discovery cues must be nonblank")); }
+    Ok(())
+}
+
 pub fn save_asset(
     db: &Connection,
     actor: &str,
@@ -259,9 +263,7 @@ pub fn save_asset(
     qualifications: &[String],
     resource: Option<&tools::Resource>,
 ) -> Result<Reference> {
-    if path.trim().is_empty() || cues.iter().any(|s| s.trim().is_empty()) {
-        return Err(failure("asset needs a path and nonblank discovery cues"));
-    }
+    check_library_path(path, cues)?;
     if let Some(description)=resource {
         if description.kind.trim().is_empty() {return Err(failure("Give the resource a type or omit its classification"));}
         check_references(db,&description.sources)?;
@@ -433,6 +435,7 @@ fn internal(
             let query: super::asset_history::Lookup = decode(input)?;
             super::asset_history::deliveries(db, &query.reference, query.offset, query.page_size)
         }
+        "asset.list" => super::discovery::folder(db,&decode(input)?),
         "asset.search" => super::discovery::catalog(db,&decode(input)?),
         "asset.find" => super::discovery::find(db,Some(actor),&decode(input)?),
         "asset.read" | "persona.read" => {
@@ -487,8 +490,9 @@ fn internal(
         "asset.organize" => {
             let x: tools::AssetMetadata = decode(input)?;
             let record = store::exact(db, &x.reference)?;
+            check_library_path(&x.path, &x.cues)?;
             if record.reference.kind != "asset"
-                || x.path.trim().is_empty()
+                || record.reference.handle() != x.reference
                 || x.reason.trim().is_empty()
             {
                 return Err(failure("invalid asset metadata change"));
@@ -1101,7 +1105,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
             resolve_operation(&mut op,&aliases)?;
             if part.departure.is_some(){return Err(failure("work.leave ends your operations in this activity; issue it last and stop"));}
             if persona.model.is_none()&&!matches!(op.tool.as_str(),"persona.initialize"|"persona.read"|"tools.search"|"tools.describe"|"asset.read") {return Err(failure("initialize and activate your character before accepting or doing work"));}
-            if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"human.requests"|"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.search"|"asset.history"|"asset.deliveries"|"asset.find"|"history.search"|"experience.search"|"relationship.contacts"|"relationship.history"|"persona.revision_uses"|"persona.paths"|"persona.replay_input"|"peer.message"|"work.requests"|"work.sources"|"work.agreements"|"result.prior_checks") {return Err(failure("accept your invitation before ordinary work"));}
+            if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"human.requests"|"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.list"|"asset.search"|"asset.history"|"asset.deliveries"|"asset.find"|"history.search"|"experience.search"|"relationship.contacts"|"relationship.history"|"persona.revision_uses"|"persona.paths"|"persona.replay_input"|"peer.message"|"work.requests"|"work.sources"|"work.agreements"|"result.prior_checks") {return Err(failure("accept your invitation before ordinary work"));}
             if part.declined{return Err(failure("declined participation cannot perform operations"));}
             if tools::is_external(&op.tool) {
                 validate_external(db,&persona,&op)?;
@@ -1229,8 +1233,9 @@ pub fn validate_external(db: &Connection, persona: &Persona, op: &Operation) -> 
         }
         "asset.import" => {
             let x: tools::Import = decode(&op.input)?;
-            if x.path.trim().is_empty() || x.host_path.trim().is_empty() {
-                return Err(failure("import needs paths"));
+            check_library_path(&x.path, &x.cues)?;
+            if x.host_path.trim().is_empty() {
+                return Err(failure("Choose the workspace file to import"));
             }
             if let Some(r) = x.base {
                 let base = store::exact(db, &r)?;

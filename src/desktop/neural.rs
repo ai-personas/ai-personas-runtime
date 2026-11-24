@@ -55,6 +55,7 @@ mod message_receipt;
 mod activity_sources;
 mod people;
 mod mesh_profile;
+mod artifact_library;
 mod workspace;
 mod workspace_find;
 mod usage;
@@ -179,6 +180,7 @@ pub struct App {
     asset_owner: String,
     artifact_scope: usize,
     artifact_mode: usize,
+    artifact_folders: super::folder_nav::Folders,
     selected_reference: String,
     reference_input: String,
     library_search: library_search::Window,
@@ -293,6 +295,7 @@ impl App {
             asset_owner: String::new(),
             artifact_scope: 0,
             artifact_mode: 0,
+            artifact_folders: Default::default(),
             selected_reference: String::new(),
             reference_input: String::new(),
             library_search: Default::default(),
@@ -422,6 +425,9 @@ impl App {
     fn open_named_resource(&mut self, ctx: &egui::Context, reference: String, output: Option<(String,String)>) {
         self.print_preview = None;
         self.delivery_desk.record_origin(self.layout.editor == Editor::Delivery, &self.layout.delivery, &self.work, &reference);
+        if let Some(asset) = self.snapshot.assets.iter().find(|a| a["reference"] == reference) {
+            self.artifact_folders.directory = ai_personas::library_folders::split(s(&asset["body"], "path")).0.to_owned();
+        }
         self.selected_reference = reference.clone();
         self.reference_input = reference.clone();
         self.layout.editor = Editor::Artifacts;

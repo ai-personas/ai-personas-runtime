@@ -1,5 +1,8 @@
 //! Explicit catalogue and in-document discovery. Search returns versioned
 //! pointers. The caller decides whether to bring their bodies into context.
+mod folders;
+pub use folders::{folder, FolderQuery};
+
 use super::{failure, store, Result};
 use clap::Args;
 use regex::{Regex, RegexBuilder};

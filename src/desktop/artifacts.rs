@@ -127,7 +127,7 @@ pub struct Viewer {
     show_hidden: bool,
     selected: Option<PathBuf>,
     source: Option<Source>,
-    trail: Vec<Source>,
+    trail: Vec<(Source, super::folder_nav::Folders, String)>,
     decoded: Option<Decoded>,
     native_document: Option<Arc<native_preview::Document>>,
     texture: Option<egui::TextureHandle>,
@@ -143,6 +143,7 @@ pub struct Viewer {
     citation_filter: Option<String>,
     citation_request: Option<String>,
     archive_filter: String,
+    archive_folders: super::folder_nav::Folders,
     details: Option<String>,
     error: Option<String>,
     model: mesh::Viewport,
@@ -224,6 +225,7 @@ impl Viewer {
             citation_filter: None,
             citation_request: None,
             archive_filter: String::new(),
+            archive_folders: Default::default(),
             details: None,
             error: None,
             model: mesh::Viewport::new(gl),
@@ -248,7 +250,8 @@ impl Viewer {
         self.details = None;
         let source = Source::Snapshot { path, sha256, _directory: directory };
         if let Some((index, name)) = member {
-            self.trail.push(source.clone());
+            let directory = ai_personas::library_folders::split(&name).0.to_owned();
+            self.trail.push((source.clone(), super::folder_nav::Folders { directory }, String::new()));
             self.load(Source::Member { container: Arc::new(source), format: ArchiveFormat::Zip, index, name });
         } else { self.load(source); }
     }
@@ -322,6 +325,7 @@ impl Viewer {
         self.dataset = 0;
         self.cancelled = false;
         self.archive_filter.clear();
+        self.archive_folders.directory.clear();
         self.model.reset();
         self.table = data_view::TableView::default();
     }
@@ -736,8 +740,10 @@ impl Viewer {
             });
         }
         if back {
-            if let Some(source) = self.trail.pop() {
+            if let Some((source, folders, filter)) = self.trail.pop() {
                 self.load(source);
+                self.archive_folders = folders;
+                self.archive_filter = filter;
             }
             return;
         }
@@ -971,31 +977,38 @@ impl Viewer {
                         .hint_text("Find a file inside the package…")
                         .desired_width(f32::INFINITY),
                 );
-                let filter = self.archive_filter.to_lowercase();
+                use ai_personas::library_folders::{self, Entry};
+                let filter = self.archive_filter.trim().to_lowercase();
+                self.archive_folders.location(ui, "Package folders", !filter.is_empty());
+                let rows = library_folders::entries(filter.is_empty().then_some(&self.archive_folders.directory),
+                    entries.iter().enumerate().filter(|(_,e)| filter.is_empty() || e.name.to_lowercase().contains(&filter)).map(|(i,e)| (i,e.name.as_str())));
+                if rows.is_empty() { ui.weak("No matching entries."); }
                 egui::ScrollArea::vertical()
-                    .id_salt(("archive", self.serial))
+                    .id_salt(("archive", self.serial, &self.archive_folders.directory, &filter))
                     .show(ui, |ui| {
-                        for entry in entries
-                            .iter()
-                            .filter(|e| e.name.to_lowercase().contains(&filter))
-                        {
+                        for row in rows {
+                            let entry = match row {
+                                Entry::Folder { name, files } => {
+                                    self.archive_folders.open_button(ui, &name, files);
+                                    continue;
+                                }
+                                Entry::File(i) => &entries[i],
+                            };
                             ui.push_id(entry.index, |ui| ui.horizontal(|ui| {
                                 ui.label(
                                     egui::RichText::new(size_label(entry.size)).small().weak(),
                                 );
                                 ui.vertical(|ui| {
-                                    let path = Path::new(&entry.name);
-                                    let name = path.file_name().map(|n| n.to_string_lossy())
-                                        .unwrap_or_else(|| entry.name.as_str().into());
+                                    let (parent, name) = library_folders::split(&entry.name);
                                     if ui
-                                        .add_enabled(entry.note.is_none(), egui::Button::new(name.as_ref()).frame(false).truncate())
+                                        .add_enabled(entry.note.is_none(), egui::Button::new(name).frame(false).truncate())
                                         .on_hover_text(&entry.name)
                                         .clicked()
                                     {
                                         archive_entry = Some((*format, entry.index, entry.name.clone()));
                                     }
-                                    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
-                                        ui.add(egui::Label::new(egui::RichText::new(parent.to_string_lossy()).small().weak()).truncate());
+                                    if !filter.is_empty() && !parent.is_empty() {
+                                        ui.add(egui::Label::new(egui::RichText::new(parent).small().weak()).truncate()).on_hover_text(parent);
                                     }
                                     if let Some(note) = &entry.note { ui.weak(note); }
                                 });
@@ -1025,7 +1038,7 @@ impl Viewer {
         }
         if let Some((format, index, name)) = archive_entry {
             if let Some(source) = self.source.clone() {
-                self.trail.push(source.clone());
+                self.trail.push((source.clone(), self.archive_folders.clone(), self.archive_filter.clone()));
                 self.load(Source::Member {
                     container: Arc::new(source),
                     format,

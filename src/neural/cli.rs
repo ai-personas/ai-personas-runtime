@@ -268,6 +268,8 @@ pub enum Command {
     },
     /// Search shared catalogue metadata and optionally retained earlier revisions.
     Catalog(super::discovery::Catalog),
+    /// Browse the folders and files chosen by shared library authors, without loading their contents.
+    LibraryFolder(super::discovery::FolderQuery),
     /// Locate byte ranges in an exact retained UTF-8 asset or object without printing its body.
     Find(super::discovery::FindText),
     /// Read an exact immutable resource or object.
@@ -540,6 +542,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
             super::connection::change(root, operator, super::connection::Route::Codex(route)).await,
         Command::ConnectPlatform { platform_key_file } =>
             super::connection::change(root, operator, super::connection::Route::PlatformKeyFile(platform_key_file)).await,
+        Command::LibraryFolder(query)=>super::discovery::folder(&store::open_inspection(root)?,&query),
         Command::CommandHistory(query)=>super::commands::history(&store::open_inspection(root)?,&query),
         Command::Find(query)=>super::discovery::find(&store::open_inspection(root)?,None,&query),
         Command::ExperienceSearch{persona,search}=>super::experience::search(&store::open_inspection(root)?,&persona,&search),
