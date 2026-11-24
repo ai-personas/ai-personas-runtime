@@ -96,11 +96,16 @@ fn locate(db: &Connection, actor: Option<&str>, reference: &str) -> Result<Exper
             &sql,
             params![actor, sequence.parse::<i64>()?],
             Experience::row,
-        )?
+        ).optional()?
     } else {
         let sql = format!("{DECISIONS} AND i.id=?2 AND (?1 IS NULL OR i.actor=?1)");
-        db.query_row(&sql, params![actor, id], Experience::row)?
+        db.query_row(&sql, params![actor, id], Experience::row).optional()?
     };
+    // Missing and inaccessible records must remain indistinguishable. Echo
+    // only the caller's handle, never another identity's private metadata.
+    let item = item.ok_or_else(|| failure(format!(
+        "Experience {reference} is unavailable in this read scope. Use experience.search or history.search to discover an accessible handle, or ask a peer to share the relevant evidence."
+    )))?;
     if item.id != id {
         return Err(failure("Noncanonical experience identity"));
     }
