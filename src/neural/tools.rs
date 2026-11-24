@@ -96,7 +96,7 @@ pub struct Resource {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Register {
-    /// Exact object:<digest> supplied in this input. For an earlier command capture, command.history can locate its receipt by this reference; select that receipt to use the original bytes.
+    /// Exact object:<digest> supplied now, or a named command output in a receipt linked from your preceding decision's observations here. For an older capture, locate and select the command.history receipt. Registration preserves those bytes, not the current host file.
     pub reference: String,
     /// Your chosen relative library path; folders use / and need not be created first.
     pub path: String,

@@ -333,6 +333,24 @@ impl App {
         } else {
             ui.weak("Content origin unverified");
         }
+        let capture = &origin["command_capture"];
+        if let Some(path) = capture["path"].as_str() {
+            egui::CollapsingHeader::new("Matching command capture")
+                .id_salt(("file-capture", reference))
+                .show(ui, |ui| {
+                    ui.add(egui::Label::new(path).wrap().selectable(true));
+                    ui.small(if capture["seen_in"] == origin["decision"] {
+                        "The registering decision received this command’s file index."
+                    } else {
+                        "The preceding decision received this file index. The registration used the retained bytes."
+                    });
+                    ui.weak("A capture is not proof that the program created the file or that the persona read its contents.");
+                    ui.horizontal_wrapped(|ui| {
+                        link(ui, "Command receipt", capture["command_receipt"].as_str(), action);
+                        link(ui, "Receiving decision", capture["seen_in"].as_str(), action);
+                    });
+                });
+        }
         self.file_deliveries(ui, reference, action);
         ui.add_space(6.);
         ui.separator();

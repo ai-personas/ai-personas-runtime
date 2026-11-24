@@ -78,6 +78,7 @@ struct Reader<'a> {
     choice: Option<Choice>,
     last: Option<File>,
     last_origin: Value,
+    show_captures: bool,
 }
 impl<'a> Reader<'a> {
     fn new(db: &'a Connection, id: &'a str) -> Result<Self> {
@@ -102,6 +103,7 @@ impl<'a> Reader<'a> {
             choice: None,
             last: None,
             last_origin: Value::Null,
+            show_captures: false,
         })
     }
     fn read(&mut self, number: i64) -> Result<Value> {
@@ -136,9 +138,33 @@ impl<'a> Reader<'a> {
             self.choice = Choice::load(self.db, &step.author, &step.work, &step.call).ok();
             self.last_call.clone_from(&step.call);
         }
-        if self.choice.as_ref().is_some_and(|choice| {
-            proof::verified_source(self.db, choice, step, size).unwrap_or(false)
-        }) {
+        let Some(choice) = &self.choice else {
+            return Value::Null;
+        };
+        if self.show_captures && step.write_tool.as_deref() == Some("asset.register") {
+            let Some(result) = proof::write_result(self.db, choice, step, size)
+                .ok()
+                .flatten()
+            else {
+                return Value::Null;
+            };
+            let mut origin = participant(step);
+            let capture = result.get("previous_capture").cloned().or_else(|| {
+                super::operations::capture::observed(
+                    self.db,
+                    &choice.accepted.snapshot,
+                    result["registered_from"].as_str()?,
+                    None,
+                )
+                .ok()
+                .flatten()
+            });
+            if let Some(witness) = capture {
+                origin["command_capture"] = witness;
+            }
+            return origin;
+        }
+        if proof::verified_source(self.db, choice, step, size).unwrap_or(false) {
             participant(step)
         } else {
             Value::Null
@@ -258,6 +284,16 @@ pub(super) fn visit_editions(
 
 /// Open any retained edition and page over its complete lineage, newest first.
 pub fn history(db: &Connection, reference: &str, offset: usize, page_size: usize) -> Result<Value> {
+    page(db, reference, offset, page_size, true)
+}
+
+fn page(
+    db: &Connection,
+    reference: &str,
+    offset: usize,
+    page_size: usize,
+    show_captures: bool,
+) -> Result<Value> {
     if page_size == 0 {
         return Err(failure("Use a positive file history page size"));
     }
@@ -278,6 +314,7 @@ pub fn history(db: &Connection, reference: &str, offset: usize, page_size: usize
     // Walk this page forward internally to prove a chain of metadata edits
     // once. The first entry can resolve its content origin before this page.
     let mut read = Reader::new(db, id)?;
+    read.show_captures = show_captures;
     let mut rows = Vec::with_capacity(numbers.len());
     for number in numbers.into_iter().rev() {
         let mut row = read.read(number)?;
@@ -293,7 +330,7 @@ pub fn history(db: &Connection, reference: &str, offset: usize, page_size: usize
 /// The shared catalogue exposes public file identity and contributors. Choice
 /// and event links belong to the operator inspection route.
 pub(super) fn shared(db: &Connection, query: &Lookup) -> Result<Value> {
-    let mut page = history(db, &query.reference, query.offset, query.page_size)?;
+    let mut page = page(db, &query.reference, query.offset, query.page_size, false)?;
     let mut rows = Vec::new();
     for r in page["rows"].as_array().into_iter().flatten() {
         let fields = r["changes"]["fields"]

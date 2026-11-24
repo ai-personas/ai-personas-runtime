@@ -264,14 +264,20 @@ impl Choice {
                         .as_str()
                         .map(|t| crate::store::sha256_bytes(t.as_bytes()))
                 } else {
-                    op.input["reference"]
-                        .as_str()
-                        .filter(|r| {
-                            result["registered_from"] == *r
-                                && snapshot.supplied_references.iter().any(|found| found == *r)
-                        })
-                        .and_then(|r| r.strip_prefix("object:"))
-                        .map(str::to_owned)
+                    let Some(r) = op.input["reference"].as_str() else {
+                        return Ok(false);
+                    };
+                    let matches = if let Some(witness) = result.get("previous_capture") {
+                        !snapshot.supplied_references.iter().any(|s| s == r)
+                            && operations::capture::previous(db, snapshot, r)?.as_ref()
+                                == Some(witness)
+                    } else {
+                        snapshot.supplied_references.iter().any(|s| s == r)
+                    };
+                    if !matches || result["registered_from"] != r {
+                        return Ok(false);
+                    }
+                    r.strip_prefix("object:").map(str::to_owned)
                 };
                 let Some(blob) = blob else { return Ok(false) };
                 record.reference.kind == "asset"

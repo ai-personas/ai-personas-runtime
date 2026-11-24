@@ -1,5 +1,6 @@
 //! Atomic adoption and internal effects. External effects are durable outbox
 //! entries; their results are never assumed while accepting a decision.
+pub(super) mod capture;
 pub(super) mod outcome;
 use super::{
     context::{self, Snapshot},
@@ -474,12 +475,14 @@ fn internal(
             if !x.reference.starts_with("object:") {
                 return Err(failure("Register the exact object reference returned with the retained bytes"));
             }
-            if !snapshot.supplied_references.contains(&x.reference) {
-                return Err(failure("Read or select the receipt containing this object before registering its bytes. For an earlier command output, command.history with its exact object reference finds the retained capture; select the matching command_run receipt in next_context.references. You need not rerun the command or recapture the current file."));
-            }
+            let previous = if snapshot.supplied_references.contains(&x.reference) { None } else {
+                Some(capture::previous(db, snapshot, &x.reference)?.ok_or_else(|| failure("Read or select the receipt containing this object before registering its bytes. For an earlier command output, command.history with its exact object reference finds the retained capture; select the matching command_run receipt in next_context.references. You need not rerun the command or recapture the current file."))?)
+            };
             let source = context::byte_resource_for(db, Some(actor), &x.reference)?;
             let asset = save_asset(db,actor,call,&operation.id,&x.path,x.base.as_deref(),&source.digest,&x.cues,&x.qualifications,x.resource.as_ref())?;
-            Ok(json!({"reference":asset.handle(),"blob":source.digest,"bytes":source.bytes.len(),"registered_from":x.reference}))
+            let mut result = json!({"reference":asset.handle(),"blob":source.digest,"bytes":source.bytes.len(),"registered_from":x.reference});
+            if let Some(witness) = previous { result["previous_capture"] = witness; }
+            Ok(result)
         }
         "asset.feedback" => super::asset_feedback::publish(db, work, actor, Some(call), &decode(input)?),
         "asset.feedback_history" => super::asset_feedback::history(db, &decode(input)?),

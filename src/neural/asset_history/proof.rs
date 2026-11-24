@@ -81,6 +81,31 @@ pub(in crate::neural) fn metadata(
     Ok(true)
 }
 
+/// The synchronous write receipt, after checking its selected bytes and metadata.
+pub(super) fn write_result(
+    db: &Connection,
+    choice: &Choice,
+    asset: &resources::Asset,
+    size: u64,
+) -> Result<Option<Value>> {
+    let Some(tool @ ("asset.save" | "asset.register")) = asset.write_tool.as_deref() else {
+        return Ok(None);
+    };
+    if choice.accepted.snapshot.actor != asset.author
+        || choice.accepted.snapshot.work != asset.work
+        || choice.accepted.snapshot.invocation != asset.call
+    {
+        return Ok(None);
+    }
+    let source = store::exact(db, &asset.content_revision)?;
+    let (op, result, seq) =
+        choice.operation(db, tool, "reference", &json!(asset.content_revision))?;
+    Ok((Some(seq) == asset.write_receipt
+        && result["bytes"] == size
+        && choice.issued_alias(db, &op, &source, &result)?)
+    .then_some(result))
+}
+
 pub(in crate::neural) fn verified_source(
     db: &Connection,
     choice: &Choice,
@@ -95,16 +120,12 @@ pub(in crate::neural) fn verified_source(
         // Some early records bind only the writer of the version to the call.
         return Ok(snapshot.development_version < 2);
     };
+    if tool != "asset.import" {
+        return Ok(write_result(db, choice, asset, size)?.is_some());
+    }
     let source = store::exact(db, &asset.content_revision)?;
     if !store::written_by(db, &source, &asset.call)? {
         return Ok(false);
-    }
-    if tool != "asset.import" {
-        let (op, result, seq) =
-            choice.operation(db, tool, "reference", &json!(asset.content_revision))?;
-        return Ok(Some(seq) == asset.write_receipt
-            && result["bytes"] == size
-            && choice.issued_alias(db, &op, &source, &result)?);
     }
     // The host file read completes after adoption. Bind the actual outbox
     // operation and its returned reference to the authored import.
