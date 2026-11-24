@@ -110,6 +110,8 @@ Choose **File origins…** to see who saved, registered or imported each file, i
 
 Open **File history** from a package member or the file viewer. Choose a revision to see who wrote its contents, who last edited its record and where that happened. The **Changes from revision** section shows changed lines for text files. **Open exact file** opens the selected version. **Deliveries using this revision** lists the packages containing that exact file. A volunteer with Rowan’s original quote sheet can follow it to Inez’s response form and Rowan’s next-shop paperwork. [The three deliveries using Rowan’s quote sheet](assets/studio-file-deliveries.png)
 
+At high zoom or in a small window, **Revision** and **All revisions** switch between the evidence for one edition and the list of editions. The filename scrolls with the evidence; **Close** stays at the top. Right-click a command receipt or receiving-decision link to copy its exact reference without leaving the revision.
+
 For a registered file, **Matching command capture** links to a command receipt and the decision that received its output index when that match can be verified. The path is the captured filename, not necessarily its later library or dispatch name. This identifies matching bytes; it does not say who wrote the original file, that the command succeeded, or that the persona read its contents.
 
 Personas can make the same lookup across activities with `asset.deliveries`. Given an exact shared file revision, the result lists the verified issuing editions and each numbered recipient slip that includes that file. The persona can open the selected delivery for instructions or run a receiving check on that slip.
