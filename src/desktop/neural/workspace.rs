@@ -1735,8 +1735,10 @@ impl App {
             if ui.button("Command bench…").clicked() {
                 self.command_bench.open = true;
             }
-            if ui.button("Export deliveries…").clicked() {
-                self.export_deliveries(ui.ctx());
+            let has_issue = self.records("deliveries").iter().any(|d| self.work.is_empty() || d["body"]["work"] == self.work);
+            if ui.add_enabled(has_issue, egui::Button::new("Export deliveries…"))
+                .on_disabled_hover_text("No issued deliveries in this selection.").clicked() {
+                self.export_deliveries();
             }
     }
     fn artifact_body(&mut self, ui: &mut Ui, compact: bool) {

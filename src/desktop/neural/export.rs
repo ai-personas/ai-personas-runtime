@@ -8,10 +8,17 @@ use std::io::Write;
 enum Contents {
     Artifact { reference: String, metadata_view: bool, source: Option<(String, String)>, member: Option<Member> },
     Printed { source: print_preview::Source, document: print_preview::Document },
-    Deliveries(String),
+    Deliveries { work: Option<String>, label: String, editions: Vec<ListedEdition> },
     Package(String),
     Dispatch { delivery: String, number: usize, recipient: String, files: usize, packet: bool },
     Handoff { reference: String, files: usize, format: HandoffFormat },
+}
+
+#[derive(Clone)]
+struct ListedEdition {
+    reference: String,
+    digest: String,
+    title: String,
 }
 
 #[derive(Clone)]
@@ -157,11 +164,15 @@ impl App {
             name,
         ));
     }
-    pub(super) fn export_deliveries(&mut self, _ctx: &egui::Context) {
+    pub(super) fn export_deliveries(&mut self) {
         self.export_generation += 1;
+        let work = (!self.work.is_empty()).then(|| self.work.clone());
+        let label = work.as_deref().map_or_else(|| "All activities in this workspace".into(), |id| self.work_name(id));
+        let editions = self.records("deliveries").iter().filter(|d| work.as_deref().is_none_or(|w| d["body"]["work"] == w))
+            .map(|d| ListedEdition { reference: inbox::handle(d), digest: s(&d["reference"], "digest").into(), title: s(&d["body"], "title").into() }).collect();
         self.export_dialog = Some(Dialog::new(
             self.export_generation,
-            Contents::Deliveries(self.work.clone()),
+            Contents::Deliveries { work, label, editions },
             format!("personas-delivery-{}", ai_personas::neural::now()),
         ));
     }
@@ -177,7 +188,7 @@ impl App {
             Contents::Artifact { member: Some(_), .. } => ("Save package file", "Save this exact issued file to your computer.", "Save file"),
             Contents::Artifact { .. } => ("Save artifact", "Save the exact retained file to your computer.", "Save file"),
             Contents::Printed { .. } => ("Save print PDF", "Save the PDF generated for this preview.", "Save PDF"),
-            Contents::Deliveries(_) => ("Export deliveries", "Export this task's delivered files with their delivery records.", "Export deliveries"),
+            Contents::Deliveries { .. } => ("Export deliveries", "Each edition gets its own folder. The manifest records its files and reviews. This is not a combined build package.", "Export deliveries"),
             Contents::Dispatch { packet: true, .. } => ("Save recipient packet", "One ZIP for this recipient. Open Dispatch.html for their instructions; Files/ holds the exact files named on their slip.", "Save packet"),
             Contents::Dispatch { files: 1, .. } => ("Save dispatch file", "This is the original file, not a new ZIP around it.", "Save original"),
             Contents::Dispatch { .. } => ("Save dispatch files", "Only the files on this slip are included, at their issued paths.", "Save ZIP"),
@@ -242,9 +253,20 @@ impl App {
                 ui.label(description);
                 ui.small(format!("{} · Local copy only", counted(*files as u64, "file", "files"))).on_hover_text(delivery);
             } else {
+                if let Contents::Deliveries { work, label, editions } = &dialog.contents {
+                    eyebrow(ui, if work.is_some() { "Issued editions  /  Selected activity" } else { "Issued editions  /  Whole workspace" });
+                    ui.add(egui::Label::new(RichText::new(home::short_text(label, 110)).strong()).wrap());
+                    ui.push_id(("listed-editions", dialog.serial), |ui| ui.collapsing(counted(editions.len() as u64, "issued edition", "issued editions"), |ui| {
+                        if let Some(work) = work { ui.small(work); }
+                        for edition in editions {
+                            ui.add(egui::Label::new(&edition.title).wrap());
+                            ui.add(egui::Label::new(RichText::new(&edition.reference).small().weak()).wrap().selectable(true));
+                        }
+                    }));
+                }
                 ui.label(description);
             }
-            let file = !matches!(dialog.contents, Contents::Handoff { format: HandoffFormat::Folder, .. } | Contents::Deliveries(_));
+            let file = !matches!(dialog.contents, Contents::Handoff { format: HandoffFormat::Folder, .. } | Contents::Deliveries { .. });
             if let Contents::Artifact { reference, member: Some(member), .. } = &dialog.contents {
                 let edition = reference.rsplit_once('@').map(|(_, n)| n).unwrap_or(reference);
                 if let Some(entry) = &member.entry {
@@ -372,18 +394,11 @@ impl App {
                             return Ok(format!("Saved file revision {edition} to {}", path.display()));
                         }
                     }
-                    Contents::Deliveries(work) => {
-                        tokio::runtime::Runtime::new()
-                            .map_err(|e| e.to_string())?
-                            .block_on(cli::execute(
-                                &root,
-                                "user",
-                                Command::Export {
-                                    directory: path.clone(),
-                                    work: if work.is_empty() { None } else { Some(work) },
-                                },
-                            ))
+                    Contents::Deliveries { work, editions, .. } => {
+                        let listed = editions.into_iter().map(|e| (e.reference, e.digest)).collect();
+                        let receipt = ai_personas::neural::delivery_export::collection(&root, &path, work.as_deref(), Some(&listed))
                             .map_err(|e| e.to_string())?;
+                        return Ok(format!("Saved {} to {}", counted(receipt.delivery_count as u64, "issued edition", "issued editions"), path.display()));
                     }
                 }
                 Ok(format!("Saved {}", path.display()))

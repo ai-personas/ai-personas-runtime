@@ -542,6 +542,13 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
             super::connection::change(root, operator, super::connection::Route::Codex(route)).await,
         Command::ConnectPlatform { platform_key_file } =>
             super::connection::change(root, operator, super::connection::Route::PlatformKeyFile(platform_key_file)).await,
+        Command::Export{directory,work}=>Ok(serde_json::to_value(super::delivery_export::collection(root,&directory,work.as_deref(),None)?)?),
+        Command::ExportPackage{reference,destination}=>super::human_requests::export_package(&store::open_inspection(root)?,&reference,&destination),
+        Command::ExportDispatch{delivery,number,destination,packet}=>{
+            let export = if packet { super::human_requests::export_dispatch_packet } else { super::human_requests::export_dispatch };
+            export(&store::open_inspection(root)?,&delivery,number,&destination)
+        }
+        Command::ExportHandoff{reference,destination,format}=>super::human_requests::export_handoff(&store::open_inspection(root)?,&reference,&destination,format),
         Command::LibraryFolder(query)=>super::discovery::folder(&store::open_inspection(root)?,&query),
         Command::CommandHistory(query)=>super::commands::history(&store::open_inspection(root)?,&query),
         Command::QuestionHistory{reference}=>super::question_history::inspect(&store::open_inspection(root)?,&reference),
@@ -676,12 +683,6 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
                     Ok(receipt.body["result"].clone())
                 }),
                 Command::ActivitySources{work,persona,query}=>store.snapshot(|db|super::activity_sources::inspect(db,&work,persona.as_deref(),&query)),
-                Command::ExportPackage{reference,destination}=>store.snapshot(|db|super::human_requests::export_package(db,&reference,&destination)),
-                Command::ExportDispatch{delivery,number,destination,packet}=>store.snapshot(|db|{
-                    let export = if packet { super::human_requests::export_dispatch_packet } else { super::human_requests::export_dispatch };
-                    export(db,&delivery,number,&destination)
-                }),
-                Command::ExportHandoff{reference,destination,format}=>store.snapshot(|db|super::human_requests::export_handoff(db,&reference,&destination,format)),
                 Command::GeometryHistory{reference,offset,page_size}=>store.snapshot(|db|super::geometry::history::lookup(db,&super::geometry::history::Lookup{reference,offset,page_size})),
                 Command::PackageReviews{work,query}=>store.snapshot(|db|super::package_review::lookup(db,work.as_deref(),&query)),
                 Command::Relationships{observer,page}=>store.snapshot(|db|super::relationships::contacts(db,&observer,&page)),
@@ -705,7 +706,6 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
                     super::assessment::inspect(db,actor,super::tools::ReplayInput{decision,references:resources,
                         reappraisal:reappraisal.as_deref().map(read_json).transpose()?})
                 }),
-                Command::Export{directory,work}=>export(&mut store,&directory,work.as_deref()),
                 Command::Audit=>audit(&mut store),
                 Command::Responsibilities{work}=>store.snapshot(|db|super::membership::responsibilities(db,&work)),
                 Command::Usage {work}=>store.snapshot(|db|super::accounting::activity(db,&work)),
@@ -826,65 +826,6 @@ fn operator_action(root: &Path, db: &rusqlite::Connection, operator: &str, comma
         },
         _ => Err(failure("Expected a workspace mutation")),
     }
-}
-
-pub fn export(store: &mut Store, directory: &Path, work: Option<&str>) -> Result<Value> {
-    let data = store.snapshot(|db| {
-        if let Some(id)=work { store::required(db,"work",id)?; }
-        let deliveries = store::list(db, "delivery")?
-            .into_iter()
-            .filter(|r| work.is_none_or(|w| r.body["work"] == w))
-            .collect::<Vec<_>>();
-        let mut artifacts = Vec::new();
-        for delivery in &deliveries {
-            let references:Vec<String>=serde_json::from_value(delivery.body["artifacts"].clone())?;
-            for (relative,reference) in operations::package_paths(db,&references)? {
-                let asset = store::exact(db, &reference)?;
-                let blob = asset.body["blob"]
-                    .as_str()
-                    .ok_or_else(|| failure("asset blob invalid"))?;
-                artifacts.push((
-                    delivery.reference.handle(),
-                    reference,
-                    relative,
-                    asset.body.clone(),
-                    store::bytes(db, blob)?,
-                ));
-            }
-        }
-        let reviews=super::package_review::exported(db,&deliveries)?;
-        let operators=store::operator_review_history(db,&deliveries.iter().map(|d|d.reference.handle()).collect())?;
-        Ok((deliveries, artifacts, store::delivery_mandates(db,work)?,reviews,operators))
-    })?;
-    let parent=super::archive::parent(directory);
-    let staging=tempfile::Builder::new().prefix(".personas-export-").tempdir_in(parent)?;
-    let mut manifest = Vec::new();
-    // Each exact delivery preserves its logical file tree. Separate packages
-    // can retain different versions without breaking relative imports/links.
-    for (delivery, reference, path, metadata, bytes) in data.1 {
-        let relative = PathBuf::from(delivery.replace([':', '@'], "_")).join(path);
-        let target = staging.path().join(&relative);
-        std::fs::create_dir_all(target.parent().unwrap())?;
-        use std::io::Write;
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&target)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        manifest.push(json!({"delivery":delivery,"reference":reference,"export_path":relative,"metadata":metadata,"bytes":bytes.len(),"sha256":crate::store::sha256_bytes(&bytes)}));
-    }
-    let value =
-        json!({"deliveries":data.0,"delivery_mandates":data.2,"package_reviews":data.3,"operator_review_history":data.4,"artifacts":manifest,"quality_verified_by_export":false});
-    std::fs::write(
-        staging.path().join("manifest.json"),
-        serde_json::to_vec_pretty(&value)?,
-    )?;
-    std::fs::File::open(staging.path().join("manifest.json"))?.sync_all()?;
-    super::archive::publish_directory(staging.path(),directory)?;
-    #[cfg(unix)]
-    std::fs::File::open(parent)?.sync_all()?;
-    Ok(json!({"directory":directory,"artifact_count":manifest.len(),"manifest":"manifest.json"}))
 }
 
 pub fn audit(store: &mut Store) -> Result<Value> {

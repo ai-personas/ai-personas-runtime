@@ -13,6 +13,7 @@ mod assessment;
 pub mod asset_feedback;
 pub mod asset_history;
 pub mod delivery_feedback;
+pub mod delivery_export;
 pub(crate) mod pdf_evidence;
 pub mod activity_requests;
 pub mod activity_tree;
