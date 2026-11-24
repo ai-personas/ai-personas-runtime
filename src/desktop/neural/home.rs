@@ -65,18 +65,6 @@ impl App {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 self.home_heading(ui);
-                if self.snapshot.status.is_null() {
-                    ui.add_space(14.);
-                    ui.horizontal(|ui| {
-                        if self.error.is_some() {
-                            ui.label("Workspace data is unavailable.");
-                        } else {
-                            ui.spinner();
-                            ui.label("Opening workspace…");
-                        }
-                    });
-                    return;
-                }
                 ui.add_space(10.);
                 ui.horizontal_wrapped(|ui| {
                     ui.selectable_value(&mut self.home.work_desk, false, "Society");

@@ -740,16 +740,17 @@ impl eframe::App for App {
         if self.wide_navigation(ctx) { self.navigation_rail(ctx); }
         self.header(ctx);
         self.status_bar(ctx);
-        if self.layout.activity {
+        let has_snapshot = !self.snapshot.status.is_null();
+        if has_snapshot && self.layout.activity {
             self.activity_dock(ctx);
         }
         let wide = ctx.content_rect().width() > 1100.;
         let workspace_view = self.layout.editor.is_workspace_view();
-        if self.layout.inspector && wide && !workspace_view {
+        if has_snapshot && self.layout.inspector && wide && !workspace_view {
             self.inspector_panel(ctx);
         }
         let show_browser = if ctx.content_rect().width() < COMPACT_BROWSER_WIDTH { self.compact_browser } else { self.layout.outliner };
-        if show_browser && !workspace_view {
+        if has_snapshot && show_browser && !workspace_view {
             self.outliner(ctx);
         }
         egui::CentralPanel::default()
@@ -759,6 +760,19 @@ impl eframe::App for App {
                     .inner_margin(if Self::constrained_activity_layout(ctx) { 4 } else { 16 }),
             )
             .show(ctx, |ui| {
+                // An unread workspace is not an empty workspace or a persona without a model.
+                if !has_snapshot {
+                    ui.horizontal_wrapped(|ui| {
+                        if self.error.is_some() {
+                            ui.heading("Workspace data unavailable");
+                        } else {
+                            ui.spinner();
+                            ui.heading("Opening workspace…");
+                        }
+                    });
+                    ui.weak("Saved personas, activities and files will appear once the workspace has been read.");
+                    return;
+                }
                 self.file_history_return(ui);
                 self.society_return(ui);
                 match self.layout.editor {

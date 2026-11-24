@@ -110,7 +110,7 @@ impl App {
             return "Waiting for owned work to settle".into();
         }
         if self.snapshot.status.is_null() {
-            return "Opening workspace…".into();
+            return if self.error.is_some() { "Workspace data unavailable" } else { "Opening workspace…" }.into();
         }
         if let RunnerObservation::Observed {
             session,
