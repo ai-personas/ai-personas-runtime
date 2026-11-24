@@ -1,9 +1,13 @@
 use super::*;
 use ai_personas::neural::live::RunnerObservation;
+mod peer;
+pub(super) use peer::is_peer_message;
 
 #[derive(Default)]
 pub(super) struct Window {
     event: Option<i64>,
+    peer: bool,
+    trail: Vec<i64>,
     decisions: usize,
     cursor: i64,
     reader: Option<mpsc::Receiver<Result<Value, String>>>,
@@ -14,6 +18,8 @@ impl App {
     pub(super) fn open_message_receipt(&mut self, ctx: &egui::Context, event: i64) {
         self.message_receipt = Window {
             event: Some(event),
+            peer: self.events.binary_search_by_key(&event, |e| e["event"].as_i64().unwrap_or_default())
+                .ok().is_some_and(|i| is_peer_message(&self.events[i])),
             ..Default::default()
         };
         self.refresh_message_receipt(ctx, event);
@@ -52,6 +58,8 @@ impl App {
             }
         }
         let mut visible = true;
+        let mut follow = None;
+        let mut back = false;
         let mut inspect = None;
         let mut inspect_run = None;
         let mut open_file = None;
@@ -60,7 +68,8 @@ impl App {
         let feedback = self.message_receipt.report.as_ref()
             .and_then(|r| r.as_ref().ok())
             .is_some_and(|r| r["delivery"].is_string());
-        let title = if feedback { "Feedback receipt" } else { "Delivery status" };
+        let peer = self.message_receipt.peer || self.message_receipt.report.as_ref().and_then(|r| r.as_ref().ok()).is_some_and(|r| r["kind"] == "peer_exchange");
+        let title = if peer { "Peer exchange" } else if feedback { "Feedback receipt" } else { "Delivery status" };
         let viewport = ctx.content_rect().shrink(6.);
         let style = ctx.style();
         let frame = egui::Frame::window(&style);
@@ -70,15 +79,28 @@ impl App {
             + egui::vec2(0., title_height + frame.inner_margin.sum().y + frame.stroke.width);
         let available = (viewport.size() - chrome).max(egui::vec2(1., 1.));
         let initial = egui::vec2(520., 620.).min(available);
-        egui::Window::new(title).id(egui::Id::new("human-message-receipt")).open(&mut visible)
+        let id = if peer { egui::Id::new(("peer-exchange", event)) } else { egui::Id::new("human-message-receipt") };
+        egui::Window::new(title).id(id).open(&mut visible)
             .default_size(initial).default_pos(viewport.center() - (initial + chrome) / 2.)
             .min_size(egui::vec2(220., 110.).min(available)).max_size(available)
             .constrain_to(viewport).resizable(true).vscroll(true).show(ctx, |ui| {
+                if let Some(previous) = self.message_receipt.trail.last() {
+                    back = ui.small_button(format!("← Exchange #{previous}")).clicked();
+                }
                 let report = match &self.message_receipt.report {
                     Some(Ok(report)) => report,
                     Some(Err(error)) => {ui.label(error); refresh = ui.button("Retry").clicked(); return;}
                     None => {ui.spinner(); return;}
                 };
+                if report["kind"] == "peer_exchange" {
+                    match peer::show(ui, self, event, report) {
+                        Some(peer::Action::Inspect(r)) => inspect = Some(r),
+                        Some(peer::Action::Follow(seq)) => follow = Some(seq),
+                        Some(peer::Action::Refresh) => refresh = true,
+                        None => (),
+                    }
+                    return;
+                }
                 let recipient = self.label(s(report, "recipient"));
                 let delivery = report["delivery"].as_str();
                 let (heading, noun) = if delivery.is_some() {
@@ -212,6 +234,13 @@ impl App {
             });
         if !visible {
             self.message_receipt = Default::default();
+        } else if back || follow.is_some() {
+            let mut trail = std::mem::take(&mut self.message_receipt.trail);
+            let next = if back { trail.pop() } else { trail.push(event); follow };
+            if let Some(next) = next {
+                self.open_message_receipt(ctx, next);
+                self.message_receipt.trail = trail;
+            }
         } else if refresh && self.message_receipt.reader.is_none() {
             self.refresh_message_receipt(ctx, event);
         }

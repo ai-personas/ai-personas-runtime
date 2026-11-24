@@ -1455,7 +1455,7 @@ impl App {
         let pages = events.len().div_ceil(40).max(1);
         self.conversation_page = self.conversation_page.min(pages - 1);
         ui.horizontal(|ui| {
-            ui.small(format!("{} exchanges · newest first", events.len()));
+            ui.small(format!("{} · newest first", counted(events.len() as u64, "exchange", "exchanges")));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
                     .add_enabled(
@@ -1533,8 +1533,9 @@ impl App {
                                     ui.ctx().copy_text(text.to_owned());
                                     self.notice="Original message copied".into();
                                 }
-                                if event["kind"]=="user_message" && event["invocation"].is_null()
-                                    && ui.small_button("Delivery status").clicked() {
+                                let peer = message_receipt::is_peer_message(event);
+                                if (peer || (event["kind"]=="user_message" && event["invocation"].is_null()))
+                                    && ui.small_button(if peer { "Peer exchange" } else { "Delivery status" }).clicked() {
                                     self.open_message_receipt(ui.ctx(), event["event"].as_i64().unwrap_or_default());
                                 }
                                 if event["target"]=="user" && matches!(event["kind"].as_str(),Some("reply"|"message"))

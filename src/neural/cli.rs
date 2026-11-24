@@ -123,7 +123,7 @@ pub enum Command {
     },
     /// Inspect a selected activity, its requested activities and their participants.
     ActivityTree { work: String },
-    /// Check receipt in the original activity, its attached material, and a later full message read elsewhere.
+    /// Follow an exact peer message into a recipient decision and direct replies, or inspect receipt of human correspondence and its attached material.
     MessageReceipt { event: i64 },
     /// Read a physical request's original issue, human updates and explicitly addressed requester responses.
     RequestCorrespondence {
@@ -552,6 +552,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
         Command::LibraryFolder(query)=>super::discovery::folder(&store::open_inspection(root)?,&query),
         Command::CommandHistory(query)=>super::commands::history(&store::open_inspection(root)?,&query),
         Command::QuestionHistory{reference}=>super::question_history::inspect(&store::open_inspection(root)?,&reference),
+        Command::MessageReceipt{event}=>super::live::message_receipt(&store::open_inspection(root)?,event),
         Command::Find(query)=>super::discovery::find(&store::open_inspection(root)?,None,&query),
         Command::ExperienceSearch{persona,search}=>super::experience::search(&store::open_inspection(root)?,&persona,&search),
         Command::RecallChoice{persona,decision,event}=>super::experience::recall::read(&store::open_inspection(root)?,&persona,&decision,&event),
@@ -671,7 +672,6 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
                     super::human_requests::register::list(db,&work,query)
                 }),
                 Command::ActivityTree{work}=>store.snapshot(|db|super::activity_tree::describe(db,&work)),
-                Command::MessageReceipt{event}=>store.snapshot(|db|super::live::message_receipt(db,event)),
                 Command::FileHistory{reference,offset,page_size}=>store.snapshot(|db|super::asset_history::history(db,&reference,offset,page_size)),
                 Command::FileDeliveries{reference,offset,page_size}=>store.snapshot(|db|super::asset_history::deliveries(db,&reference,offset,page_size)),
                 Command::RequestCorrespondence{reference,offset,page_size}=>store.snapshot(|db|super::human_requests::correspondence(db,&reference,offset,page_size)),

@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 mod pdf_pages;
 mod command_inputs;
+mod peer;
 
 struct Event {
     seq: i64,
@@ -74,10 +75,12 @@ impl Event {
     }
 
     fn experience_matches(&self, r: &Value) -> bool {
+        r["reference"] == self.reference() && self.record_matches(&r["record"])
+    }
+
+    fn record_matches(&self, record: &Value) -> bool {
         let reference = self.reference();
-        r["reference"] == reference
-            && r["record"]
-                == json!({"reference":reference,"work":self.work,
+        *record == json!({"reference":reference,"work":self.work,
             "actor":self.actor,"target":self.target,"kind":self.kind,"invocation":self.invocation,
             "time":self.created,"source":format!("object:{}",self.digest),"body":self.body})
     }
@@ -345,14 +348,16 @@ pub fn inspect(db: &Connection, event: i64) -> Result<Value> {
 }
 
 fn receipt(db: &Connection, event: i64) -> Result<Value> {
-    let update = Event::get(db, event)?
-        .filter(|e| {
-            e.invocation.is_none()
-                && matches!(e.kind.as_str(), "user_message" | "human_request_progress")
-        })
-        .ok_or_else(|| {
-            failure("Choose an exact incoming human message or request progress event")
-        })?;
+    let invalid = || failure("Choose a message between two personas, an incoming human message or a request progress event");
+    let update = Event::get(db, event)?.ok_or_else(invalid)?;
+    if update.kind == "message" && update.invocation.is_some() && update.actor != update.target
+        && update.target != "user" && store::head(db, "persona", &update.target)?.is_some()
+    {
+        return peer::exchange(db, &update);
+    }
+    if update.invocation.is_some() || !matches!(update.kind.as_str(), "user_message" | "human_request_progress") {
+        return Err(invalid());
+    }
     let text = update.body["text"]
         .as_str()
         .ok_or_else(|| failure("Incoming update lacks retained text"))?;

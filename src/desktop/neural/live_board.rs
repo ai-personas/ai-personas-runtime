@@ -1613,8 +1613,9 @@ impl App {
                     {
                         action = Some(EventAction::Address(actor.into()));
                     }
-                    if kind == "user_message" && event["invocation"].is_null() {
-                        let label = if feedback_reference(event).is_some() {
+                    let peer = message_receipt::is_peer_message(event);
+                    if peer || (kind == "user_message" && event["invocation"].is_null()) {
+                        let label = if peer { "Peer exchange" } else if feedback_reference(event).is_some() {
                             "Feedback receipt"
                         } else {
                             "Delivery status"
