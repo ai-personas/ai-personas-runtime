@@ -1,4 +1,5 @@
 //! Read-only operator view of a question in actual accepted calls.
+mod trail;
 use super::{failure, store, Result};
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
@@ -74,6 +75,7 @@ pub fn inspect(db: &Connection, reference: &str) -> Result<Value> {
     let owner = question.body["owner"]
         .as_str()
         .ok_or_else(|| failure("Question has no owner"))?;
+    let trail = trail::Trail::load(db, owner, id)?;
     let prefix = format!("development:{id}@");
     let mut versions = BTreeSet::new();
     let mut writes: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -110,15 +112,18 @@ pub fn inspect(db: &Connection, reference: &str) -> Result<Value> {
         let frozen: Value = store::object(db, &input)?;
         let supplied = supplies(&frozen["data"], &versions);
         let revised = writes.remove(&call).unwrap_or_default();
-        let application = store::head(db, "question_use", &format!("{id}/{call}"))?;
-        if supplied.is_empty() && revised.is_empty() && application.is_none() {
+        let application = trail.at(id, &call);
+        let reads = trail.reads(db, owner, &call, &frozen["data"])?;
+        if supplied.is_empty() && revised.is_empty() && application.is_none() && reads.is_empty() {
             continue;
         }
         let decision: Value = store::object(db, &response)?;
         let usage = store::head(db, "character_use", &call)?;
         decisions.push(json!({"decision":format!("experience:{call}@1"),"work":work,"accepted_at":time,"accepted_utc":utc,
             "input":format!("object:{input}"),"response":format!("object:{response}"),"provider_receipt":receipt.map(|r|format!("object:{r}")),
-            "supplied":supplied,"revisions_written":revised,"application":application.map(|r|r.reference.handle()),
+            "supplied":supplied,"revisions_written":revised,"application":application.map(|u|&u.reference),
+            "application_detail":application.map(|u|json!({"action":u.body["action"],"watch_for":u.body["watch_for"],"question_input":u.body["question_input"]})),
+            "application_reads":reads,
             "character_use":usage.as_ref().map(|r|r.reference.handle()),"epoch":usage.as_ref().map(|r|&r.body["epoch"]),
             "maintenance":decision["persona_maintenance"]["kind"],"reason":decision["persona_maintenance"]["reason"],
             "considered_experience":decision["considered_experience"]}));

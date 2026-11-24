@@ -272,7 +272,7 @@ pub(super) fn verify_character(db: &Connection, s: &Snapshot) -> Result<store::R
 
 /// An observation is interpreted against the owner's actual application, not an
 /// object that merely names a genuine decision or omits its restrictive endpoint.
-pub(super) fn verify_application(db: &Connection, record: &store::Record) -> Result<()> {
+pub(in crate::neural) fn verify_application(db: &Connection, record: &store::Record) -> Result<()> {
     let b = &record.body;
     let owner = b["owner"]
         .as_str()
@@ -280,7 +280,14 @@ pub(super) fn verify_application(db: &Connection, record: &store::Record) -> Res
     let call = b["decision"]
         .as_str()
         .ok_or_else(|| failure("Missing practice decision"))?;
-    if !store::written_by(db, record, call)?
+    let handle = b["question"].as_str().ok_or_else(|| failure("Missing applied question"))?;
+    let question = store::exact(db, handle)?;
+    if record.reference.kind != "question_use"
+        || question.reference.kind != "development"
+        || question.reference.handle() != handle
+        || question.reference.id != b["question_id"]
+        || question.body["owner"] != owner
+        || !store::written_by(db, record, call)?
         || record.reference.revision != 1
         || !b["question_id"]
             .as_str()
@@ -304,18 +311,10 @@ pub(super) fn verify_application(db: &Connection, record: &store::Record) -> Res
     }
     let d: DecisionV4 = serde_json::from_value(accepted.response)?;
     let matching = if b["question_input"] == "self_authored_this_decision" {
-        let question = store::exact(
-            db,
-            b["question"]
-                .as_str()
-                .ok_or_else(|| failure("Missing applied question"))?,
-        )?;
         match &d.behavior {
             Some(Choice::Practice { plan, action }) => {
                 b["action"] == action.endpoint(&d)?
                     && b["watch_for"] == plan.watch_for
-                    && question.reference.kind == "development"
-                    && question.reference.id == b["question_id"]
                     && store::written_by(db, &question, call)?
                     && question.body["behavioral_plan"] == b["practice"]
                     && b["practice"]["origin"] == format!("experience:{call}@1")
@@ -324,8 +323,8 @@ pub(super) fn verify_application(db: &Connection, record: &store::Record) -> Res
             _ => false,
         }
     } else {
-        d.examining
-            .iter()
+        super::examination_source(&accepted.snapshot, &question).is_some_and(|via| b["question_input"] == via)
+            && d.examining.iter()
             .filter(|e| e.question == b["question"] && e.watch_for == b["watch_for"])
             .any(|e| match &e.action {
                 Some(a) => a.endpoint(&d).is_ok_and(|v| v == b["action"]),

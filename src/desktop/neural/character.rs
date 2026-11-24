@@ -663,7 +663,7 @@ impl App {
                 if let Some(disposition) = detail["disposition"].as_str() {
                     heading.push_str(&format!(" · {}", title(disposition)));
                 }
-                if pending > 0 { heading.push_str(&format!(" · {pending} awaiting interpretation")); }
+                if pending > 0 { heading.push_str(&format!(" · {pending} returns without a recorded finding")); }
                 // CollapsingHeader's default single-line text otherwise widens the entire scroll area.
                 let wrap = (ui.available_width() - ui.spacing().indent - 2. * ui.spacing().button_padding.x).max(1.);
                 let heading = egui::WidgetText::from(heading).into_galley(ui, Some(egui::TextWrapMode::Wrap), wrap, egui::TextStyle::Button);
@@ -691,7 +691,7 @@ impl App {
                     self.development_follow_ups(ui, &reference, body);
                     if let Some(text)=detail["interpretation"].as_str(){ui.label(text);}
                     if let Some(text)=detail["prediction"].as_str(){ui.small(format!("Prediction · {text}"));}
-                    if let Some(text)=detail["alternatives"].as_str(){ui.small(format!("Other possible causes · {text}"));}
+                    if let Some(text)=detail["alternatives"].as_str(){ui.small(format!("Alternative considered · {text}"));}
                     if let Some(condition)=detail["revisit"]["condition"].as_str(){
                         let label=if closed {"Previous revisit condition"} else {"Revisit when"};
                         ui.small(format!("{label} · {condition}"));
@@ -709,9 +709,10 @@ impl App {
                         ui.separator();
                         let work=self.records("work").iter().find(|w|w["body"]["id"]==application["work"])
                             .map(|w|activity_title(&w["body"])).unwrap_or("Activity");
-                        ui.strong(format!("Tried in {}",excerpt(work,88)));
+                        let role = if application["action"].is_object() { "Tried an action" } else { "Examined this question" };
+                        ui.strong(format!("{role} in {}",excerpt(work,88)));
                         ui.label(s(application,"watch_for"));
-                        if ui.small_button(format!("Inspect choice · epoch {}",application["epoch"])).clicked(){
+                        if ui.small_button(format!("Application record · epoch {}",application["epoch"])).clicked(){
                             self.open_resource(ui.ctx(),s(application,"reference").into());
                         }
                         for feedback in application["linked_responses_now"].as_array().into_iter().flatten(){
@@ -722,7 +723,7 @@ impl App {
                                     self.open_resource(ui.ctx(),s(feedback,"experience").into());
                                 }
                                 if let Some(interpretations) = feedback["interpretations"].as_array() {
-                                    if interpretations.is_empty() { ui.weak("Awaiting interpretation"); }
+                                    if interpretations.is_empty() { ui.weak("No recorded question finding"); }
                                     for decision in interpretations.iter().filter_map(Value::as_str) {
                                         if ui.small_button("Interpreted ↗").on_hover_text(decision).clicked() {
                                             self.open_resource(ui.ctx(),decision.into());

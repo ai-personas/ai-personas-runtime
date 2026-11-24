@@ -193,6 +193,22 @@ pub(super) fn observed_experience(db: &Connection, snapshot: &Snapshot, referenc
     Ok(())
 }
 
+/// How the exact question reached this decision. A reminder or cue is not a full read.
+fn examination_source(snapshot: &Snapshot, question: &store::Record) -> Option<&'static str> {
+    let handle = question.reference.handle();
+    let agenda = &snapshot.data["development"];
+    let listed = |field: &str| agenda[field].as_array().into_iter().flatten().any(|r| r["reference"] == handle);
+    if observed_record(snapshot, &handle) == Some(&question.body) {
+        Some("full_record")
+    } else if listed("personal_reminders") || agenda["recent_personal_reminder"]["reference"] == handle {
+        Some("personal_reminder")
+    } else if listed("revisit_cues") {
+        Some("revisit_cue")
+    } else {
+        None
+    }
+}
+
 pub(super) fn record_applications(
     db: &Connection,
     snapshot: &Snapshot,
@@ -211,7 +227,6 @@ pub(super) fn record_applications(
         ));
     }
     let usage = store::required(db, "character_use", &snapshot.invocation)?;
-    let development = &snapshot.data["development"];
     let mut seen = BTreeSet::new();
     for choice in choices {
         let question = owned(db, &snapshot.actor, &choice.question)?;
@@ -225,22 +240,9 @@ pub(super) fn record_applications(
                 "Reopen this question before applying it to another choice",
             ));
         }
-        let source = if observed(snapshot, &choice.question) {
-            "full_record"
-        } else if development["personal_reminders"].as_array().is_some_and(|reminders| {
-            reminders.iter().any(|item| item["reference"] == choice.question)
-        }) || development["recent_personal_reminder"]["reference"] == choice.question {
-            "personal_reminder"
-        } else if development["revisit_cues"]
-            .as_array()
-            .is_some_and(|rows| rows.iter().any(|r| r["reference"] == choice.question))
-        {
-            "revisit_cue"
-        } else {
-            return Err(failure(
-                "Use the exact question from a supplied reminder or cue, or read its full record",
-            ));
-        };
+        let source = examination_source(snapshot, &question).ok_or_else(|| failure(
+            "Use the exact question from a supplied reminder or cue, or read its full record",
+        ))?;
         let endpoint=if let Some(action)=&choice.action {
             if snapshot.development_version<9 {return Err(failure("A named practice requires the behavioral-scope interface"));}
             practice::verify_character(db,snapshot)?;
@@ -617,8 +619,8 @@ fn subsequent_event(
 
 pub(super) fn owned(db: &Connection, actor: &str, reference: &str) -> Result<store::Record> {
     let item = store::exact(db, reference)?;
-    if item.reference.kind != "development" || item.body["owner"] != actor {
-        return Err(failure("Choose one of your own development questions"));
+    if item.reference.kind != "development" || item.reference.handle() != reference || item.body["owner"] != actor {
+        return Err(failure("Choose an exact revision of one of your own development questions"));
     }
     let current = store::required(db, "development", &item.reference.id)?;
     if current.reference != item.reference {

@@ -197,11 +197,13 @@ pub(super) fn responses_to_call(
     work: &str,
     call: &str,
 ) -> Result<Vec<Value>> {
+    // Build the small set of addresses produced by this call once, not by
+    // rescanning the activity's events for each possible reply.
     let sql = format!("{EVENTS} JOIN objects b ON b.digest=e.digest
         WHERE {VISIBLE} AND e.work=?2 AND (e.actor<>?1 OR e.invocation IS NULL) AND (
-          (e.kind IN ('message','reply','user_message','request_reply','requester_message','requester_review') AND EXISTS (
-            SELECT 1 FROM events parent WHERE parent.work=e.work AND parent.invocation=?3
-            AND 'experience:event-'||parent.seq||'@1'=json_extract(CAST(b.bytes AS TEXT),'$.reply_to')))
+          (e.kind IN ('message','reply','user_message','request_reply','requester_message','requester_review') AND
+            json_extract(CAST(b.bytes AS TEXT),'$.reply_to') IN (SELECT 'experience:event-'||parent.seq||'@1'
+            FROM events parent WHERE parent.work=?2 AND parent.invocation=?3))
           OR (e.kind='user_message' AND e.invocation IS NULL AND e.target=?1 AND EXISTS (
             SELECT 1 FROM versions v WHERE v.kind='delivery' AND v.invocation=?3
             AND 'delivery:'||v.id||'@'||v.revision=json_extract(CAST(b.bytes AS TEXT),'$.delivery')))
