@@ -254,7 +254,7 @@ impl View {
                             egui::pos2(x + 11., r.center().y),
                             egui::Vec2::splat(23.),
                         ),
-                        &h.nodes[n],
+                        h, n,
                     );
                     x += 29.;
                 }
@@ -360,7 +360,7 @@ impl View {
                 ui.horizontal(|ui| {
                     let (r, _) =
                         ui.allocate_exact_size(egui::Vec2::splat(26.), egui::Sense::hover());
-                    map::mark(ui, r, &h.nodes[mark.from]);
+                    map::mark(ui, r, h, mark.from);
                     ui.horizontal_wrapped(|ui| {
                         ui.label(
                             RichText::new(h.name(mark.from))

@@ -330,7 +330,7 @@ impl View {
             let who = &h.nodes[row.node];
             ui.horizontal(|ui| {
                 let (r, _) = ui.allocate_exact_size(vec2(29., 29.), Sense::hover());
-                mark(ui, r, who);
+                mark(ui, r, h, row.node);
                 if ui
                     .selectable_label(
                         self.selected_endpoint(h, row.node, true),
@@ -595,7 +595,7 @@ impl View {
             mark(
                 ui,
                 Rect::from_center_size(pos2(r.left() + 22., mid), vec2(38., 42.)),
-                node,
+                h, row.node,
             );
             let x = r.left() + 49.;
             let room = r.right() - x;
@@ -837,9 +837,10 @@ pub(super) fn text_line(ui: &Ui, pos: Pos2, width: f32, text: RichText, ink: Col
     width
 }
 
-pub(super) fn mark(ui: &Ui, rect: Rect, node: &Identity) {
+pub(super) fn mark(ui: &Ui, rect: Rect, history: &History<'_>, index: usize) {
+    let node = &history.nodes[index];
     if let Identity::Persona(id) = node {
-        design::persona_mark(ui, rect, id, persona_color(id));
+        design::persona_mark(ui, rect, history.name(index), persona_color(id));
     } else {
         let p = theme::palette(ui);
         ui.painter().rect_filled(rect, 5, p.field);

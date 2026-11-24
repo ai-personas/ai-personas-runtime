@@ -9,7 +9,7 @@ cargo build --locked --release --features desktop --bins
 ./personas --gui
 ```
 
-Create a workspace, enter the starting profiles and choose a model connection. Use **+ New** to describe the result you need, attach source files and invite people. **Invite & run workspace** starts the society listening. You can leave it working while you use other views. Each persona chooses whether to participate, which tools to use, whom to consult and when to stop. **Overview** shows actual work, deliveries and requests for human action. **Needs you** holds the files and instructions for an outside step. [Desktop guide](docs/desktop.md)
+Create a workspace, enter the starting profiles and choose a model connection. Use **+ New** to describe the result you need, attach source files and invite people. **Invite & run workspace** starts the society listening. You can leave it working while you use other views. Each persona chooses whether to participate, which tools to use, whom to consult and when to stop. **Overview** shows actual work, deliveries and requests for human action. **Needs you** opens the Field desk with the files and instructions for an outside step. One human can hold the step while another sends evidence without taking it over. [Desktop guide](docs/desktop.md)
 
 A persona can ask someone to handle pickup or assembly before the files are ready. As its work progresses, it can issue the finished files on that same request. Open **Needs you → Field packet → Save field packet…** to take the printable instructions and the exact file set together. [See the live handoff and inspect the files](docs/field-packet-trial.md).
 

@@ -7,6 +7,7 @@ use std::{
 
 pub(super) enum Action {
     Inspect(String),
+    OpenRequest(String),
     Message { person: String, text: String },
     Invite(String),
     ChangeActivity { reopen: bool, brief: String },
@@ -112,6 +113,7 @@ impl Board {
                     });
                     ui.add_space(3.);
                 }
+                ui.label(format!("Brief from {}", s(report, "brief_requester")));
                 ui.horizontal_wrapped(|ui| {
                     for member in members {
                         let actor = s(member, "actor");
@@ -168,6 +170,9 @@ impl Board {
                         lane(ui, i);
                         ui.add_space(8.);
                     }
+                }
+                if let Some(open) = outside_steps(ui, members, items(report, "outside_steps")) {
+                    action = Some(open);
                 }
                 ui.add_space(10.);
                 for closure in items(report,"dissolutions").iter().rev() {
@@ -304,6 +309,40 @@ fn person<'a>(members: &'a [Value], actor: &'a str) -> &'a str {
         .and_then(|m| m["label"].as_str())
         .unwrap_or(actor)
 }
+// An outside step has its own lifecycle; it isn't an unowned persona outcome.
+fn outside_steps(ui: &mut Ui, members: &[Value], steps: &[Value]) -> Option<Action> {
+    if steps.is_empty() { return None; }
+    let mut action = None;
+    ui.add_space(10.);
+    card(ui).show(ui, |ui| {
+        ui.set_min_width(ui.available_width());
+        eyebrow(ui, "Field desk  /  This activity");
+        ui.label(RichText::new("Outside steps").size(19.).strong());
+        for step in steps {
+            ui.separator();
+            let reference = s(step, "reference");
+            ui.push_id(reference, |ui| {
+                if ui.link(s(step, "title")).on_hover_text(reference).clicked() {
+                    if let Some((id, _)) = reference.strip_prefix("human_request:").and_then(|s| s.rsplit_once('@')) {
+                        action = Some(Action::OpenRequest(id.into()));
+                    }
+                }
+                ui.horizontal_wrapped(|ui| {
+                    let requester = s(step, "requester");
+                    let (status, color) = inbox::phase(s(step, "state"));
+                    theme::badge(ui, status, color);
+                    ui.small(format!("Requested by {}", person(members, requester)));
+                    if let Some(holder) = step["claimed_by"].as_str() {
+                        let verb = if step["state"] == "in_progress" { "Held by" } else { "Reported by" };
+                        ui.small(format!("{verb} {holder}"));
+                    } else if step["state"] == "open" { ui.small("Not yet taken"); }
+                });
+            });
+        }
+    });
+    action
+}
+
 fn outcome_card(ui: &mut Ui, record: &Value, report: &Value, members: &[Value]) -> Option<Action> {
     let reference = handle(record);
     let body = &record["body"];

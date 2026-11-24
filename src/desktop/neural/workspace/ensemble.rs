@@ -44,7 +44,7 @@ impl App {
                 egui::pos2(r.center().x, r.top() + 13.),
                 egui::Vec2::splat(23.),
             );
-            design::persona_mark(ui, mark, id, persona_color(id));
+            design::persona_mark(ui, mark, name, persona_color(id));
             if active.is_some() {
                 ui.painter().circle(
                     mark.right_top() + egui::vec2(-1., 2.),

@@ -46,7 +46,7 @@ fn activity_option(
         map::mark(
             ui,
             egui::Rect::from_min_size(egui::pos2(x, y - 1.), egui::Vec2::splat(15.)),
-            &h.nodes[n],
+            h, n,
         );
         x += 12.;
     }

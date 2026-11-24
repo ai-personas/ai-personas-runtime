@@ -86,7 +86,7 @@ impl App {
                         self.society_activity_picker(ui);
                     }
                     if !self.home.work_desk && !self.home_index.requests.is_empty() {
-                        let requests = counted(self.home_index.requests.len() as u64, "open human request", "open human requests");
+                        let requests = counted(self.home_index.requests.len() as u64, "active outside step", "active outside steps");
                         if ui.link(requests).clicked() {
                             self.inbox.active_list();
                             self.layout.editor = Editor::Inbox;
@@ -157,9 +157,9 @@ impl App {
             Section::Requests.jump_here(ui, jump);
             if !deliveries { Section::Deliveries.jump_here(ui, jump); }
             let state = if deliveries {
-                "No open human requests."
+                "No active outside steps."
             } else {
-                "No open human requests or delivery packages yet."
+                "No active outside steps or delivery packages yet."
             };
             quiet_queue(ui, Icon::Questions, state);
         }

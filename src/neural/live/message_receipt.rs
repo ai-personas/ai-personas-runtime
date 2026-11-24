@@ -139,7 +139,8 @@ impl Event {
                 "Human update refers to a different original request",
             ));
         }
-        if self.kind == "human_request_progress" {
+        let contribution = self.body.get("action").is_some() || last.get("action").is_some();
+        if contribution || self.kind == "human_request_progress" {
             let prior = store::exact(
                 db,
                 &format!(
@@ -148,6 +149,12 @@ impl Event {
                     r.reference.revision - 1
                 ),
             )?;
+            if contribution {
+                if self.kind != "user_message" || !crate::neural::human_requests::contribution_matches(&prior.body, b, &self.body) {
+                    return Err(failure("Contribution differs from the recorded responsibility"));
+                }
+                return Ok(Some(reference.into()));
+            }
             let take = prior.body["state"] == "open"
                 && b["state"] == "in_progress"
                 && b["claimed_by"] == self.actor;

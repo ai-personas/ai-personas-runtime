@@ -193,10 +193,14 @@ impl App {
                 }
                 return;
             }
-            ui.label(design::caption("Persona Studio  /  Field desk", theme::palette(ui).accent));
-            ui.heading("Needs you");
-            ui.label("Take an outside action, collect the files a persona issued, or send back what happened.");
-            ui.add_space(12.);
+            let palette = theme::palette(ui);
+            egui::Frame::new().fill(palette.header).corner_radius(8).inner_margin(16).show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                eyebrow(ui, "Persona Studio  /  Outside work");
+                ui.label(design::display("Field desk", 28.));
+                ui.label("Take an outside step or contribute an observation. Each persona chooses what to do while a request is open.");
+            });
+            ui.add_space(10.);
             let mut requests=self.records("human_requests").to_vec();
             requests.sort_by_key(|r|std::cmp::Reverse((r["body"]["updated"].as_i64(),r["reference"]["id"].as_str().unwrap_or("").to_owned())));
             let messages: Vec<_>=self.events.iter().rev().filter(|e|e["target"]=="user" && e["invocation"].is_string()
@@ -271,8 +275,12 @@ impl App {
         card(ui).show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.horizontal_wrapped(|ui| {
+                let requester = s(body, "requester");
+                let name = self.label(requester);
+                let (mark, _) = ui.allocate_exact_size(egui::Vec2::splat(28.), egui::Sense::hover());
+                design::persona_mark(ui, mark, name, persona_color(requester));
+                ui.strong(name).on_hover_text(requester);
                 theme::badge(ui, status, color);
-                ui.strong(self.label(s(body, "requester")));
                 let work = self.work_name(s(body, "work"));
                 ui.weak(excerpt(&work, 62)).on_hover_text(work);
             });
@@ -291,6 +299,11 @@ impl App {
                 if let Some(who) = body["claimed_by"].as_str() {
                     let verb = if body["state"] == "in_progress" { "Taken by" } else { "Reported by" };
                     ui.weak(format!("{verb} {who}"));
+                } else if body["state"] == "open" {
+                    ui.weak("Not yet taken");
+                }
+                if body["last_report"]["action"] == "contribute" {
+                    ui.small(format!("Observation from {}", s(&body["last_report"], "human")));
                 }
                 if ui.button("Open request →").clicked() {
                     self.show_human_request(s(&record["reference"], "id"));
@@ -308,7 +321,6 @@ impl App {
         let state = s(body, "state");
         let (status, color) = phase(state);
         let active = matches!(state, "open" | "in_progress");
-        let owns = active && (body["claimed_by"].is_null() || body["claimed_by"] == self.operator.trim());
         let has_draft = self.inbox.drafts.get(key).is_some_and(|d| {
             !d.note.is_empty()
                 || !d.attachments.is_empty()
@@ -317,7 +329,7 @@ impl App {
                 || d.field.report.is_some()
                 || d.attempt.is_some()
         });
-        let response_visible = owns || has_draft;
+        let response_visible = active || has_draft;
         let files = body["artifacts"].as_array().map_or(0, Vec::len);
         let p = theme::palette(ui);
         ui.add_space(8.);
@@ -404,14 +416,12 @@ impl App {
                     egui::Layout::top_down(egui::Align::Min),
                     |ui| {
                         ui.set_width(width - thread_width);
-                        if has_returns {
-                            self.request_instructions(ui, body);
-                            ui.add_space(10.);
-                        }
                         if response_visible {
-                            self.request_response(ui, &reference, body, owns);
+                            self.request_response(ui, &reference, body, active);
                         }
                         if has_returns {
+                            if response_visible { ui.add_space(10.); }
+                            self.request_instructions(ui, body);
                             self.request_materials(ui, body);
                         } else {
                             ui.add_space(10.);
@@ -447,7 +457,7 @@ impl App {
                 DetailTab::Conversation => {
                     self.request_correspondence(ui, &reference, work, requester, false)
                 }
-                DetailTab::Response => self.request_response(ui, &reference, body, owns),
+                DetailTab::Response => self.request_response(ui, &reference, body, active),
             }
         }
     }
@@ -534,11 +544,11 @@ impl App {
         });
     }
 
-    fn request_response(&mut self, ui: &mut Ui, reference: &str, body: &Value, owns: bool) {
+    fn request_response(&mut self, ui: &mut Ui, reference: &str, body: &Value, active: bool) {
         let mut retry = None;
         card(ui).show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            if owns {
+            if active {
                 self.human_response_form(ui, reference, body);
             } else {
                 ui.strong("Your unsent response");
@@ -563,14 +573,7 @@ impl App {
                     for file in &draft.attachments {
                         ui.small(format!("{} · {}", file.name(), size(file.len() as u64)));
                     }
-                    if let Some(who) = body["claimed_by"]
-                        .as_str()
-                        .filter(|_| body["state"] == "in_progress")
-                    {
-                        ui.weak(format!("{who} holds this request."));
-                    } else {
-                        ui.weak("This request is closed.");
-                    }
+                    ui.weak("This request is closed.");
                 }
             }
         });
@@ -685,7 +688,15 @@ impl App {
         {
             draft.basis = reference.to_owned();
         }
+        let holder = body["claimed_by"].as_str();
+        let may_manage = holder.is_none() || holder == Some(operator.as_str());
+        eyebrow(ui, "Field desk  /  Human return");
         ui.label(RichText::new("Your response").size(18.).strong());
+        if let Some(name) = holder.filter(|_| !may_manage) {
+            ui.label(format!("{name} holds this step. You can send evidence without changing who is responsible."));
+        } else if holder.is_none() {
+            ui.weak("Take responsibility for this step, or send an observation without taking it.");
+        }
         let mut action = None;
         let mut retry = None;
         ui.add_enabled_ui(!self.busy, |ui| {
@@ -719,6 +730,14 @@ impl App {
                         {
                             action = Some(Response::Take);
                         }
+                        if holder != Some(operator.as_str()) {
+                            let send = if may_manage { egui::Button::new("Send observation") } else { theme::primary("Send observation") };
+                            if ui.add_enabled(written || !draft.attachments.is_empty(), send)
+                                .on_hover_text("Send your report to the requesting persona. Keep the current status and holder.").clicked() {
+                                action = Some(Response::Contribute);
+                            }
+                        }
+                        if !may_manage { return; }
                         if body["state"] == "in_progress"
                             && ui
                                 .add_enabled(written, theme::primary("Send progress"))

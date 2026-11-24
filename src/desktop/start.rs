@@ -434,7 +434,7 @@ impl App {
         ui.add_space(6.);
         let mut remove = None;
         for (i, persona) in self.personas.iter_mut().enumerate() {
-            let color = neural::persona_color(&persona.name.to_lowercase());
+            let color = neural::persona_color(&format!("persona-{}", i + 1));
             ui.push_id(i, |ui| {
                 egui::Frame::new().fill(p.panel.lerp_to_gamma(color,0.07)).stroke(egui::Stroke::new(1.,p.border))
                     .corner_radius(9).inner_margin(14).show(ui, |ui| {
