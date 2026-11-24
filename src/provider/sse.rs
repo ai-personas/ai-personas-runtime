@@ -188,6 +188,7 @@ struct Item {
     saw_delta: bool,
     deltas: String,
     final_text: Option<String>,
+    added_complete_text: Option<String>,
     completed_snapshot: Option<Value>,
     call_id: Option<String>,
     annotations: Annotations,
@@ -254,6 +255,7 @@ impl Item {
     }
     fn text(&mut self, text: &str) -> Result<()> {
         if (self.saw_delta && self.deltas != text)
+            || self.added_complete_text.as_deref().is_some_and(|old| old != text)
             || self.final_text.as_deref().is_some_and(|old| old != text)
         {
             return Err(protocol("carrier_text_mismatch"));
@@ -942,14 +944,21 @@ impl Collector {
                         if string(value, "role")? != "assistant" {
                             return Err(protocol("message_added_shape").at_field("role"));
                         }
-                        if string(value, "status")? != "in_progress" {
+                        let status = string(value, "status")?;
+                        if !matches!(status, "in_progress" | "completed") {
                             return Err(protocol("message_added_shape").at_field("status"));
                         }
-                        // An already allocated empty text part carries no text,
-                        // just like an empty content list. Do not mistake that
-                        // representation for a completed or populated message.
-                        if message_content(value)?.is_some_and(|text| !text.is_empty()) {
+                        let text = message_content(value)?.filter(|text| !text.is_empty());
+                        if status == "in_progress" && text.is_some() {
                             return Err(protocol("message_added_shape").at_field("content"));
+                        }
+                        // Added headers are provisional even when the provider
+                        // serializes a completed status. Never mark the item done
+                        // or supply final text from this event. A populated
+                        // snapshot must agree with subsequent complete text;
+                        // empty headers carry no text to adopt or compare.
+                        if status == "completed" {
+                            item.added_complete_text = text.map(str::to_owned);
                         }
                         item.annotations.message_snapshot(value, false)?;
                     } else if kind_of_item == Kind::Decision {
@@ -1253,6 +1262,7 @@ impl Collector {
             saw_delta: false,
             deltas: String::new(),
             final_text: None,
+            added_complete_text: None,
             completed_snapshot: None,
             call_id: None,
             annotations: Annotations::default(),

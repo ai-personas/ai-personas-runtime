@@ -42,7 +42,7 @@ fn failed_attempt(db: &Connection, call: &str, digest: &str) -> neural::Result<V
     {
         // The diagnostic identifies the failed check, not the raw item or its status.
         let problem = match stream["field"].as_str() {
-            Some("status") => Some("expected a new assistant message to be in progress"),
+            Some("status") => Some("a new assistant message had an unsupported status for this recorded call"),
             Some("role") => Some("a new message had an unexpected author role"),
             Some("content") => Some("a new assistant message already contained text"),
             _ => None,
