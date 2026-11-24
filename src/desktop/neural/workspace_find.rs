@@ -160,83 +160,103 @@ impl Finder {
                 if opening {
                     field.request_focus();
                 }
-                let changed_kind = self.kind_filters(ui);
-                if changed_kind {
-                    field.request_focus();
-                }
-                let changed = opening || field.changed() || changed_kind;
-                let refreshed = self.index.generation != Some(app.home_index.generation);
-                if changed || refreshed {
-                    let keep = (!changed).then(|| self.selected_key()).flatten();
-                    if refreshed {
-                        self.index.refresh(app);
+                // Keep Close and the query reachable even when zoom leaves
+                // less room than one result row. The body may scroll instead
+                // of growing the modal beyond the client viewport.
+                let body_height =
+                    (ctx.content_rect().bottom() - ui.cursor().top() - f32::from(margin) - 8.)
+                        .max(1.);
+                let scroll = egui::ScrollArea::vertical()
+                    .id_salt((OVERLAY, "results"))
+                    .auto_shrink([false, true])
+                    .max_height(body_height);
+                let scroll = if opening || up || down || field.changed() {
+                    scroll.vertical_scroll_offset(0.)
+                } else {
+                    scroll
+                };
+                scroll.show(ui, |ui| {
+                    let changed_kind = self.kind_filters(ui);
+                    if changed_kind {
+                        field.request_focus();
                     }
-                    self.hits = self.index.search(&self.query, self.kind);
-                    self.cursor = keep
-                        .and_then(|(kind, reference)| {
-                            self.hits.iter().position(|i| {
-                                let e = &self.index.entries[*i];
-                                e.kind == kind && e.reference == reference
+                    let changed = opening || field.changed() || changed_kind;
+                    let refreshed = self.index.generation != Some(app.home_index.generation);
+                    if changed || refreshed {
+                        let keep = (!changed).then(|| self.selected_key()).flatten();
+                        if refreshed {
+                            self.index.refresh(app);
+                        }
+                        self.hits = self.index.search(&self.query, self.kind);
+                        self.cursor = keep
+                            .and_then(|(kind, reference)| {
+                                self.hits.iter().position(|i| {
+                                    let e = &self.index.entries[*i];
+                                    e.kind == kind && e.reference == reference
+                                })
                             })
-                        })
-                        .unwrap_or(0);
-                }
-                if up {
-                    self.cursor = self.cursor.saturating_sub(1);
-                }
-                if down {
-                    self.cursor = (self.cursor + 1).min(self.hits.len().saturating_sub(1));
-                }
-                ui.separator();
-                if self.hits.is_empty() {
-                    ui.weak(if app.snapshot.status.is_null() && app.error.is_some() {
-                        "Workspace data is unavailable."
-                    } else if app.snapshot.status.is_null() {
-                        "Opening workspace…"
-                    } else if self.query.trim().is_empty() {
-                        "No items in this view."
-                    } else {
-                        "No matching items."
-                    });
-                    return;
-                }
-                let start = (self.cursor / page_size) * page_size;
-                let end = (start + page_size).min(self.hits.len());
-                for position in start..end {
-                    let entry = &self.index.entries[self.hits[position]];
-                    let active = position == self.cursor;
-                    if result_row(ui, entry, active).clicked() || (active && enter) {
-                        chosen = Some((entry.kind, entry.reference.clone(), entry.work.clone()));
+                            .unwrap_or(0);
                     }
-                }
-                ui.separator();
-                ui.horizontal_wrapped(|ui| {
-                    if self.hits.len() > page_size {
-                        ui.small(format!("{}–{} of {}", start + 1, end, self.hits.len()));
-                        if ui
-                            .add_enabled(
-                                start > 0,
-                                egui::Button::new(if tight { "Prev" } else { "Previous" }).small(),
-                            )
-                            .clicked()
-                        {
-                            self.cursor = start.saturating_sub(page_size);
-                            field.request_focus();
-                        }
-                        if ui
-                            .add_enabled(end < self.hits.len(), egui::Button::new("Next").small())
-                            .clicked()
-                        {
-                            self.cursor = end;
-                            field.request_focus();
-                        }
-                    } else {
-                        ui.small(counted(self.hits.len() as u64, "result", "results"));
+                    if up {
+                        self.cursor = self.cursor.saturating_sub(1);
                     }
-                    if ui.available_width() > 200. {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.weak("↑ ↓  Select     Enter  Open");
+                    if down {
+                        self.cursor = (self.cursor + 1).min(self.hits.len().saturating_sub(1));
+                    }
+                    ui.separator();
+                    if self.hits.is_empty() {
+                        ui.weak(if app.snapshot.status.is_null() && app.error.is_some() {
+                            "Workspace data is unavailable."
+                        } else if app.snapshot.status.is_null() {
+                            "Opening workspace…"
+                        } else if self.query.trim().is_empty() {
+                            "No items in this view."
+                        } else {
+                            "No matching items."
                         });
+                        return;
+                    }
+                    let start = (self.cursor / page_size) * page_size;
+                    let end = (start + page_size).min(self.hits.len());
+                    for position in start..end {
+                        let entry = &self.index.entries[self.hits[position]];
+                        let active = position == self.cursor;
+                        if result_row(ui, entry, active).clicked() || (active && enter) {
+                            chosen =
+                                Some((entry.kind, entry.reference.clone(), entry.work.clone()));
+                        }
+                    }
+                    ui.separator();
+                    ui.horizontal_wrapped(|ui| {
+                        if self.hits.len() > page_size {
+                            ui.small(format!("{}–{} of {}", start + 1, end, self.hits.len()));
+                            if ui
+                                .add_enabled(
+                                    start > 0,
+                                    egui::Button::new(if tight { "Prev" } else { "Previous" })
+                                        .small(),
+                                )
+                                .clicked()
+                            {
+                                self.cursor = start.saturating_sub(page_size);
+                                field.request_focus();
+                            }
+                            if ui
+                                .add_enabled(
+                                    end < self.hits.len(),
+                                    egui::Button::new("Next").small(),
+                                )
+                                .clicked()
+                            {
+                                self.cursor = end;
+                                field.request_focus();
+                            }
+                        } else {
+                            ui.small(counted(self.hits.len() as u64, "result", "results"));
+                        }
+                    });
+                    if !tight {
+                        ui.weak("↑ ↓  Select     Enter  Open");
                     }
                 });
             });
@@ -335,8 +355,38 @@ fn result_row(ui: &mut Ui, entry: &Entry, selected: bool) -> egui::Response {
     });
     if clipped {
         response.on_hover_ui(|ui| {
-            ui.label(&entry.title);
-            ui.small(&entry.subtitle);
+            let viewport = ui.ctx().content_rect();
+            let width = (viewport.width() - 24.).clamp(1., 460.);
+            ui.set_max_width(width);
+            // Hover popups close on wheel input. Offer an honest bounded
+            // preview rather than a scrollbar that cannot remain usable.
+            let preview = |text: &str, font_size, color, rows| {
+                let mut job = egui::text::LayoutJob::simple(
+                    text.to_owned(),
+                    FontId::proportional(font_size),
+                    color,
+                    width,
+                );
+                job.wrap.max_rows = rows;
+                job
+            };
+            let rows = ((viewport.height() * 0.35) / 20.).floor().clamp(1., 6.) as usize;
+            ui.add(
+                egui::Label::new(preview(&entry.title, 16., ui.visuals().text_color(), rows))
+                    .wrap()
+                    .show_tooltip_when_elided(false),
+            );
+            ui.add(
+                egui::Label::new(preview(
+                    &entry.subtitle,
+                    13.,
+                    ui.visuals().weak_text_color(),
+                    2,
+                ))
+                .wrap()
+                .show_tooltip_when_elided(false),
+            );
+            ui.weak("Open result for full details");
         })
     } else {
         response
