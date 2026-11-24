@@ -193,7 +193,13 @@ pub enum Command {
         field_report: super::human_requests::ReturnForm,
     },
     /// Compare file bytes inside two selected ZIPs from exact issued editions, by member path.
-    CompareIssuedZips { baseline_edition: String, baseline_file: String, edition: String, file: String },
+    CompareIssuedZips {
+        baseline_edition: String, baseline_file: String, edition: String, file: String,
+        /// Explicit enclosing folder in the baseline ZIP (ending in '/'); all regular files must be inside.
+        #[arg(long,default_value="")] baseline_root:String,
+        /// Explicit enclosing folder in the selected ZIP (ending in '/'); default uses original member paths.
+        #[arg(long,default_value="")] selected_root:String,
+    },
     /// Save the exact files of one delivery or human request as a portable ZIP.
     ExportPackage { reference: String, destination: PathBuf },
     /// Save exactly the files on an issuer's numbered dispatch slip (one file unchanged, otherwise ZIP).
@@ -547,7 +553,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
         Command::ConnectPlatform { platform_key_file } =>
             super::connection::change(root, operator, super::connection::Route::PlatformKeyFile(platform_key_file)).await,
         Command::Export{directory,work}=>Ok(serde_json::to_value(super::delivery_export::collection(root,&directory,work.as_deref(),None)?)?),
-        Command::CompareIssuedZips{baseline_edition,baseline_file,edition,file}=>Ok(serde_json::to_value(super::issued_zip::compare(&store::open_inspection(root)?,&baseline_edition,&baseline_file,&edition,&file)?)?),
+        Command::CompareIssuedZips{baseline_edition,baseline_file,edition,file,baseline_root,selected_root}=>Ok(serde_json::to_value(super::issued_zip::compare(&store::open_inspection(root)?,&baseline_edition,&baseline_file,&edition,&file,&baseline_root,&selected_root)?)?),
         Command::ExportPackage{reference,destination}=>super::human_requests::export_package(&store::open_inspection(root)?,&reference,&destination),
         Command::ExportDispatch{delivery,number,destination,packet}=>{
             let export = if packet { super::human_requests::export_dispatch_packet } else { super::human_requests::export_dispatch };

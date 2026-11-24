@@ -1,6 +1,10 @@
 //! Recipient-side comparison of two explicitly selected files in exact issued editions.
 //! Read the ZIPs as data: no extraction, host paths, command execution or review state.
+mod paths;
+mod retained;
 use super::{activity_sources::delivery, failure, store, Result};
+pub use paths::Contents;
+pub use retained::{compare_registered, RegisteredQuery};
 use rusqlite::Connection;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -126,8 +130,8 @@ pub struct Member {
 pub struct Comparison {
     pub baseline: Source,
     pub selected: Source,
-    pub members: Vec<Member>,
-    pub scope: &'static str,
+    #[serde(flatten)]
+    pub contents: Contents,
 }
 pub fn compare(
     db: &Connection,
@@ -135,38 +139,22 @@ pub fn compare(
     baseline_file: &str,
     selected_edition: &str,
     selected_file: &str,
+    baseline_root: &str,
+    selected_root: &str,
 ) -> Result<Comparison> {
     // Verify both memberships even when the registrations or byte addresses coincide.
     let baseline = Source::load(db, baseline_edition, baseline_file)?;
     let selected = Source::load(db, selected_edition, selected_file)?;
     let left = baseline.members(db)?;
-    let mut right = if baseline.sha256 == selected.sha256 {
+    let right = if baseline.sha256 == selected.sha256 {
         left.clone()
     } else {
         selected.members(db)?
     };
-    let mut members = Vec::new();
-    for (path, a) in left {
-        let b = right.remove(&path);
-        let difference = match &b {
-            Some(b) if b == &a => Difference::Same,
-            Some(_) => Difference::Changed,
-            None => Difference::OnlyBaseline,
-        };
-        members.push(Member {
-            path,
-            difference,
-            baseline: Some(a),
-            selected: b,
-        });
-    }
-    members.extend(right.into_iter().map(|(path, b)| Member {
-        path,
-        difference: Difference::OnlySelected,
-        baseline: None,
-        selected: Some(b),
-    }));
-    members.sort_unstable_by(|a, b| a.path.cmp(&b.path));
-    Ok(Comparison { baseline, selected, members,
-        scope: "Uncompressed regular file bytes by exact, case-sensitive ZIP path. No rename inference, nested unpacking, or comparison of folder entries, metadata, rendered appearance or design quality." })
+    let contents = paths::compare(left, right, baseline_root, selected_root)?;
+    Ok(Comparison {
+        baseline,
+        selected,
+        contents,
+    })
 }

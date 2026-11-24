@@ -20,6 +20,8 @@ pub(super) struct Window {
     choose_page: usize,
     compare: Option<Arc<OnceLock<Result<Comparison, String>>>>,
     member_query: String,
+    baseline_root: String,
+    selected_root: String,
     differences_only: bool,
     member_page: usize,
     counts: Option<[usize; 4]>,
@@ -74,6 +76,8 @@ impl Window {
             choose_page: 0,
             compare: None,
             member_query: String::new(),
+            baseline_root: String::new(),
+            selected_root: String::new(),
             differences_only: true,
             member_page: 0,
             counts: None,
@@ -167,25 +171,64 @@ impl Window {
             )
             .clicked()
         {
-            if let Some(b) = self.baseline {
-                let (b, t) = (&self.options[b], &self.options[t]);
-                let (be, bf, te, tf) = (
-                    b.edition.clone(),
-                    b.file.clone(),
-                    t.edition.clone(),
-                    t.file.clone(),
-                );
-                let (ctx, root) = (ui.ctx().clone(), self.root.clone());
-                let state = Arc::new(OnceLock::new());
-                self.compare = Some(state.clone());
-                std::thread::spawn(move || {
-                    let result = data::open(&root)
-                        .and_then(|db| issued_zip::compare(&db, &be, &bf, &te, &tf));
-                    let _ = state.set(result.map_err(|e| e.to_string()));
-                    ctx.request_repaint();
-                });
-            }
+            self.begin(ui);
         }
+    }
+    fn begin(&mut self, ui: &Ui) {
+        let (Some(b), Some(t)) = (self.baseline, self.target) else {
+            return;
+        };
+        let (b, t) = (&self.options[b], &self.options[t]);
+        let (be, bf, te, tf) = (
+            b.edition.clone(),
+            b.file.clone(),
+            t.edition.clone(),
+            t.file.clone(),
+        );
+        let (br, tr) = (self.baseline_root.clone(), self.selected_root.clone());
+        let (ctx, root) = (ui.ctx().clone(), self.root.clone());
+        let state = Arc::new(OnceLock::new());
+        self.compare = Some(state.clone());
+        self.counts = None;
+        self.member_page = 0;
+        self.visible_members.clear();
+        std::thread::spawn(move || {
+            let result = data::open(&root)
+                .and_then(|db| issued_zip::compare(&db, &be, &bf, &te, &tf, &br, &tr));
+            let _ = state.set(result.map_err(|e| e.to_string()));
+            ctx.request_repaint();
+        });
+    }
+    fn root_choice(ui: &mut Ui, side: &str, enclosing: &str, choice: &mut String) {
+        ui.small(side);
+        egui::ComboBox::from_id_salt(("enclosing-folder", side))
+            .selected_text(if choice.is_empty() {
+                "Original paths"
+            } else {
+                choice.as_str()
+            })
+            .width(ui.available_width())
+            .truncate()
+            .show_ui(ui, |ui| {
+                for prefix in std::iter::once("")
+                    .chain(enclosing.match_indices('/').map(|(n, _)| &enclosing[..=n]))
+                {
+                    if ui
+                        .selectable_label(
+                            choice == prefix,
+                            if prefix.is_empty() {
+                                "Original paths"
+                            } else {
+                                prefix
+                            },
+                        )
+                        .clicked()
+                    {
+                        choice.clear();
+                        choice.push_str(prefix);
+                    }
+                }
+            });
     }
     fn result(&mut self, ui: &mut Ui, r: &Comparison) {
         for (label, source) in [("Baseline", &r.baseline), ("Selected", &r.selected)] {
@@ -219,13 +262,36 @@ impl Window {
                     );
                 }
             }
-            ui.label(r.scope);
+            ui.label(r.contents.scope);
         });
+        let files = &r.contents;
+        if !files.baseline_root.is_empty() || !files.selected_root.is_empty() {
+            ui.label(format!(
+                "Comparing inside: baseline {} · selected {}",
+                display_root(&files.baseline_root),
+                display_root(&files.selected_root)
+            ));
+        }
+        if !files.baseline_enclosing_folder.is_empty()
+            || !files.selected_enclosing_folder.is_empty()
+        {
+            let mut apply = false;
+            ui.collapsing("Align enclosing folders…",|ui|{
+                ui.weak("For a changed package wrapper, choose where each path starts. Every file stays in the comparison.");
+                Self::root_choice(ui,"Baseline folder",&files.baseline_enclosing_folder,&mut self.baseline_root);
+                Self::root_choice(ui,"Selected folder",&files.selected_enclosing_folder,&mut self.selected_root);
+                apply=ui.add_enabled(self.baseline_root!=files.baseline_root || self.selected_root!=files.selected_root,theme::primary("Compare at these folders")).clicked();
+            });
+            if apply {
+                self.begin(ui);
+                return;
+            }
+        }
         ui.separator();
         let first = self.counts.is_none();
         let counts = self.counts.get_or_insert_with(|| {
             let mut counts = [0; 4];
-            for m in &r.members {
+            for m in &files.members {
                 counts[m.difference as usize] += 1;
             }
             counts
@@ -256,7 +322,7 @@ impl Window {
         {
             self.member_page = 0;
             let query = self.member_query.trim().to_lowercase();
-            self.visible_members = r
+            self.visible_members = files
                 .members
                 .iter()
                 .enumerate()
@@ -278,7 +344,7 @@ impl Window {
             );
         }
         for &i in rows.iter().skip(self.member_page * PAGE).take(PAGE) {
-            let m = &r.members[i];
+            let m = &files.members[i];
             let label = match m.difference {
                 Difference::Same => "Same bytes",
                 Difference::Changed => "Different bytes",
@@ -293,8 +359,18 @@ impl Window {
                         .selectable(true),
                 );
                 ui.collapsing(label, |ui| {
-                    for (side, fp) in [("Baseline", &m.baseline), ("Selected", &m.selected)] {
+                    for (side, root, fp) in [
+                        ("Baseline", &files.baseline_root, &m.baseline),
+                        ("Selected", &files.selected_root, &m.selected),
+                    ] {
                         if let Some(Fingerprint { bytes, sha256 }) = fp {
+                            if !root.is_empty() {
+                                ui.add(
+                                    egui::Label::new(format!("{side} path: {root}{}", m.path))
+                                        .wrap()
+                                        .selectable(true),
+                                );
+                            }
                             ui.small(format!("{side} · {bytes} bytes · SHA-256"));
                             ui.add(egui::Label::new(sha256).wrap().selectable(true));
                         }
@@ -324,9 +400,18 @@ impl Window {
             self.compare = None;
             self.member_page = 0;
             self.member_query.clear();
+            self.baseline_root.clear();
+            self.selected_root.clear();
             self.counts = None;
             self.visible_members.clear();
         }
+    }
+}
+fn display_root(prefix: &str) -> &str {
+    if prefix.is_empty() {
+        "(ZIP root)"
+    } else {
+        prefix
     }
 }
 impl App {
