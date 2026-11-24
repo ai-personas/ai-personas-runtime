@@ -16,6 +16,7 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
 mod tool_run;
+mod read_scope;
 
 /// This host-authored contract and the fixed interface definitions occupy the
 /// developer prefix. Attributed work, character state and observations follow.
@@ -489,7 +490,9 @@ fn read_resource(
     let (body, blob) = if let Some(digest) = reference.strip_prefix("object:") {
         (Value::Null, digest.to_string())
     } else {
+        read_scope::lookup(db, actor, reference)?;
         let record = store::exact(db, reference)?;
+        read_scope::record(db, actor, &record)?;
         if record.reference.kind != "asset" {
             if start.is_some() || end.is_some() {
                 return Err(failure("Byte excerpts require an asset or object reference; structured records are supplied whole"));
@@ -520,6 +523,7 @@ fn read_resource(
             .to_owned();
         (record.body, blob)
     };
+    read_scope::object(db, actor, &blob, reference)?;
     let bytes = store::bytes(db, &blob)?;
     if let Some(public) = super::provider_evidence::historical_view(db, &blob, &bytes)? {
         if start.is_some() || end.is_some() {return Err(failure("Historical provider receipts are read as whole metadata records"));}

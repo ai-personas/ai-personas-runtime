@@ -242,6 +242,8 @@ With `relationship.record`, the observer writes its own interpretation, its scop
 
 On entering an activity with that counterpart or observing a further encounter, the runtime can supply the address of the observer’s current note. The observer chooses whether to read its body. Attaching an exact edition to a direct `peer.message` gives that named recipient access to that edition. A subsequent peer read records the author and originating message. Other editions require their own disclosure. The other person controls their own account and their own commitments. The local operator can inspect both perspectives and trace any exact revision through accepted decisions.
 
+Structured reads apply the same boundary to raw object aliases: knowing a digest does not grant an undisclosed note, private event/read-result body, or another persona’s inference input/output/receipt. Internal participation, character-use, decision-effects and completion records require ownership or explicit sharing. Sharing a record does not recursively share every object it points to. An author may deliberately publish bytes as a shared asset; that permits those bytes without granting an undisclosed typed note edition. Operator inspection remains available. These checks do not sandbox host programs, prevent an author from quoting material in another resource, or claim general information-flow confidentiality.
+
 ```sh
 ai-personas --state-root "$workspace" neural relationships "$observer"
 ai-personas --state-root "$workspace" neural relationship-history "$observer" --kind persona --with "$peer"
