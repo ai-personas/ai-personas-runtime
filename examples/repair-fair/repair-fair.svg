@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="210mm" height="297mm" viewBox="0 0 210 297">
+<rect width="210" height="297" fill="white"/>
+<text x="105" y="43.475" transform="rotate(180 105 37.125)" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-weight="bold" font-size="19.05">CHECK-IN</text>
+<text x="105" y="117.725" transform="rotate(0 105 111.375)" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-weight="bold" font-size="19.05">CHECK-IN</text>
+<text x="105" y="191.975" transform="rotate(180 105 185.625)" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-weight="bold" font-size="19.05">PICKUP</text>
+<text x="105" y="266.225" transform="rotate(0 105 259.875)" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-weight="bold" font-size="19.05">PICKUP</text>
+<path d="M8 74.25 H202" stroke="#888" stroke-width="0.123" stroke-dasharray="1.058 1.058"/>
+<path d="M8 148.5 H202" stroke="#888" stroke-width="0.123"/>
+<path d="M8 222.75 H202" stroke="#888" stroke-width="0.123" stroke-dasharray="1.058 1.058"/>
+</svg>

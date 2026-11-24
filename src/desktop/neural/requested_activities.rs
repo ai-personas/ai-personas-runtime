@@ -198,12 +198,7 @@ impl Window {
                             });
                     }
                 });
-                ui.horizontal_wrapped(|ui|{
-                    let names=route["invited"].as_array().into_iter().flatten().filter_map(Value::as_str)
-                        .map(|id|person(status,id)).collect::<Vec<_>>();
-                    ui.small(if names.is_empty(){"No founding invitees".to_owned()}else{format!("Originally invited · {}",names.join(", "))});
-                    resource(ui,"Requesting decision ↗",s(route,"decision"),&mut action);
-                });
+                brief_receipts(ui, status, route, &mut action);
                 ui.add_space(8.);
                 let correspondence=&route["correspondence"];
                 let total=correspondence["total"].as_u64().unwrap_or(0) as usize;
@@ -278,6 +273,50 @@ fn resource(ui: &mut Ui, label: &str, r: &str, action: &mut Option<Action>) {
     if !r.is_empty() && ui.small_button(label).on_hover_text(r).clicked() {
         *action = Some(Action::Inspect(r.to_owned()));
     }
+}
+
+fn brief_receipts(ui: &mut Ui, status: &Value, route: &Value, action: &mut Option<Action>) {
+    let report = &route["brief_receipts"];
+    let people = report["invitees"].as_array().map(Vec::as_slice).unwrap_or_default();
+    let received = people.iter().filter(|row| row["first_supplied"].is_object()).count();
+    egui::CollapsingHeader::new(format!("Brief receipts  ·  {received} of {} received", people.len()))
+        .id_salt(("founding-brief-receipts", s(route,"request")))
+        .default_open(true)
+        .show(ui, |ui| {
+            let source = &report["starting_edition"];
+            if let Some(reference) = source["reference"].as_str() {
+                ui.horizontal_wrapped(|ui| {
+                    ui.weak("Starting edition");
+                    if ui.link(excerpt(s(source,"title"), 66)).on_hover_text(reference).clicked() {
+                        *action = Some(Action::Inspect(reference.into()));
+                    }
+                });
+            }
+            ui.horizontal_wrapped(|ui| {
+                let who = s(route,"requester");
+                avatar(ui,person(status,who),persona_color(who),20.);
+                ui.strong(person(status,who));
+                ui.weak("Sent the brief");
+                resource(ui,"Requesting choice ↗",s(route,"decision"),action);
+            });
+            egui::ScrollArea::vertical().max_height(146.).id_salt(("founding-invitees",s(route,"request"))).show(ui, |ui| {
+                for row in people {
+                    let who = s(row,"recipient");
+                    let supplied = &row["first_supplied"];
+                    ui.horizontal_wrapped(|ui| {
+                        avatar(ui,person(status,who),persona_color(who),20.);
+                        ui.strong(person(status,who));
+                        if let Some(choice) = supplied["decision"].as_str() {
+                            ui.weak(if supplied["opening_revision"] == true { "Received the opening brief" } else { "Received the brief with amendments" });
+                            resource(ui,"Receiving choice ↗",choice,action);
+                        } else {
+                            ui.weak("No receiving choice recorded");
+                        }
+                        resource(ui,"Invitation ↗",s(row,"invitation"),action);
+                    });
+                }
+            });
+        });
 }
 pub(super) fn label(kind: &str) -> Option<(&'static str, Color32)> {
     match kind {

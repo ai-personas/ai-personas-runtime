@@ -1,0 +1,102 @@
+{
+  "scope": "Post-shift packaged desktop inspection: no persona operation or new provider call. Live station and downloadable file kept separate.",
+  "live_runtime": "6564ee4",
+  "registration": "49fa173",
+  "inspector_runtime": "96981bf",
+  "binaries_sha256": {
+    "when_invited": {
+      "personas-desktop": "79615f2780d6b1c38304573a0024506dae885f5ef5389568e12112c3d352966b",
+      "ai-personas": "dddb2bc421bda0a49a92d80e234513651bb7631604b8639cecb23fe468c70519"
+    },
+    "final_desktop": {
+      "personas-desktop": "80372e3467990200a454b9464285209fa47148bdcb977e6345377f052455dd8b",
+      "ai-personas": "166f4f1c63699983148b7e536937a2f30efb62099fb0b6878dc43c72adbc3c0b"
+    }
+  },
+  "native_original": {
+    "event": 102,
+    "bytes": 1230,
+    "sha256": "f7d5e2a9aa54c10ef31c9b8517fc9ec11da2fc435a53d93faf03029935cf1223",
+    "slip_bytes": 235,
+    "slip_sha256": "514fd340c236dd3bb5ac0f6b3d3621f5a3bc186fd450cebff4e83302a1c889ec"
+  },
+  "message_inspection": {
+    "submitter": "Desk lead",
+    "event": 95,
+    "received_in": "call-93b791fef4090b18bd4ec8b8141c6ad8",
+    "copied_run_reference": "command_run:local-7f11bf323afc3979f56d08b8eb0d5526148616e700956c0b7d762fc852be80fb@1",
+    "stdout_bytes_supplied": 8335,
+    "later_choice_on_screen": "experience:call-a82c218f97e25c82218aeeeb95f5fc3d@1",
+    "later_judgment": "The lead ZIP hash and clean CRC are now observed, and its dispatch establishes Vale as author and the single recipient PDF. Both expected digital packets have arrived; finalize and verify the editable close register."
+  },
+  "register_reader": {
+    "sealed_file": "receiving-register.csv",
+    "source_row": 2,
+    "copied_outer_sha256": "31cd72874e21b07ec75c17bb441e936635c4b313e511991e16ae2aef61383d76",
+    "workspace_view_same_clipboard": true,
+    "window_sizes_checked": [
+      [
+        1440,
+        900
+      ],
+      [
+        810,
+        780
+      ],
+      [
+        1080,
+        820
+      ],
+      [
+        1080,
+        970
+      ]
+    ],
+    "filtered_original_row": 1,
+    "filter": "Relief counter",
+    "separate_file_viewer": "Opened the native download directly with --open-file, without a workspace argument. The X11 capture helper used the file-viewer window ID after its exact title search failed."
+  },
+  "unchanged_workspace_rows_since_end_archive": {
+    "heads": 177,
+    "invocations": 43,
+    "events": 106,
+    "outbox": 15
+  },
+  "disconnected_controls": {
+    "original": {
+      "message_received": true,
+      "verified_mounts": 1,
+      "verified_stdout_supply": true,
+      "unverified_command_inputs": 0,
+      "new_calls": 0
+    },
+    "missing_producer_output": {
+      "message_received": true,
+      "verified_mounts": 0,
+      "verified_stdout_supply": false,
+      "unverified_command_inputs": 1,
+      "new_calls": 0
+    },
+    "missing_following_output": {
+      "message_received": true,
+      "verified_mounts": 1,
+      "verified_stdout_supply": false,
+      "unverified_command_inputs": 0,
+      "new_calls": 0
+    },
+    "uncertain_effect": {
+      "message_received": true,
+      "verified_mounts": 0,
+      "verified_stdout_supply": false,
+      "unverified_command_inputs": 0,
+      "new_calls": 0
+    },
+    "later_identical_file": {
+      "message_received": false,
+      "verified_mounts": 0,
+      "verified_stdout_supply": false,
+      "unverified_command_inputs": 0,
+      "new_calls": 0
+    }
+  }
+}

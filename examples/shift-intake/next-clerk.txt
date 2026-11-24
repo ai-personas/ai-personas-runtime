@@ -1,0 +1,1 @@
+Download and open the CSV in a spreadsheet or text editor. Both expected digital packets are received. Consult the outstanding and physical-status columns before treating digital receipt as operational readiness or physical completion.

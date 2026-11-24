@@ -10,6 +10,12 @@ pub(super) struct SourceFiles {
     files: Vec<CapturedFile>,
 }
 
+pub(super) struct SourceEdition {
+    reference: String,
+    title: String,
+    issuer: String,
+}
+
 #[derive(Clone, Copy, PartialEq)]
 pub(super) enum Action {
     Message,
@@ -34,6 +40,7 @@ pub(super) enum Dialog {
     Activity {
         social: bool,
         text: String,
+        edition: Option<SourceEdition>,
         roster: invitation::Roster,
         sources: SourceFiles,
         retry: Option<(String, String)>,
@@ -72,10 +79,18 @@ impl Dialog {
         Self::Activity {
             social,
             text: String::new(),
+            edition: None,
             roster: Default::default(),
             sources: SourceFiles::default(),
             retry: None,
         }
+    }
+    pub(super) fn from_edition(reference: &str, title: &str, issuer: &str) -> Self {
+        let mut dialog = Self::activity(false);
+        if let Self::Activity { edition, .. } = &mut dialog {
+            *edition = Some(SourceEdition { reference: reference.into(), title: title.into(), issuer: issuer.into() });
+        }
+        dialog
     }
     pub(super) fn persona(provider: &str) -> Self {
         Self::Persona {
@@ -89,6 +104,7 @@ impl Dialog {
             Self::ActivityState {reopen:true,..} => "Reopen activity",
             Self::ActivityState {..} => "End activity",
             Self::Activity { social: true, .. } => "New conversation",
+            Self::Activity { edition: Some(_), .. } => "New brief from edition",
             Self::Activity { .. } => "New task",
             Self::Participation { action, .. } => action.title(),
             Self::Resume(_) => "Resume a participant",
@@ -231,9 +247,10 @@ impl App {
                         text,
                         roster,
                         sources,
+                        edition,
                         ..
                     } => {
-                        if let Some(start) = invitation::form(self, ui, *social, text, roster, sources) {
+                        if let Some(start) = invitation::form(self, ui, *social, text, roster, sources, edition.as_ref()) {
                             start_workspace = start;
                             let invite = roster.selected.iter().cloned().collect();
                             command = Some(if *social {
@@ -245,6 +262,7 @@ impl App {
                             } else {
                                 Command::Request {
                                     need: text.clone(),
+                                    from_edition: edition.as_ref().map(|source| source.reference.clone()),
                                     invite,
                                     files: InputFiles::from(sources.files.clone()),
                                 }

@@ -1,0 +1,5 @@
+*.zip binary
+shop-dispatch.txt -text
+reply.md -text
+review/*-reply.md -text
+review/independent-contact-clearance-checks.md -text

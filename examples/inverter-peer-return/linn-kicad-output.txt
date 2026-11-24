@@ -1,0 +1,26 @@
+CHECK 0 Found 0 violations
+Found 0 unconnected items
+Saved DRC Report to own-pcb.rpt
+ 
+** Drc report for inverter.kicad_pcb **
+** Created on 2026-11-23T07:54:41+0000 **
+** Report includes: Errors, Warnings **
+
+** Found 0 DRC violations **
+
+** Found 0 unconnected pads **
+
+** Found 0 Footprint errors **
+
+** End of Report **
+
+CHECK 0 Found 0 violations
+Saved ERC Report to own-sch.rpt
+ 
+ERC report (2026-11-23T07:54:43+0000, Encoding UTF8)
+Report includes: Errors, Warnings
+
+***** Sheet /
+
+ ** ERC messages: 0  Errors 0  Warnings 0
+

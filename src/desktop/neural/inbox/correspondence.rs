@@ -139,10 +139,12 @@ impl App {
         let total = page["total"].as_u64().unwrap_or(0) as usize;
         let reports = page["report_count"].as_u64().unwrap_or(0);
         let progress = page["progress_count"].as_u64().unwrap_or(0);
+        let packets = page["packet_count"].as_u64().unwrap_or(0);
         let replies = page["reply_count"].as_u64().unwrap_or(0);
         ui.horizontal_wrapped(|ui| {
             if total > 0 {
                 let mut counts = vec![counted(reports, "human report", "human reports")];
+                if packets > 0 { counts.push(counted(packets, "field packet", "field packets")); }
                 if progress > 0 {
                     counts.push(counted(progress, "ownership change", "ownership changes"));
                 }
@@ -222,7 +224,7 @@ impl App {
                     ui.set_min_width(ui.available_width());
                     let has_report = members
                         .iter()
-                        .any(|row| matches!(s(row, "kind"), "human_report" | "human_progress"));
+                        .any(|row| matches!(s(row, "kind"), "human_report" | "human_progress" | "field_packet"));
                     if !has_report {
                         if let Some((_, n)) = revision.rsplit_once('@') {
                             if ui
@@ -261,6 +263,7 @@ impl App {
             ("human_report", _) => ("Progress report", PURPLE),
             ("requester_message", _) => ("Requester message", TEAL),
             ("requester_reply", _) => ("Requester reply", TEAL),
+            ("field_packet", _) => ("Field packet issued", TEAL),
             _ => return,
         };
         let author = s(row, "author");
@@ -322,9 +325,18 @@ impl App {
         }
         let source = s(row, "experience");
         self.source_file_links(ui, &row["attachments"], source);
+        if kind == "field_packet" {
+            for delivery in row["deliveries"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+                if ui.link("Open this issued delivery").on_hover_text(delivery).clicked() {
+                    self.open_issued_package(ui.ctx(), delivery);
+                }
+            }
+        }
         ui.horizontal_wrapped(|ui| {
             let title = if human {
                 "Open report"
+            } else if kind == "field_packet" {
+                "Open publication"
             } else {
                 "Open response"
             };

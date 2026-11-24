@@ -7,6 +7,12 @@ pub struct Preview {
 }
 
 pub fn render(bytes: &[u8], maximum_upscale: f32, resources: Option<&Path>) -> Result<Preview, String> {
+    Ok(render_with_tree(bytes, maximum_upscale, resources)?.0)
+}
+
+/// The desktop can inspect the same resolved paths it rendered. Inspection
+/// presentation stays separate from the image supplied to a persona.
+pub fn render_with_tree(bytes: &[u8], maximum_upscale: f32, resources: Option<&Path>) -> Result<(Preview, resvg::usvg::Tree), String> {
     let omitted = std::sync::atomic::AtomicUsize::new(0);
     let mut options = resvg::usvg::Options {
         font_family: "Inter Variable".into(),
@@ -32,8 +38,8 @@ pub fn render(bytes: &[u8], maximum_upscale: f32, resources: Option<&Path>) -> R
     let height = (size.height() * scale).ceil().max(1.0) as u32;
     let mut pixmap = resvg::tiny_skia::Pixmap::new(width, height).ok_or("SVG preview size is invalid")?;
     resvg::render(&tree, resvg::tiny_skia::Transform::from_scale(scale, scale), &mut pixmap.as_mut());
-    Ok(Preview {
+    Ok((Preview {
         pixels: pixmap,
         omitted_external_images: omitted.load(std::sync::atomic::Ordering::Relaxed),
-    })
+    }, tree))
 }

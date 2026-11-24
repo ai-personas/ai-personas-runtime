@@ -1,0 +1,1 @@
+Retain this single ZIP unchanged as the corrected successor. SHA256: 3712d5b34b3995b32a65ecf1f1565c0736dca8b20023ed23c5a98fe6ea0af24b. Do not submit it for ordering while the documented placement-compatibility hold remains open. This handoff does not authorize supplier upload, ordering, payment or building.

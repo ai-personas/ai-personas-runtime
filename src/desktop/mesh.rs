@@ -15,6 +15,7 @@ pub struct Mesh {
     vertices: Vec<f32>, // position, normal, material color
     pub triangles: usize,
     pub extent: [f32; 3],
+    units: &'static str,
 }
 
 impl Mesh {
@@ -59,6 +60,7 @@ pub fn load(bytes: &[u8], extension: &str, path: Option<&Path>) -> Result<Arc<Me
         vertices: Vec::new(),
         triangles: 0,
         extent: [0.0; 3],
+        units: if matches!(extension, "glb" | "gltf") { "m" } else { "model units" },
     };
     let solid = [0.58, 0.64, 0.72];
     match extension {
@@ -271,8 +273,20 @@ impl Viewport {
                 self.reset();
             }
             ui.checkbox(&mut self.wire, "Wireframe");
-            ui.checkbox(&mut self.grid, "Grid");
+            ui.checkbox(&mut self.grid, "Grid").on_hover_text("View grid, fitted to the model");
             ui.weak(format!("{} triangles", mesh.triangles));
+        });
+        ui.horizontal_wrapped(|ui| {
+            let p = theme::palette(ui);
+            ui.small("ENVELOPE");
+            for (name, span) in ["X", "Y", "Z"].into_iter().zip(mesh.extent) {
+                ui.label(egui::RichText::new(format!("{name}  {span}")).small().monospace().color(p.text));
+            }
+            ui.small(mesh.units).on_hover_text(if mesh.units == "m" {
+                "Scene bounds in Studio’s Z-up view"
+            } else {
+                "Dimensions in file coordinates. Use the issuer’s unit when importing."
+            });
         });
         if let Some(e) = &self.error {
             ui.label(e);

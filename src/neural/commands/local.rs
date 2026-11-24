@@ -4,8 +4,11 @@
 use super::{check_run_paths, content, store_output_bytes, Origin};
 use crate::neural::{failure, now, store, workspace, Result};
 mod receiving;
+mod launch;
 pub use receiving::Receiving;
 pub(in crate::neural) use receiving::{latest as latest_receiving_checks, publish as publish_receiving_check};
+pub(in crate::neural) use receiving::notice as receiving_notice;
+pub(in crate::neural) use launch::receiving_launcher;
 use rusqlite::Connection;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -34,7 +37,8 @@ pub struct Run {
     #[serde(default, skip_serializing_if = "Directory::is_scratch")]
     pub directory: Directory,
     /// Run a receiving check in fresh scratch with the exact exported file selection.
-    /// The issuer also receives the resulting check receipt in the issuing activity.
+    /// A configured receiving toolchain resolves the selected program there.
+    /// Otherwise this uses the local toolchain. The issuer receives the check receipt.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub receiving: Option<Receiving>,
     #[serde(default)]
@@ -110,48 +114,6 @@ impl Run {
         }
         Ok(files)
     }
-}
-
-fn executable(program: &str, cwd: &Path) -> Result<PathBuf> {
-    let accessible = |path: &Path| {
-        path.metadata()
-            .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-    };
-    let path = if program.contains('/') {
-        Some(cwd.join(program)).filter(|p| accessible(p))
-    } else {
-        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
-            .map(|dir| cwd.join(dir).join(program))
-            .find(|p| accessible(p))
-    };
-    path.ok_or_else(|| {
-        failure(format!(
-            "Local executable {program:?} was not found or is not executable"
-        ))
-    })
-}
-
-// An operator may supply a host environment (e.g. an instrumented toolchain).
-// The persona still selects the program and every argument. Do not interpret a
-// shell command, change the selected basename, or fall back to direct execution.
-fn launch_command(path: &Path, launcher: Option<&Path>, host: &mut Value) -> Result<Command> {
-    let Some(launcher) = launcher else { return Ok(Command::new(path)); };
-    if !launcher.is_absolute() {
-        return Err(failure("AI_PERSONAS_LOCAL_LAUNCHER must name an absolute executable path"));
-    }
-    let resolved = launcher.canonicalize()?;
-    let mut file = File::options().read(true).custom_flags(libc::O_NONBLOCK).open(&resolved)?;
-    let metadata = file.metadata()?;
-    if !metadata.is_file() || metadata.permissions().mode() & 0o111 == 0 {
-        return Err(failure("The configured local launcher is not an executable file"));
-    }
-    let mut hash = Sha256::new();
-    std::io::copy(&mut file, &mut hash)?;
-    host["launcher"]["resolved"] = json!(resolved.to_string_lossy());
-    host["launcher"]["sha256_before_launch"] = json!(hex::encode(hash.finalize()));
-    let mut command = Command::new(launcher);
-    command.arg(path);
-    Ok(command)
 }
 
 fn read_stream(mut file: File) -> Result<Vec<u8>> {
@@ -274,6 +236,13 @@ pub(crate) fn run(
     if let Some(path) = &launcher {
         host["launcher"] = json!({"path":path.to_string_lossy()});
     }
+    let receiver = input.receiving.as_ref().and_then(|_| receiving_launcher());
+    if input.receiving.is_some() {
+        host["receiving_environment"] = json!(if receiver.is_some() { "receiving_launcher" } else { "local_toolchain" });
+        if let Some(path) = &receiver {
+            host["receiving_launcher"] = json!({"path":path.to_string_lossy()});
+        }
+    }
     let mut process_started = false;
     let mut cancelled = false;
     let mut timed_out = false;
@@ -294,20 +263,12 @@ pub(crate) fn run(
                 files.insert(path, json!({"reference":reference,"object":format!("object:{digest}"),"bytes":bytes.len(),"staging":state}));
             }
         }
-        let path = executable(&input.program, project)?;
-        // Keep the invoked name (a multicall executable can inspect argv[0]).
-        host["executable"] = json!(path);
-        host["resolved_executable"] = json!(path.canonicalize()?);
-        if let Ok(mut file) = File::open(&path) {
-            let mut hash = Sha256::new();
-            std::io::copy(&mut file, &mut hash)?;
-            host["executable_sha256_before_launch"] = json!(hex::encode(hash.finalize()));
-        }
+        let mut command = launch::prepare(&input.program, project, launcher.as_deref(), receiver.as_deref(), &mut host)?;
         if stop() {
             cancelled = true;
             return Err(failure("Stopped before launch"));
         }
-        let mut child = launch_command(&path, launcher.as_deref(), &mut host)?
+        let mut child = command
             .env_clear()
             .envs(environment.iter().cloned())
             .args(&input.arguments)

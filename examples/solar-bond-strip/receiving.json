@@ -1,0 +1,257 @@
+{
+  "download": "BC17-A-cut-package.zip",
+  "bytes": 2676,
+  "sha256": "d18b1b85e90867741368b7809827a8d197079c5a24d42a33504204bb7d8e0758",
+  "svg_reader_and_cam": "MeerK40t 0.9.9100",
+  "geometry_reader": "Shapely 2.1.2",
+  "member": "BC17-A-cut.svg",
+  "members": {
+    "BC17-A-cut.svg": "9e341c85c5393f8b30244455364092803275f37ac55bc6d5b0d0f281a475697c",
+    "DIMENSIONAL-CHECK.txt": "0c2cf7e55342a2d41e1421d3ebf434c74c131b9e20e25334f632b0774246f607",
+    "PLACEMENT.txt": "fddc079e599ad2e3cb2901047bd65f13b00f369a1e83cdf54beafa31fc6f17ec"
+  },
+  "artwork": {
+    "declared_width": "62mm",
+    "declared_height": "27.5mm",
+    "page_mm": [
+      62.0,
+      27.5
+    ],
+    "points_mm": [
+      [
+        0.0,
+        0.0
+      ],
+      [
+        21.000000000000004,
+        0.0
+      ],
+      [
+        21.000000000000004,
+        20.300000000000004
+      ],
+      [
+        42.00000000000001,
+        20.300000000000004
+      ],
+      [
+        42.00000000000001,
+        0.0
+      ],
+      [
+        62.0,
+        0.0
+      ],
+      [
+        62.0,
+        27.500000000000004
+      ],
+      [
+        0.0,
+        27.500000000000004
+      ],
+      [
+        0.0,
+        0.0
+      ]
+    ],
+    "centerline_span_mm": [
+      62.0,
+      27.500000000000004
+    ],
+    "nominal_area_mm2": 1278.6999999999998,
+    "finished_minimum_area_mm2": 1245.8500000000001,
+    "outer_profile_worst_mm": {
+      "left_inset": 1.0,
+      "right_inset": 1.5,
+      "top_inset": 1.5,
+      "deepest_y": 30.000000000000004,
+      "bottom_panel_inset": 82.5
+    },
+    "functional_regions": {
+      "left_land": {
+        "sweep_at_art_datum_mm": [
+          -59.849999999999994,
+          3.65,
+          -44.15,
+          15.35
+        ],
+        "uncovered_mm2": 0.0,
+        "additional_clearance_mm": 2.000000000000007
+      },
+      "right_land": {
+        "sweep_at_art_datum_mm": [
+          -17.35,
+          3.65,
+          -2.6499999999999986,
+          15.35
+        ],
+        "uncovered_mm2": 0.0,
+        "additional_clearance_mm": 2.499999999999993
+      },
+      "transverse_land": {
+        "sweep_at_art_datum_mm": [
+          -59.849999999999994,
+          22.65,
+          -2.6499999999999986,
+          25.35
+        ],
+        "uncovered_mm2": 0.0,
+        "additional_clearance_mm": 2.0000000000000036
+      },
+      "wire_aisle": {
+        "sweep_at_art_datum_mm": [
+          -40.849999999999994,
+          -2.35,
+          -20.25,
+          20.150000000000002
+        ],
+        "intrusion_mm2": 0.0,
+        "additional_clearance_mm": 3.552713678800501e-15
+      }
+    },
+    "checks": {
+      "left_inset": true,
+      "right_inset": true,
+      "top_inset": true,
+      "depth_limit": true,
+      "inside_panel_bottom": true,
+      "connected_eroded_core": true,
+      "minimum_area": true,
+      "left_land": true,
+      "right_land": true,
+      "transverse_land": true,
+      "wire_aisle": true
+    },
+    "worst_pad_clearance_mm": {
+      "left": 1.000000000000007,
+      "right": 1.1000000000000085,
+      "below": 1.0000000000000036
+    }
+  },
+  "cam": {
+    "default_operations": [
+      "op raster"
+    ],
+    "entities": [
+      "elem path"
+    ],
+    "points_mm": [
+      [
+        0.0,
+        0.0
+      ],
+      [
+        21.000201419089034,
+        0.0
+      ],
+      [
+        21.000201419089034,
+        20.29984588387885
+      ],
+      [
+        42.00001525902189,
+        20.29984588387885
+      ],
+      [
+        42.00001525902189,
+        0.0
+      ],
+      [
+        61.99987487602044,
+        0.0
+      ],
+      [
+        61.99987487602044,
+        27.499903868162054
+      ],
+      [
+        0.0,
+        27.499903868162054
+      ],
+      [
+        0.0,
+        0.0
+      ]
+    ],
+    "spooled": false,
+    "centerline_span_mm": [
+      61.99987487602044,
+      27.499903868162054
+    ],
+    "nominal_area_mm2": 1278.6976143878546,
+    "finished_minimum_area_mm2": 1245.8477269994369,
+    "outer_profile_worst_mm": {
+      "left_inset": 1.0001251239795579,
+      "right_inset": 1.5,
+      "top_inset": 1.5,
+      "deepest_y": 29.999903868162054,
+      "bottom_panel_inset": 82.50009613183795
+    },
+    "functional_regions": {
+      "left_land": {
+        "sweep_at_art_datum_mm": [
+          -59.849999999999994,
+          3.65,
+          -44.15,
+          15.35
+        ],
+        "uncovered_mm2": 0.0,
+        "additional_clearance_mm": 1.9998748760204492
+      },
+      "right_land": {
+        "sweep_at_art_datum_mm": [
+          -17.35,
+          3.65,
+          -2.6499999999999986,
+          15.35
+        ],
+        "uncovered_mm2": 0.0,
+        "additional_clearance_mm": 2.499859616998549
+      },
+      "transverse_land": {
+        "sweep_at_art_datum_mm": [
+          -59.849999999999994,
+          22.65,
+          -2.6499999999999986,
+          25.35
+        ],
+        "uncovered_mm2": 0.0,
+        "additional_clearance_mm": 1.9998748760204492
+      },
+      "wire_aisle": {
+        "sweep_at_art_datum_mm": [
+          -40.849999999999994,
+          -2.35,
+          -20.25,
+          20.150000000000002
+        ],
+        "intrusion_mm2": 0.009803566062528796,
+        "additional_clearance_mm": 0.0
+      }
+    },
+    "checks": {
+      "left_inset": true,
+      "right_inset": true,
+      "top_inset": true,
+      "depth_limit": true,
+      "inside_panel_bottom": true,
+      "connected_eroded_core": true,
+      "minimum_area": true,
+      "left_land": true,
+      "right_land": true,
+      "transverse_land": true,
+      "wire_aisle": false
+    },
+    "boundary_hausdorff_mm": 0.0003610846915170065,
+    "worst_pad_clearance_mm": {
+      "left": 0.9996734569314114,
+      "right": 1.1001403830014524,
+      "below": 0.999845883878848
+    }
+  },
+  "specified_artwork_pass": true,
+  "additional_full_allowance_about_planned_path_pass": false,
+  "combined_pass": false,
+  "allowance_basis": "BC-17 specifies +/-0.15 mm about the issued ideal profile, inclusive of cutting. Applying that full allowance again about a rounded machine path is a stricter shop stress test. Area of intrusion into the swept aisle is a union over poses, not a physical contact area."
+}

@@ -9,6 +9,8 @@ use std::collections::BTreeSet;
 
 pub(in crate::neural) struct Edition {
     pub(in crate::neural) issue: delivery_feedback::Issued,
+    pub(in crate::neural) issuer_label: Option<String>,
+    pub(in crate::neural) operation: String,
     pub(in crate::neural) members: Vec<String>,
 }
 
@@ -37,7 +39,9 @@ pub(in crate::neural) fn edition(db: &Connection, reference: &str) -> Result<Edi
             "The file list differs from the accepted delivery and its original issue",
         ));
     }
-    Ok(Edition { issue, members })
+    let issuer_label = choice.accepted.snapshot.data["identity"]["label"].as_str()
+        .filter(|name| !name.trim().is_empty()).map(str::to_owned);
+    Ok(Edition { issue, issuer_label, operation: op.id, members })
 }
 
 fn version_order(db: &Connection, record: &store::Record) -> Result<i64> {
@@ -153,6 +157,7 @@ pub fn delivery_files(db: &Connection, reference: &str) -> Result<Value> {
     let unknown = files.len() - here - elsewhere;
     Ok(
         json!({"reference":reference,"title":selected.issue.record.body["title"],"work":work,"here":here,
+        "issuer":selected.issue.record.body["owner"],"issuing_decision":format!("experience:{}@1",selected.issue.invocation),
         "elsewhere":elsewhere,"unknown":unknown,"files":files,"unverified_earlier":unavailable,
         "earlier":earlier.into_iter().map(|(_,row)| row).collect::<Vec<_>>()}),
     )

@@ -1,0 +1,106 @@
+{
+  "automatic_import_classification": [
+    {
+      "operation": "op raster",
+      "references": 3
+    }
+  ],
+  "cam": "MeerK40t 0.9.9100",
+  "claimed_by": null,
+  "device": "Dummy Device",
+  "field_packet_bytes": 6112,
+  "field_packet_sha256": "7d22763a6ef1f82756460761a0ec4e1131f16ef2bd0c8c17ab27dd0ae0d3e1b8",
+  "input_sha256": "4c44ea41fadea48555314d50fdec58c06a238768983b687c93c020234f22275f",
+  "issued_asset": "asset:asset-fe3b07d07d85371659cfa682a8386e31@1",
+  "issued_delivery": "delivery:delivery-a02a1aa717d1d6b92be418c3deb280d7@1",
+  "operations_selected_from_issuer_instructions": [
+    "cut both holes",
+    "cut outline"
+  ],
+  "operator_workflow": "Import the file from Files.zip at its original size. Assign both circles to a vector cut before the separate outline cut, as Ada instructed. No drawing or source file was edited.",
+  "physical_cut": false,
+  "plan": [
+    {
+      "bounds_mm": [
+        [
+          6.000113,
+          17.999951
+        ],
+        [
+          9.99993,
+          22.000156
+        ]
+      ],
+      "center_mm": [
+        8.000021,
+        20.000053
+      ],
+      "closed": true,
+      "kind": "hole",
+      "max_sampled_radius_error_mm": 0.00018,
+      "segments": 12,
+      "span_mm": [
+        3.999817,
+        4.000204
+      ]
+    },
+    {
+      "bounds_mm": [
+        [
+          80.000214,
+          17.999951
+        ],
+        [
+          84.000031,
+          22.000156
+        ]
+      ],
+      "center_mm": [
+        82.000122,
+        20.000053
+      ],
+      "closed": true,
+      "kind": "hole",
+      "max_sampled_radius_error_mm": 0.00018,
+      "segments": 12,
+      "span_mm": [
+        3.999817,
+        4.000204
+      ]
+    },
+    {
+      "bounds_mm": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          90.000143,
+          40.000107
+        ]
+      ],
+      "center_mm": [
+        45.000072,
+        20.000053
+      ],
+      "closed": true,
+      "kind": "outline",
+      "segments": 4,
+      "span_mm": [
+        90.000143,
+        40.000107
+      ]
+    }
+  ],
+  "request": "human_request:help-07bcdce245378bc5b09fdece5134014b@2",
+  "source_wheel": {
+    "package": "meerk40t",
+    "sha256": "3f040a9766f44340893f098923953afb5497006b6421d5f5735559d5615a521b",
+    "url": "https://files.pythonhosted.org/packages/a4/32/6f529ac423a180ba18d96a85e9019e77e3c3e1354992170f334aa80afc4d/meerk40t-0.9.9100-py2.py3-none-any.whl",
+    "version": "0.9.9100",
+    "wheel": "meerk40t-0.9.9100-py2.py3-none-any.whl"
+  },
+  "spooled": false,
+  "status": "open",
+  "unmodified_input_bytes": 314
+}

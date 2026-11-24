@@ -52,6 +52,7 @@ pub fn schedule(
         // diagnostic is eligible; other error events keep their disposition.
         (Failure::RemoteFailure, Some(200)) if receipt.stream_diagnostic.as_ref().is_some_and(|d|
             d.stage == "event" && d.event_type == Some("error")
+                && d.rule == "remote_or_unsupported_output"
                 && d.remote_error_type == Some("service_unavailable_error")
                 && d.remote_error_code == Some("server_is_overloaded")
         ) => "provider_overload",

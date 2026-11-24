@@ -52,6 +52,7 @@ impl Window {
         let count = r["event_count"].as_u64().unwrap_or_default() as usize;
         let mut next = None;
         let mut selected = None;
+        let mut open_edition = false;
         egui::ScrollArea::vertical().id_salt(("activity-intake", &self.work)).show(ui, |ui| {
             eyebrow(ui, "ACTIVITY ORIGIN  /  OPENING EDITION");
             ui.label(RichText::new(s(opening, "need")).size(17.).strong());
@@ -61,6 +62,12 @@ impl Window {
             });
             ui.label(format!("Opening attachments: {files}"));
             app.source_file_links(ui, &opening["files"], s(opening,"brief"));
+            if let Some(reference) = opening["from_edition"]["reference"].as_str() {
+                ui.horizontal_wrapped(|ui| {
+                    ui.strong("Starting edition");
+                    open_edition = ui.link(s(&opening["from_edition"], "title")).on_hover_text(reference).clicked();
+                });
+            }
             ui.add_space(6.);
             ui.strong("Working folder at workspace creation");
             let observation = match s(setup, "entry_state") {
@@ -99,6 +106,11 @@ impl Window {
             });
         });
         if let Some(seq) = selected { app.open_home_event(&self.work, seq); return true; }
+        if open_edition {
+            let edition = &opening["from_edition"];
+            app.open_home_delivery(s(edition,"reference"), s(edition,"work"));
+            return true;
+        }
         if let Some((offset, boundary)) = next { self.read(ui.ctx(), &app.root, offset, boundary); }
         false
     }

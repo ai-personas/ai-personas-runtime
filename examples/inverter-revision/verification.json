@@ -1,0 +1,640 @@
+{
+  "assembly": {
+    "bom": "revision/Assembly/BOM.csv",
+    "bom_references": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C5",
+      "C6",
+      "C7",
+      "C8",
+      "J1",
+      "J2",
+      "R1",
+      "R2",
+      "R3",
+      "R4",
+      "U1",
+      "U2",
+      "U3",
+      "U4"
+    ],
+    "columns": {
+      "bom_ref": "Designator",
+      "code": "LCSC Part #",
+      "cpl_ref": "Designator",
+      "mpn": "Manufacturer Part Number",
+      "rot": "Rotation",
+      "side": "Layer",
+      "x": "Mid X",
+      "y": "Mid Y"
+    },
+    "cpl": "revision/Assembly/CPL.csv",
+    "cpl_references": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C5",
+      "C6",
+      "C7",
+      "C8",
+      "J1",
+      "J2",
+      "R1",
+      "R2",
+      "R3",
+      "R4",
+      "U1",
+      "U2",
+      "U3",
+      "U4"
+    ],
+    "distinct_supplier_codes": 14,
+    "emitted_gerber_offset_from_board_x_and_minus_y_mm": [
+      0.0,
+      0.0
+    ],
+    "factory_placement_preview_observed": false,
+    "fitted_references": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C5",
+      "C6",
+      "C7",
+      "C8",
+      "J1",
+      "J2",
+      "R1",
+      "R2",
+      "R3",
+      "R4",
+      "U1",
+      "U2",
+      "U3",
+      "U4"
+    ],
+    "instances_per_lot": 90,
+    "lot_count": 5,
+    "numbered_centers_on_corresponding_copper": {
+      "C1": {
+        "model_center": [
+          2,
+          2
+        ],
+        "origin": [
+          2,
+          2
+        ]
+      },
+      "C2": {
+        "model_center": [
+          0,
+          2
+        ],
+        "origin": [
+          2,
+          2
+        ]
+      },
+      "C3": {
+        "model_center": [
+          0,
+          2
+        ],
+        "origin": [
+          2,
+          2
+        ]
+      },
+      "C4": {
+        "model_center": [
+          0,
+          2
+        ],
+        "origin": [
+          2,
+          2
+        ]
+      },
+      "C5": {
+        "model_center": [
+          0,
+          2
+        ],
+        "origin": [
+          2,
+          2
+        ]
+      },
+      "C6": {
+        "model_center": [
+          0,
+          2
+        ],
+        "origin": [
+          2,
+          2
+        ]
+      },
+      "C7": {
+        "model_center": [
+          0,
+          2
+        ],
+        "origin": [
+          2,
+          2
+        ]
+      },
+      "C8": {
+        "model_center": [
+          0,
+          2
+        ],
+        "origin": [
+          2,
+          2
+        ]
+      },
+      "J1": {
+        "model_center": [
+          2,
+          2
+        ],
+        "origin": [
+          2,
+          2
+        ]
+      },
+      "J2": {
+        "model_center": [
+          2,
+          2
+        ],
+        "origin": [
+          2,
+          2
+        ]
+      },
+      "R1": {
+        "model_center": [
+          0,
+          2
+        ],
+        "origin": [
+          2,
+          2
+        ]
+      },
+      "R2": {
+        "model_center": [
+          0,
+          2
+        ],
+        "origin": [
+          2,
+          2
+        ]
+      },
+      "R3": {
+        "model_center": [
+          0,
+          2
+        ],
+        "origin": [
+          2,
+          2
+        ]
+      },
+      "R4": {
+        "model_center": [
+          0,
+          2
+        ],
+        "origin": [
+          2,
+          2
+        ]
+      },
+      "U1": {
+        "model_center": [
+          9,
+          9
+        ],
+        "origin": [
+          9,
+          9
+        ]
+      },
+      "U2": {
+        "model_center": [
+          3,
+          3
+        ],
+        "origin": [
+          3,
+          3
+        ]
+      },
+      "U3": {
+        "model_center": [
+          8,
+          8
+        ],
+        "origin": [
+          8,
+          8
+        ]
+      },
+      "U4": {
+        "model_center": [
+          14,
+          14
+        ],
+        "origin": [
+          14,
+          14
+        ]
+      }
+    }
+  },
+  "download": {
+    "bytes": 1814885,
+    "dispatch": {
+      "artifacts": [
+        "asset:asset-dd27d64d3e62766252ca7b2384e41e9c@1"
+      ],
+      "instructions": "Extract the ZIP and read revision/README before use. This is a qualified review revision, not a release to order: retain the explicit manufacturing hold. Do not guess or adjust CPL rotations/origins. Order intent is five assembled boards with top SMT and supplier-installed connectors; source is 12 V rated at least 1 A and the floating load is 27 ohms rated at least 10 W. Approximately 5.1 W and 49.4 Hz are calculated design values, not measurements.",
+      "recipient": "Prototype shop buyer"
+    },
+    "event": 933,
+    "filename": "inverter-revision-manufacturing-hold.zip",
+    "issued_by": "arden",
+    "issuing_choice": "call-3267cc7f80c21de72c2c3e0c03f56609",
+    "manifest": "revision/SHA256SUMS.txt",
+    "manifest_entries": 867,
+    "member_tree_sha256": "e6522f0bfb6853a0e5baa38fd96d40fc79a5fc170e7a2c9dd63739ecc18ab5bf",
+    "members": 868,
+    "reference": "delivery:delivery-89f04a8d85b038ce343b87b53b462122@1",
+    "scope": "partial",
+    "sha256": "10690706a5f7cb5e01869db3fdd1ed377eb234e2f31e2c121b95dc72022df9af",
+    "work": "work-34d772e2947d2e7a8799802fdc103caa"
+  },
+  "fabrication": {
+    "drills": [
+      "revision/Fabrication/inverter.drl"
+    ],
+    "holes": 23,
+    "in_top_mask_openings": 7,
+    "profile_segments_mm": [
+      [
+        30.0,
+        -30.0,
+        95.0,
+        -30.0
+      ],
+      [
+        30.0,
+        -75.0,
+        30.0,
+        -30.0
+      ],
+      [
+        95.0,
+        -30.0,
+        95.0,
+        -75.0
+      ],
+      [
+        95.0,
+        -75.0,
+        30.0,
+        -75.0
+      ]
+    ],
+    "regenerated_layers": {
+      "Copper,L1,Top": {
+        "issued": "inverter-F_Cu.gtl",
+        "matching_except_dates": true,
+        "objects": 226,
+        "regenerated": "inverter-F_Cu.gtl",
+        "sha256": "90ea402f633337c86c5e78573078b2ac2744524c26a366f87aabed6447011528"
+      },
+      "Copper,L2,Bot": {
+        "issued": "inverter-B_Cu.gbl",
+        "matching_except_dates": true,
+        "objects": 53,
+        "regenerated": "inverter-B_Cu.gbl",
+        "sha256": "c0f1d03158a49fb5073d77ff21176cec812a7611a5ef4d1501a22c34abb6b716"
+      },
+      "Legend,Bot": {
+        "issued": "inverter-B_Silkscreen.gbo",
+        "matching_except_dates": true,
+        "objects": 0,
+        "regenerated": "inverter-B_Silkscreen.gbo",
+        "sha256": "f121ee564fa784a96d08401efa85dfb992fb92274f2bc392d5c5e6d305a5d228"
+      },
+      "Legend,Top": {
+        "issued": "inverter-F_Silkscreen.gto",
+        "matching_except_dates": true,
+        "objects": 893,
+        "regenerated": "inverter-F_Silkscreen.gto",
+        "sha256": "67196e3833ce8b017abef599a8c23d2f6685e3b2795800f4ac62c89204f511a9"
+      },
+      "Paste,Bot": {
+        "issued": "inverter-B_Paste.gbp",
+        "matching_except_dates": true,
+        "objects": 0,
+        "regenerated": "inverter-B_Paste.gbp",
+        "sha256": "7505c2c4c0f480de9828b80da326d205b1b37799c35300147977aecc2fae3c89"
+      },
+      "Paste,Top": {
+        "issued": "inverter-F_Paste.gtp",
+        "matching_except_dates": true,
+        "objects": 61,
+        "regenerated": "inverter-F_Paste.gtp",
+        "sha256": "e77e472574894aaea219ac07f813bf77601d7c2a28d0b9584bc5d3203da25648"
+      },
+      "Profile,NP": {
+        "issued": "inverter-Edge_Cuts.gm1",
+        "matching_except_dates": true,
+        "objects": 4,
+        "regenerated": "inverter-Edge_Cuts.gm1",
+        "sha256": "16941d0b683a3df5e039f6c96377b03a0ed3463a52f272fc6686308e6615f360"
+      },
+      "Soldermask,Bot": {
+        "issued": "inverter-B_Mask.gbs",
+        "matching_except_dates": true,
+        "objects": 4,
+        "regenerated": "inverter-B_Mask.gbs",
+        "sha256": "2d9481ffac8ade4614b5425746cab63633fb26e121a05d971928b25837cdf823"
+      },
+      "Soldermask,Top": {
+        "issued": "inverter-F_Mask.gts",
+        "matching_except_dates": true,
+        "objects": 62,
+        "regenerated": "inverter-F_Mask.gts",
+        "sha256": "c626680c8e98774fa5c0388da0ec7475f6a5411b018f731871d1572a0b42ee2b"
+      },
+      "drill/MixedPlating": {
+        "issued": "inverter.drl",
+        "matching_except_dates": true,
+        "objects": 23,
+        "regenerated": "inverter.drl",
+        "sha256": "86b3976e6c9ebeea95017a8c923cc02af2f4794e2d4af5a9e71f2b9b26303bab"
+      }
+    },
+    "remaining_intersections": [
+      {
+        "cam_xy_mm": [
+          48.05,
+          -55.0
+        ],
+        "mask_open_intersection_mm2": 0.070683,
+        "pad": [
+          "C5",
+          "1"
+        ],
+        "paste_intersection_mm2": 0.070683,
+        "via": {
+          "diameter_mm": 0.6,
+          "drill_mm": 0.3,
+          "net": "/+5V",
+          "position": [
+            48.05,
+            55.0
+          ]
+        }
+      },
+      {
+        "cam_xy_mm": [
+          55.087,
+          -58.0
+        ],
+        "mask_open_intersection_mm2": 0.070683,
+        "pad": [
+          "R4",
+          "1"
+        ],
+        "paste_intersection_mm2": 0.070683,
+        "via": {
+          "diameter_mm": 0.6,
+          "drill_mm": 0.3,
+          "net": "/+5V",
+          "position": [
+            55.0875,
+            58.0
+          ]
+        }
+      },
+      {
+        "cam_xy_mm": [
+          77.95,
+          -47.0
+        ],
+        "mask_open_intersection_mm2": 0.070683,
+        "pad": [
+          "C2",
+          "2"
+        ],
+        "paste_intersection_mm2": 0.070683,
+        "via": {
+          "diameter_mm": 0.6,
+          "drill_mm": 0.3,
+          "net": "/GND",
+          "position": [
+            77.95,
+            47.0
+          ]
+        }
+      }
+    ],
+    "separate_regenerated_drill_hits": {
+      "drill/NonPlated": 0,
+      "drill/Plated": 23
+    },
+    "top_copper": "revision/Fabrication/inverter-F_Cu.gtl",
+    "top_mask": "revision/Fabrication/inverter-F_Mask.gts",
+    "top_paste": "revision/Fabrication/inverter-F_Paste.gtp",
+    "under_top_paste": 3
+  },
+  "kicad": {
+    "all_receiving_cli_exits": {
+      "combined-drill": 0,
+      "drc": 0,
+      "drills": 0,
+      "erc": 0,
+      "geometry": 0,
+      "gerbers": 0,
+      "netlist": 0,
+      "parity": 0,
+      "positions": 0,
+      "version": 0
+    },
+    "board": "revision/KiCad/inverter.kicad_pcb",
+    "board_only_pins": [],
+    "copper_layers": 2,
+    "drc": {
+      "counts": {},
+      "exit": 0
+    },
+    "drilled_component_pads": [
+      {
+        "copper_mm": [
+          2.6,
+          2.6
+        ],
+        "diameter_mm": [
+          1.3,
+          1.3
+        ],
+        "pin": "1",
+        "position": [
+          85.0,
+          40.0
+        ],
+        "ref": "J2"
+      },
+      {
+        "copper_mm": [
+          2.6,
+          2.6
+        ],
+        "diameter_mm": [
+          1.3,
+          1.3
+        ],
+        "pin": "2",
+        "position": [
+          90.0,
+          40.0
+        ],
+        "ref": "J2"
+      },
+      {
+        "copper_mm": [
+          2.6,
+          2.6
+        ],
+        "diameter_mm": [
+          1.3,
+          1.3
+        ],
+        "pin": "1",
+        "position": [
+          37.0,
+          37.0
+        ],
+        "ref": "J1"
+      },
+      {
+        "copper_mm": [
+          2.6,
+          2.6
+        ],
+        "diameter_mm": [
+          1.3,
+          1.3
+        ],
+        "pin": "2",
+        "position": [
+          42.0,
+          37.0
+        ],
+        "ref": "J1"
+      }
+    ],
+    "erc": {
+      "counts": {},
+      "exit": 0
+    },
+    "identical_electrical_groups": true,
+    "native_editors": {
+      "eeschema": {
+        "capture_sha256": "6389ce50b4e682194acc8877dead916dec686b5d6ece142b69b3dfb01300a958",
+        "native_editor": "inverter — Schematic Editor",
+        "source": "inverter.kicad_sch",
+        "startup_notice": "Optional wxPython plugins unavailable; dismissed before capturing the editor.",
+        "unchanged_sha256": "09a49d706b0faccd6e781313f6098d3d932636531f02bceb9e1f6da6c20ad705"
+      },
+      "pcbnew": {
+        "capture_sha256": "60367dd745f5b72541429e8cf86c4fe50f85c16c514f11f54877015570ba6711",
+        "native_editor": "inverter — PCB Editor",
+        "source": "inverter.kicad_pcb",
+        "startup_notice": "Optional wxPython plugins unavailable; dismissed before capturing the editor.",
+        "unchanged_sha256": "7c0804344826b1f46cf62e58e36286781204eb0f43a9f8c958717f498dd4c99d"
+      }
+    },
+    "numbered_pins": 62,
+    "parity": {
+      "counts": {},
+      "exit": 0
+    },
+    "pcb_exclusions": [],
+    "sch_exclusions": [],
+    "schematic": "revision/KiCad/inverter.kicad_sch",
+    "schematic_only_pins": [],
+    "thickness_mm": 1.6,
+    "unequal_net_labels": [],
+    "version": "9.0.9",
+    "via_count": 19
+  },
+  "supplier_process": {
+    "C8269_drawing_PCB_hole_diameter_mm": 1.5,
+    "C8269_drawing_pin_cross_section_mm": [
+      0.9,
+      0.8
+    ],
+    "C8269_drawing_pitch_mm": 5.0,
+    "JLCPCB_documents": [
+      "https://jlcpcb.com/help/article/pcb-via-covering",
+      "https://jlcpcb.com/capabilities/pcb-assembly-capabilities",
+      "https://jlcpcb.com/capabilities/Capabilities",
+      "https://jlcpcb.com/help/article/how-to-add-edge-rails-fiducials-for-pcb-assembly-order",
+      "https://jlcpcb.com/help/article/How-to-add-tooling-holes-for-PCB-assembly-order",
+      "https://jlcpcb.com/help/article/component-polarity-and-orientation-identification-guide",
+      "https://jlcpcb.com/help/article/advice-for-bom-and-cpl-files-preparation",
+      "https://jlcpcb.com/help/article/How-to-generate-the-BOM-and-Pick%26Place-file-from-EasyEDA",
+      "https://jlcpcb.com/help/article/how-to-generate-bom-and-centroid-files-from-kicad-8"
+    ],
+    "actual_routed_board_mm": [
+      65,
+      45
+    ],
+    "connector_customer_drawing": {
+      "at": "2026-11-23T06:22:06.941131+00:00",
+      "bytes": 121683,
+      "kind": "application/pdf;charset=UTF-8",
+      "sha256": "475ca1fa316b88d58dec64fee6bdcb800323939128c292735a2414270b2ea2ca",
+      "url": "https://jlcpcb.com/api/file/downloadByFileSystemAccessId/8757264954276106240"
+    },
+    "digital_orderability": "hold",
+    "factory_response": null,
+    "specified_quantity_of_complete_assemblies": 5,
+    "physical_build": false,
+    "stackup": {
+      "BoardThickness": 1.6,
+      "Finish": "None",
+      "LayerNumber": 2,
+      "ProjectId": {
+        "GUID": "696e7665-7274-4657-922e-6b696361645f",
+        "Name": "inverter",
+        "Revision": "rev?"
+      },
+      "Size": {
+        "X": 65.05,
+        "Y": 45.05
+      }
+    },
+    "standard_order_panelization_option": "https://jlcpcb.com/help/article/How-do-I-order-a-panel",
+    "supplier_panel_min_mm": [
+      70,
+      70
+    ]
+  }
+}

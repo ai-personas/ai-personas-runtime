@@ -54,7 +54,7 @@ Choose **New workspace** to enter the starting profiles and connect a reasoning 
 
 **Workspace activity** on Overview follows people as they work. Choose **Message** beside a persona to write or attach a file while watching everyone. **Find…** opens people, activities, requests, deliveries and exact file revisions across the workspace.
 
-**Needs you → Save handoff…** gives you a printable request and its attached files. The person on site can fill out the offline field report in `Request.html`. In the original request, use **Import field report…**, attach the named evidence files and review the report before sending it to the persona.
+In **Needs you**, **Save handoff…** gives you a printable request and its attached files. If the requester has issued a **Field packet**, use **Save field packet…** for its current instructions and files. The person on site can fill out the offline field report in `Request.html`. In the original request, use **Import field report…**, attach the named evidence files and review the report before sending it to the persona.
 
 **Personas → Overview** shows that person’s current work and public reply as it arrives. In a delivery, **File origins…** traces the exact files to the activities that produced them. In **Needs you → Correspondence**, open a returned file, its receipt or the requester’s reply to a human report.
 
@@ -64,15 +64,35 @@ In **Activity → Participate → Agreement book**, read and respond to the exac
 
 **Draft reply** shows each persona’s words as they arrive. The latest lines stay in view until you scroll back or select a passage. The composer stays available. **Character Lab → Development** lets you follow a persona’s account of a character change through the later decision, the reader’s report and the persona’s own judgment.
 
+In the activity timeline, expand a message and choose **As sent** to inspect or copy its exact text. A late human message can be read even after that activity has stopped: **Delivery status → Read in another activity** identifies the later decision separately from delivery in the original activity.
+
+In **Delivery status**, a file’s **Local command inputs → Inspect run** shows the exact attachment staged for the recipient’s command. **Receiving decision** opens the choice that received its standard output when that input is verified. In a CSV or workbook table, select a row number or **Record** to read and copy each field without scrolling across the sheet.
+
 **Character Lab → Character Atlas** compares each persona’s first and later models on one shared situation. Choose **Inspect decisions → Use situation in Atlas** to use an actual input instead. The source generation and other local comparisons stay distinct. Neither view starts work.
+
+In a delivery, **File origins… → Issuing decision** opens the actual handoff choice. Choose **Character at this decision… → Previous active epoch** in the comparison picker to see whether the edit changed any values on that choice.
 
 In **Activity → People & tools**, **Last tool result** opens what a persona’s most recent tool actually returned. **Event #** takes you to the action in the timeline.
 
 Open an issued delivery to inspect its drawing, file revisions and remaining checks. **Save handoff…** places the printable `Delivery.html` alongside `Files.zip`. **Send feedback…** addresses a message or attachment to the issuer and keeps it with that edition. Open **Check receipt** on the delivery to see what reached the persona.
 
+Use **New brief from edition…** to invite someone to revise or check the exact delivery. The new activity’s **Intake record** links back to its starting edition.
+
+Open **Participate → Requested activities → Brief receipts** to follow a brief between personas. Select **Requesting choice** or **Receiving choice** to open the decision journal at that moment. Replies, returned editions and the requester’s response appear under **Correspondence**.
+
+When someone hands on the same files, **Receiving checks → Earlier runs on these exact files** opens the observations and original issues that existed before the handoff.
+
+To send one volunteer their own instructions and files, select their dispatch slip and choose **Save recipient packet…**. Unpack the packet and open `Dispatch.html`. The original files are in `Files/`.
+
 **Receiving checks** shows which persona exercised the issued files in a fresh folder, their purpose and the observed exit status. **Inspect run** opens the inputs and diagnostics. In **Needs you**, the request header shows the requester’s portrait and whether they chose to wait for an update on that request. Expand their continuation to read their reason.
 
-If the delivery includes a ready-to-use archive, select it in **File preview**, inspect its members and choose **Save this ZIP unchanged…**. **Inputs & outputs** on a command in the timeline opens the persona’s execution receipt.
+If a delivery is a single archive, **Save original ZIP…** in the heading saves the exact issued bytes. In a larger delivery, select an archive in **File preview**, inspect its members and choose **Save this ZIP unchanged…**. **Inputs & outputs** on a command in the timeline opens the persona’s execution receipt.
+
+Select an STL in **File preview → Inside this archive** and choose **Measure mesh…** to inspect its envelope and measure a line through the original file.
+
+For a straight-line SVG made of strokes, **Centerlines** makes the paths legible without changing the cut file. **Copy dimensions** distinguishes the paths’ extent from the page size and includes the original SVG digest.
+
+Select a Tajima DST member to see the actual needle path centered on its recorded coordinates. **Show travel** adds the jumps; **Copy measurements** includes the member hash and sewn bounds in millimetres.
 
 Choose **Print preview** on a saved HTML document to see its paginated print layout and save that PDF. Studio and the personas use local WeasyPrint for layout and the Poppler programs `pdfinfo` and `pdftoppm` on PATH to display individual PDF pages. A PDF attachment keeps its original bytes and its page receipts.
 

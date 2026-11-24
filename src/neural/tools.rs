@@ -95,7 +95,7 @@ pub struct Resource {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Register {
-    /// Exact object:<digest> supplied in a result or selected context.
+    /// Exact object:<digest> supplied in this input. For an earlier command capture, command.history can locate its receipt by this reference; select that receipt to use the original bytes.
     pub reference: String,
     pub path: String,
     /// An exact asset revision to update, or null to create a new library entry.
@@ -306,6 +306,9 @@ pub struct RequestWork {
     #[serde(default)]
     pub need: String,
     pub invitees: Vec<String>,
+    /// Optional exact, previously issued delivery to inspect or build on in the new activity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_edition: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub materials: Vec<SourceFile>,
 }
@@ -413,8 +416,8 @@ pub const NAMES: &[(&str,&str)] = &[
     ("asset.register","Give a retained byte object from a tool result a library path and metadata. Register a generated binary, STL mesh, or image as a shareable and deliverable asset. Later operations in the same response can use $operation_id for the resulting asset."),
     ("geometry.install","Install the pinned public OpenSCAD compiler, openscad-wasm 0.0.4, into this workspace for CAD rendering with geometry.render. Reuses an existing installation. Optionally supply matching retained compiler bytes for offline installation. Declare the operation under asset maintenance."),
     ("geometry.render","Compile a retained OpenSCAD CAD project to a binary STL mesh using the installed workspace compiler. Supply the exact source, companion files and optional parameter overrides. Returns the mesh object, measured bounds, triangle count, diagnostics and dependencies."),
-    ("geometry.profile_stl","Measure a line through the actual STL mesh along X, Y or Z at two fixed coordinates. Returns surface crossings, intervals in model units, any ambiguity and a receipt. Use this to inspect actual walls, gaps or material thickness at a chosen location."),
-    ("geometry.inspect_stl","Measure a retained STL mesh object or exact asset. Returns bounds, axis spans, triangles, distinct vertices, a mesh validation result, and historical render receipts for those exact bytes across activities."),
+    ("geometry.profile_stl","Measure a line through a retained STL along X, Y or Z at two fixed coordinates. For an STL inside an issued ZIP, use the ZIP asset as reference and its exact member path. Returns surface crossings, intervals in model units, any ambiguity and a receipt for those bytes."),
+    ("geometry.inspect_stl","Measure a retained STL mesh object or exact asset, or select an STL member by its path in a ZIP. Returns bounds, axis spans, triangles, distinct vertices, a mesh validation result, and historical render receipts for those exact mesh bytes."),
     ("geometry.history","Look up actual OpenSCAD render receipts, source assets, mesh objects, compiler warnings and attributed origins across activities. Search by exact source revision, STL asset, mesh object or render receipt. Results distinguish persona decisions and operator checks."),
     ("asset.import","Retain exact bytes read from a host file after dispatch; metadata is not prior body supply. The exact asset reference arrives in a later tool receipt. Same-response $operation_id references cannot name this import; read its result before selecting or citing the resulting asset."),
     ("asset.organize","Move/update discovery metadata or retire a resource while preserving exact prior bytes and history."),
@@ -441,8 +444,10 @@ pub const NAMES: &[(&str,&str)] = &[
     ("work.respond","Send a message, clarification or review from this originating activity to a participant in your separate request. Supply its exact founding work reference. To review a delivery read its record and cite its returned request_delivery exchange."),
     ("result.review","Publish your finding on a criterion for an exact issued delivery or proposed set of assets. Choose subject.delivery to assess that delivery under its original brief, or subject.artifacts to assess those files under this activity’s brief."),
     ("result.reviews","Compare published package reviews with subject.delivery or a proposed subject.artifacts set. See matching and changed files, actual brief, evidence and whether each review existed at delivery. Optionally select a particular review."),
+    ("result.prior_checks","Find earlier receiving runs visible to you on the identical complete file revisions before this delivery was issued. Returns original editions, checking choices, purposes and receipts. An earlier run does not review the new recipient instructions or establish order acceptance."),
     ("result.deliver","Issue exact artifacts with supported use, evidence and remaining gaps. Optional dispatches tell each recipient which issued files to take and what to do with them; nothing is sent or ordered. Claimed completion is separate from user acceptance."),
     ("human.request","Ask a human for an action or observation outside the workspace. Name the action and what you need back. You can attach exact files or issued deliveries with their files, supported use and remaining work. Human reports arrive as user_message. Taking or releasing the request without a report produces human_request_progress. Stay ready while independent work remains. When you need this particular return, wait.on_events accepts its exact edition or the $id of this request."),
+    ("human.issue_packet","Give the recipient of your existing open or taken human request a finished or revised delivery. Replace its files together with edition-specific instructions; the human's original action, claim and reports are preserved."),
     ("human.withdraw","Withdraw your own open request for human action by its exact current revision. A request already taken by a human must be discussed with that person."),
 ];
 
@@ -519,8 +524,10 @@ pub fn describe(name: &str) -> Result<Value> {
         "work.respond" => schema::<super::activity_requests::Correspond>()?,
         "result.review" => schema::<super::package_review::Review>()?,
         "result.reviews" => schema::<super::package_review::Lookup>()?,
+        "result.prior_checks" => schema::<super::activity_sources::PriorChecks>()?,
         "result.deliver" => schema::<Deliver>()?,
         "human.request" => schema::<super::human_requests::Request>()?,
+        "human.issue_packet" => schema::<super::human_requests::packet::Issue>()?,
         "human.withdraw" => schema::<super::human_requests::Withdraw>()?,
         _ => return Err(failure("missing tool schema")),
     };
@@ -619,8 +626,10 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
         "work.respond" => parse::<super::activity_requests::Correspond>(value),
         "result.review" => parse::<super::package_review::Review>(value),
         "result.reviews" => parse::<super::package_review::Lookup>(value),
+        "result.prior_checks" => parse::<super::activity_sources::PriorChecks>(value),
         "result.deliver" => parse::<Deliver>(value),
         "human.request" => parse::<super::human_requests::Request>(value),
+        "human.issue_packet" => parse::<super::human_requests::packet::Issue>(value),
         "human.withdraw" => parse::<super::human_requests::Withdraw>(value),
         _ => Err(failure(format!("unknown tool {name}"))),
     }

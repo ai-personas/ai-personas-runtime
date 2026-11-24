@@ -1,5 +1,5 @@
 //! Intersections of an infinite axis-aligned line with an exact STL surface.
-use crate::neural::{failure, store, workspace::byte_digest, Result};
+use crate::neural::{failure, store, Result};
 use clap::{Args, ValueEnum};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -26,8 +26,12 @@ impl Axis {
 #[derive(Clone, Debug, Args, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Profile {
-    /// Exact STL asset revision or byte object.
+    /// Exact STL asset revision or byte object, or the retained ZIP containing it.
     pub reference: String,
+    /// Case-sensitive member path in the referenced ZIP; omit for a standalone STL.
+    #[arg(long)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub member: Option<String>,
     /// Measure along X, Y or Z in both directions. The other coordinates are in X/Y/Z order.
     #[arg(long)]
     pub axis: Axis,
@@ -204,22 +208,23 @@ pub async fn run(
     let call = invocation.map(str::to_owned);
     tokio::task::spawn_blocking(move || {
         let mut store = store::Store::open(&root)?;
-        let (digest, bytes) = store.snapshot(|db| {
+        let source = store.snapshot(|db| {
             if let Some(work) = &work {
                 store::required(db, "work", work)?;
             }
-            let digest = byte_digest(db, &query.reference)?;
-            let bytes = store::bytes(db, &digest)?;
-            Ok((digest, bytes))
+            super::member::MeshInput::read(db, &query.reference, query.member.as_deref())
         })?;
-        let profile = analyze(&bytes, &query)?;
+        let profile = analyze(&source.bytes, &query)?;
         let mut result = json!({
             "format":"stl-line-profile-v1", "actor":actor,
             "author_kind":if call.is_some() { "persona" } else { "operator" },
             "work":work, "invocation":call, "source":query.reference,
-            "mesh":format!("object:{digest}"), "profile":profile
+            "mesh":format!("object:{}", source.digest), "profile":profile
         });
-        let digest = store.transaction(|db| store::put(db, &result))?;
+        let digest = store.transaction(|db| {
+            source.retain(db, &mut result)?;
+            store::put(db, &result)
+        })?;
         result["receipt"] = json!(format!("object:{digest}"));
         Ok(result)
     })

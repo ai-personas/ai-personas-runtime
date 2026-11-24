@@ -1,0 +1,29 @@
+{
+  "C6_dielectric": "X7R",
+  "R4_preload_ohm": 910.0,
+  "R4_schematic_pins": {
+    "R4:1": "+5V",
+    "R4:2": "GND"
+  },
+  "assumptions": [
+    "Floating square-wave output; ideal switching plus constant path resistance for the numerical illustration.",
+    "The driver’s typical 0.565 ohm is not a 12 V hot-board worst-case rating.",
+    "No factory acceptance, thermal test or physical measurement."
+  ],
+  "current_limit_resistor_ohm": 64900.00000000001,
+  "ideal_rc_divide_by_two_Hz": 49.40736441400559,
+  "illustrative_W_with_0.565_ohm_total_path": 5.116939270136654,
+  "load_ohm": 27,
+  "maximum_total_series_resistance_ohm_for_5W": 0.8854800926934026,
+  "minimum_resistor_W": 10,
+  "minimum_supply_capacity_A": 1,
+  "required_load_Irms": 0.4303314829119352,
+  "required_load_Vrms": 11.61895003862225,
+  "source_V_at_board": 12,
+  "target_W": 5,
+  "timer_R1_R2_ohm_and_C6_farad": [
+    10000.0,
+    68000.0,
+    1.0000000000000001e-07
+  ]
+}

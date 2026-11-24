@@ -117,9 +117,21 @@ fn delivery(html: &mut String, package: &SheetDelivery, files: &[SheetFile]) {
     html.push_str("</li>");
 }
 
-fn attachment(html: &mut String, file: &SheetFile) {
+fn attachment(html: &mut String, file: &SheetFile, linked: bool) {
     html.push_str("<li><div class=\"file-heading\"><h3 class=\"filename\" dir=\"auto\">");
+    if linked {
+        // URL escaping is distinct from HTML escaping. A literal #, %, ? or
+        // non-ASCII name must open the same member the issuer selected.
+        use std::fmt::Write;
+        html.push_str("<a href=\"Files/");
+        for b in file.path.bytes() {
+            if b.is_ascii_alphanumeric() || b"-._~/".contains(&b) { html.push(char::from(b)); }
+            else { write!(html, "%{b:02X}").expect("write to string"); }
+        }
+        html.push_str("\">");
+    }
     append_text(html, &file.path);
+    if linked { html.push_str("</a>"); }
     html.push_str("</h3><span class=\"size\">");
     append_text(html, &byte_count(file.bytes));
     html.push_str("</span></div><dl class=\"item-facts\">");
@@ -178,11 +190,34 @@ pub(super) fn file_section(html: &mut String, heading: &'static str, files: &[Sh
         append_text(html, &files.len().to_string());
         html.push_str(r#")</span></h2><a class="archive" href="Files.zip" download="Files.zip"><span>Download </span>Files.zip</a></div><ul class="entries">"#);
         for file in files {
-            attachment(html, file);
+            attachment(html, file, false);
         }
         html.push_str("</ul>");
     }
     html.push_str("</section>");
+}
+
+pub(super) fn recipient(
+    package: &SheetDelivery, issuer: &str, number: usize, slip: &crate::neural::tools::Dispatch,
+    reference: &str, files: &[SheetFile],
+) -> String {
+    let mut html = header(&slip.recipient, "Recipient dispatch");
+    field(&mut html, "From edition", &package.title);
+    field(&mut html, "Issuing persona", issuer);
+    field(&mut html, "Dispatch", &number.to_string());
+    html.push_str("</dl></header>");
+    prose_section(&mut html, "Your instructions", &slip.instructions);
+    html.push_str("<section><h2>Your files</h2><p>Unpack this packet, then open the files below. Their names and contents are as issued.</p><ul class=\"entries\">");
+    for file in files { attachment(&mut html, file, true); }
+    html.push_str("</ul></section>");
+    prose_section(&mut html, "Supported use at issue", &package.supported_use);
+    html.push_str("<section><h2>Remaining at issue</h2>");
+    listed_values(&mut html, &package.remaining, "None listed");
+    html.push_str("</section><footer><dl class=\"identifiers\">");
+    field(&mut html, "Delivery revision", reference);
+    field(&mut html, "Declared scope", crate::neural::human_requests::declared_scope(&package.scope));
+    html.push_str("</dl></footer></main></body></html>");
+    html
 }
 
 pub(super) fn render(request: &RequestSheet<'_>) -> String {
@@ -206,6 +241,12 @@ pub(super) fn render(request: &RequestSheet<'_>) -> String {
         field(&mut html, "Latest status", status);
         field(&mut html, "Latest revision", reference);
         html.push_str("</dl></aside>");
+        if request.newer_packet {
+            html.push_str("<p><strong>A newer field packet has been issued.</strong> This sheet and its files belong to the earlier edition. Open the current request in Studio for the replacement.</p>");
+        }
+    }
+    if let Some(packet) = request.packet {
+        prose_section(&mut html, "Field packet · issuer’s instructions", packet["instructions"].as_str().unwrap_or(""));
     }
     prose_section(&mut html, "Requested action", request.action);
     prose_section(
@@ -238,8 +279,6 @@ pub(super) fn render(request: &RequestSheet<'_>) -> String {
         append_text(&mut html, digest);
         html.push_str(r#"" data-format=""#);
         html.push_str(field_report::FORMAT);
-        html.push_str(r#"" data-limit=""#);
-        html.push_str(&field_report::MAX_BYTES.to_string());
         html.push_str("\">");
         html.push_str(include_str!("field_report.html"));
         html.push_str("</section><script>");

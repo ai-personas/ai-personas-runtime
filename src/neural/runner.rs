@@ -562,7 +562,7 @@ async fn external(
         }
         "geometry.inspect_stl" => {
             let input:super::geometry::Inspect=serde_json::from_value(op.input.clone())?;
-            super::geometry::inspect(root,&input.reference).await
+            super::geometry::inspect(root,input).await
         }
         "workspace.list" => {
             let page:tools::ListDirectory=serde_json::from_value(op.input.clone())?;

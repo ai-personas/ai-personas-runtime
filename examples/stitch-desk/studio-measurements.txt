@@ -1,0 +1,7 @@
+RIGHT_RETURN.dst
+SHA-256: 92c11551b812aedccdf2da823fd407d9e0dedd98ed744cc84be8420592531ea6
+Tajima DST · front view (+X right, +Y up)
+32.0 × 16.0 mm sewn
+Needle positions: X -16.0…16.0 mm, Y -8.0…8.0 mm; center (0.00, 0.00) mm
+All movement including origin: X -16.0…16.0 mm, Y -8.0…8.0 mm
+110 needle records · 2 jumps · 0 changes · 1 sewn blocks

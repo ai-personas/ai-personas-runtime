@@ -1,0 +1,1 @@
+Extract ZIP and follow README.txt. Slice P124_nest.stl in millimetres at 100%, broad flat base down, supports off, PLA and 0.4 mm nozzle. No CAD edits or mesh repair required. Observe the pre-use checks and gentle edge-only loading/lifting instructions; physical validation remains unperformed.

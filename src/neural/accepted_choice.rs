@@ -130,6 +130,10 @@ impl Choice {
         sequence > self.first && self.last.is_none_or(|last| sequence <= last)
     }
 
+    pub(super) fn finished_before(&self, sequence: i64) -> bool {
+        self.last.is_some_and(|last| last < sequence)
+    }
+
     /// Resolve issued handles in the accepted operation order. Each result
     /// must be the unique synchronous event for that operation in this call.
     pub(super) fn operation(
@@ -277,7 +281,7 @@ impl Choice {
                         .as_object()
                         .is_some_and(|values| values.iter().all(|(k, v)| b.get(k) == Some(v)))
             }
-            "human.request" | "human.withdraw" => {
+            "human.request" | "human.issue_packet" | "human.withdraw" => {
                 record.reference.kind == "human_request"
                     && b["requester"] == snapshot.actor
                     && b["work"] == snapshot.work

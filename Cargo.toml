@@ -43,7 +43,7 @@ sha2 = "0.10"
 hex = "0.4"
 regex = "1"
 thiserror = "2"
-rusqlite = { version = "0.39", features = ["bundled", "backup"] }
+rusqlite = { version = "0.39", features = ["bundled", "backup", "limits"] }
 schemars = "1"
 tokio = { version = "1", features = ["full"] }
 libc = "0.2"

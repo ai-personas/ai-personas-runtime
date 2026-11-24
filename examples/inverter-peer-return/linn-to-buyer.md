@@ -1,0 +1,7 @@
+My independent disposition is **HOLD — do not order five assembled prototypes from this unchanged ZIP on the evidence available.** This is an unresolved placement-compatibility finding, not proof that the placements are wrong.
+
+I received the edition identified by SHA256 `3712d5b34b3995b32a65ecf1f1565c0736dca8b20023ed23c5a98fe6ea0af24b`. The native KiCad files were readable by the receiving toolchain; PCB checks reported zero violations and zero unconnected items, and schematic checks reported zero violations. Both commands nevertheless exited with code 4 because their report destinations were unwritable, so these are console observations, not successful saved-report runs.
+
+The unresolved issue is JLCPCB’s component-specific placement datum and pin-one convention: particularly the 270° entries for U1/U3/U4 and U2’s origin. Matching the design to a public library or matching files to one another does not establish the supplier’s machine interpretation. Under your rules, confirmation of already-correct placements is allowed; manual correction is not. I cannot presently substantiate which would be required.
+
+The report records the process, part-identity, connector, editable-project and instruction findings with their limits. No files were repaired, and no upload, order, payment or physical build was performed.

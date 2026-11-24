@@ -109,9 +109,9 @@ impl Contribution {
                 edition(s(body, "reference"), "delivery:")?;
                 Some(Self::Issue)
             }
-            "human_request" | "human_request_withdrawn" if target == "user" => {
+            "human_request" | "human_request_packet" | "human_request_withdrawn" if target == "user" => {
                 edition(s(body, "reference"), "human_request:")?;
-                Some(if kind == "human_request" {
+                Some(if kind != "human_request_withdrawn" {
                     Self::Request
                 } else {
                     Self::Withdrawal
@@ -554,6 +554,7 @@ impl App {
             }
             _ => {
                 let text = match row.kind {
+                    Request if event["kind"] == "human_request_packet" => s(body, "text"),
                     ReceivingCheck => s(body, "purpose"),
                     Request => s(body, "action"),
                     Withdrawal => s(body, "reason"),

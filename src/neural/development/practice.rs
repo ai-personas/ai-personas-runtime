@@ -34,7 +34,7 @@ pub enum Action {
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Plan {
-    /// Exact outcome from supplied action evidence, or the original outcome read in full together with your acting decision. Do not use the receipt for reading it.
+    /// Exact event from action_results, recalled or retained action evidence, or a full read of an outcome together with the full read of your acting decision. Use the original outcome, not the receipt for reading it.
     pub outcome: String,
     /// Situation in which this behavioral contrast matters to you. Not a global rule.
     pub when: String,
@@ -187,7 +187,7 @@ pub(in crate::neural) fn consider(
         episode["decision"].as_str().ok_or_else(|| failure("Missing earlier acting decision"))?.to_owned()
     } else {
         experience::action::acting_from_reads(db, s, &plan.outcome)?.ok_or_else(|| failure(
-            "For an older outcome, read the acting decision together with its operation result, a direct reply, or feedback addressed to its exact issued edition."
+            "Choose an actual result of your action. For an older result, select the acting decision and its original operation result, direct reply or feedback addressed to its exact issued edition together in next_context.references."
         ))?
     };
     observed_experience(db, s, &acting)?;

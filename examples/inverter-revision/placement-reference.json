@@ -1,0 +1,562 @@
+{
+  "C13527": {
+    "datum": "Published footprint XY in mm relative to its library origin; xy_mm increases downward. model_center_xy_up_mm is the separately published 3D origin offset expressed in metric Cartesian XY.",
+    "land_pattern": "SOIC-14_L8.7-W3.9-P1.27-LS6.0-BL",
+    "model_center_xy_up_mm": [
+      0.0,
+      2.540000005137699e-05
+    ],
+    "numbered_pads": [
+      {
+        "number": "8",
+        "xy_mm": [
+          3.81,
+          -2.618994000000038
+        ]
+      },
+      {
+        "number": "9",
+        "xy_mm": [
+          2.54,
+          -2.618994000000038
+        ]
+      },
+      {
+        "number": "10",
+        "xy_mm": [
+          1.27,
+          -2.618994000000038
+        ]
+      },
+      {
+        "number": "11",
+        "xy_mm": [
+          0.0,
+          -2.618994000000038
+        ]
+      },
+      {
+        "number": "12",
+        "xy_mm": [
+          -1.27,
+          -2.618994000000038
+        ]
+      },
+      {
+        "number": "13",
+        "xy_mm": [
+          -2.54,
+          -2.618994000000038
+        ]
+      },
+      {
+        "number": "14",
+        "xy_mm": [
+          -3.81,
+          -2.618994000000038
+        ]
+      },
+      {
+        "number": "7",
+        "xy_mm": [
+          3.81,
+          2.618994000000038
+        ]
+      },
+      {
+        "number": "6",
+        "xy_mm": [
+          2.54,
+          2.618994000000038
+        ]
+      },
+      {
+        "number": "5",
+        "xy_mm": [
+          1.27,
+          2.618994000000038
+        ]
+      },
+      {
+        "number": "4",
+        "xy_mm": [
+          0.0,
+          2.618994000000038
+        ]
+      },
+      {
+        "number": "3",
+        "xy_mm": [
+          -1.27,
+          2.618994000000038
+        ]
+      },
+      {
+        "number": "2",
+        "xy_mm": [
+          -2.54,
+          2.618994000000038
+        ]
+      },
+      {
+        "number": "1",
+        "xy_mm": [
+          -3.81,
+          2.618994000000038
+        ]
+      }
+    ],
+    "retrieved_utc": "2026-11-23T06:46:27+00:00",
+    "source": "https://easyeda.com/api/products/C13527/components?version=6.5.22",
+    "source_sha256": "2e08f4823d694f62997573f772d4fbab0d719e232766225f722964bf8f5f8a4b"
+  },
+  "C17414": {
+    "datum": "Published footprint XY in mm relative to its library origin; xy_mm increases downward. model_center_xy_up_mm is the separately published 3D origin offset expressed in metric Cartesian XY.",
+    "land_pattern": "R0805",
+    "model_center_xy_up_mm": [
+      -1.4130020000000258,
+      -0.0
+    ],
+    "numbered_pads": [
+      {
+        "number": "2",
+        "xy_mm": [
+          0.9999979999999742,
+          0.0
+        ]
+      },
+      {
+        "number": "1",
+        "xy_mm": [
+          -0.9999979999999742,
+          0.0
+        ]
+      }
+    ],
+    "retrieved_utc": "2026-11-23T06:46:27+00:00",
+    "source": "https://easyeda.com/api/products/C17414/components?version=6.5.22",
+    "source_sha256": "ffa5015163c42c4e9fd7a30a5e87a55fd55acb105dc1d3f3df294a190fc641df"
+  },
+  "C17865": {
+    "datum": "Published footprint XY in mm relative to its library origin; xy_mm increases downward. model_center_xy_up_mm is the separately published 3D origin offset expressed in metric Cartesian XY.",
+    "land_pattern": "R0805",
+    "model_center_xy_up_mm": [
+      -1.4130020000000258,
+      -0.0
+    ],
+    "numbered_pads": [
+      {
+        "number": "2",
+        "xy_mm": [
+          0.9999979999999742,
+          0.0
+        ]
+      },
+      {
+        "number": "1",
+        "xy_mm": [
+          -0.9999979999999742,
+          0.0
+        ]
+      }
+    ],
+    "retrieved_utc": "2026-11-23T06:46:27+00:00",
+    "source": "https://easyeda.com/api/products/C17865/components?version=6.5.22",
+    "source_sha256": "c3e4e4a404fe3a56aeeebd11909152fbe588c9fe1f5bc0e2b48e0bce8ee8235b"
+  },
+  "C2836442": {
+    "datum": "Published footprint XY in mm relative to its library origin; xy_mm increases downward. model_center_xy_up_mm is the separately published 3D origin offset expressed in metric Cartesian XY.",
+    "land_pattern": "CAP-SMD_BD6.3-L6.6-W6.6-LS7.4-FD",
+    "model_center_xy_up_mm": [
+      -0.00010159999997449632,
+      -0.00017780000001312146
+    ],
+    "numbered_pads": [
+      {
+        "number": "1",
+        "xy_mm": [
+          -2.6699210000000178,
+          0.0
+        ]
+      },
+      {
+        "number": "2",
+        "xy_mm": [
+          2.6699210000000178,
+          0.0
+        ]
+      }
+    ],
+    "retrieved_utc": "2026-11-23T06:46:27+00:00",
+    "source": "https://easyeda.com/api/products/C2836442/components?version=6.5.22",
+    "source_sha256": "185bd6d72043ab894adc19e3fe87ce5c5718a70bc3573c8083ff154298791749"
+  },
+  "C2907283": {
+    "datum": "Published footprint XY in mm relative to its library origin; xy_mm increases downward. model_center_xy_up_mm is the separately published 3D origin offset expressed in metric Cartesian XY.",
+    "land_pattern": "R0805",
+    "model_center_xy_up_mm": [
+      -1.4130020000000258,
+      -0.0
+    ],
+    "numbered_pads": [
+      {
+        "number": "2",
+        "xy_mm": [
+          0.9999979999999742,
+          0.0
+        ]
+      },
+      {
+        "number": "1",
+        "xy_mm": [
+          -0.9999979999999742,
+          0.0
+        ]
+      }
+    ],
+    "retrieved_utc": "2026-11-23T06:46:28+00:00",
+    "source": "https://easyeda.com/api/products/C2907283/components?version=6.5.22",
+    "source_sha256": "88ec2016124a28a0eab862d510674230ec56199cd9943dbd08f7043d5509c710"
+  },
+  "C2933485": {
+    "datum": "Published footprint XY in mm relative to its library origin; xy_mm increases downward. model_center_xy_up_mm is the separately published 3D origin offset expressed in metric Cartesian XY.",
+    "land_pattern": "R0805",
+    "model_center_xy_up_mm": [
+      -1.4130020000000258,
+      -0.0
+    ],
+    "numbered_pads": [
+      {
+        "number": "2",
+        "xy_mm": [
+          0.9999979999999742,
+          0.0
+        ]
+      },
+      {
+        "number": "1",
+        "xy_mm": [
+          -0.9999979999999742,
+          0.0
+        ]
+      }
+    ],
+    "retrieved_utc": "2026-11-23T06:46:29+00:00",
+    "source": "https://easyeda.com/api/products/C2933485/components?version=6.5.22",
+    "source_sha256": "72e7d734a369fc20acc96a9c774a14b463bdab4122a328807b7594bc6999e43c"
+  },
+  "C309049": {
+    "datum": "Published footprint XY in mm relative to its library origin; xy_mm increases downward. model_center_xy_up_mm is the separately published 3D origin offset expressed in metric Cartesian XY.",
+    "land_pattern": "C0805",
+    "model_center_xy_up_mm": [
+      -1.4130020000000258,
+      -0.0
+    ],
+    "numbered_pads": [
+      {
+        "number": "2",
+        "xy_mm": [
+          0.9999979999999742,
+          0.0
+        ]
+      },
+      {
+        "number": "1",
+        "xy_mm": [
+          -0.9999979999999742,
+          0.0
+        ]
+      }
+    ],
+    "retrieved_utc": "2026-11-23T06:46:28+00:00",
+    "source": "https://easyeda.com/api/products/C309049/components?version=6.5.22",
+    "source_sha256": "2603335206d88dc50e86698fd8c35562d292afc227180f07e2f66f75b6e948b4"
+  },
+  "C49678": {
+    "datum": "Published footprint XY in mm relative to its library origin; xy_mm increases downward. model_center_xy_up_mm is the separately published 3D origin offset expressed in metric Cartesian XY.",
+    "land_pattern": "C0805",
+    "model_center_xy_up_mm": [
+      -1.4130020000000258,
+      -0.0
+    ],
+    "numbered_pads": [
+      {
+        "number": "2",
+        "xy_mm": [
+          0.9999979999999742,
+          0.0
+        ]
+      },
+      {
+        "number": "1",
+        "xy_mm": [
+          -0.9999979999999742,
+          0.0
+        ]
+      }
+    ],
+    "retrieved_utc": "2026-11-23T06:46:29+00:00",
+    "source": "https://easyeda.com/api/products/C49678/components?version=6.5.22",
+    "source_sha256": "0fdedc3c30b490b1f3bcf7294aaa2730e555bcc699c24ca986761e7d7c26e498"
+  },
+  "C519911": {
+    "datum": "Published footprint XY in mm relative to its library origin; xy_mm increases downward. model_center_xy_up_mm is the separately published 3D origin offset expressed in metric Cartesian XY.",
+    "land_pattern": "C0805",
+    "model_center_xy_up_mm": [
+      -1.4130020000000258,
+      -0.0
+    ],
+    "numbered_pads": [
+      {
+        "number": "2",
+        "xy_mm": [
+          0.9999979999999742,
+          0.0
+        ]
+      },
+      {
+        "number": "1",
+        "xy_mm": [
+          -0.9999979999999742,
+          0.0
+        ]
+      }
+    ],
+    "retrieved_utc": "2026-11-23T06:46:28+00:00",
+    "source": "https://easyeda.com/api/products/C519911/components?version=6.5.22",
+    "source_sha256": "d70a286c707dbdab0a0fecd783d3d045c6f9dd118a583d85e0100a66e7b49def"
+  },
+  "C6987": {
+    "datum": "Published footprint XY in mm relative to its library origin; xy_mm increases downward. model_center_xy_up_mm is the separately published 3D origin offset expressed in metric Cartesian XY.",
+    "land_pattern": "SOIC-8_L4.9-W3.9-P1.27-LS6.0-BL",
+    "model_center_xy_up_mm": [
+      0.0,
+      -0.0
+    ],
+    "numbered_pads": [
+      {
+        "number": "5",
+        "xy_mm": [
+          1.905,
+          -2.5999439999999687
+        ]
+      },
+      {
+        "number": "6",
+        "xy_mm": [
+          0.635,
+          -2.5999439999999687
+        ]
+      },
+      {
+        "number": "7",
+        "xy_mm": [
+          -0.635,
+          -2.5999439999999687
+        ]
+      },
+      {
+        "number": "8",
+        "xy_mm": [
+          -1.905,
+          -2.5999439999999687
+        ]
+      },
+      {
+        "number": "4",
+        "xy_mm": [
+          1.905,
+          2.5999439999999687
+        ]
+      },
+      {
+        "number": "3",
+        "xy_mm": [
+          0.635,
+          2.5999439999999687
+        ]
+      },
+      {
+        "number": "2",
+        "xy_mm": [
+          -0.635,
+          2.5999439999999687
+        ]
+      },
+      {
+        "number": "1",
+        "xy_mm": [
+          -1.905,
+          2.5999439999999687
+        ]
+      }
+    ],
+    "retrieved_utc": "2026-11-23T06:46:29+00:00",
+    "source": "https://easyeda.com/api/products/C6987/components?version=6.5.22",
+    "source_sha256": "aedc91cecd9272c9d640e526165c23fbc1b5b9bb141d7be5beffcc7fddefe9b0"
+  },
+  "C75864": {
+    "datum": "Published footprint XY in mm relative to its library origin; xy_mm increases downward. model_center_xy_up_mm is the separately published 3D origin offset expressed in metric Cartesian XY.",
+    "land_pattern": "SO-8_L4.9-W3.9-P1.27-LS6.0-BL-EP",
+    "model_center_xy_up_mm": [
+      0.00010159999998893454,
+      -5.080000000168638e-05
+    ],
+    "numbered_pads": [
+      {
+        "number": "8",
+        "xy_mm": [
+          -1.9049746000000065,
+          -3.0000193999999882
+        ]
+      },
+      {
+        "number": "1",
+        "xy_mm": [
+          -1.9049746000000065,
+          2.999968600000001
+        ]
+      },
+      {
+        "number": "7",
+        "xy_mm": [
+          -0.6349746000000064,
+          -3.0000193999999882
+        ]
+      },
+      {
+        "number": "6",
+        "xy_mm": [
+          0.6350253999999936,
+          -3.0000193999999882
+        ]
+      },
+      {
+        "number": "5",
+        "xy_mm": [
+          1.9050253999999935,
+          -3.0000193999999882
+        ]
+      },
+      {
+        "number": "2",
+        "xy_mm": [
+          -0.6349746000000064,
+          2.999968600000001
+        ]
+      },
+      {
+        "number": "3",
+        "xy_mm": [
+          0.6350253999999936,
+          2.999968600000001
+        ]
+      },
+      {
+        "number": "4",
+        "xy_mm": [
+          1.9050253999999935,
+          2.999968600000001
+        ]
+      },
+      {
+        "number": "9",
+        "xy_mm": [
+          2.539999999362408e-05,
+          -2.539999999362408e-05
+        ]
+      }
+    ],
+    "retrieved_utc": "2026-11-23T06:46:30+00:00",
+    "source": "https://easyeda.com/api/products/C75864/components?version=6.5.22",
+    "source_sha256": "75c2fcc84638b9ff4fa7883fd5646a0926c182234b292c8298c462fcbbfe6bac"
+  },
+  "C77075": {
+    "datum": "Published footprint XY in mm relative to its library origin; xy_mm increases downward. model_center_xy_up_mm is the separately published 3D origin offset expressed in metric Cartesian XY.",
+    "land_pattern": "C0805",
+    "model_center_xy_up_mm": [
+      -1.4130020000000258,
+      -0.0
+    ],
+    "numbered_pads": [
+      {
+        "number": "2",
+        "xy_mm": [
+          0.9999979999999742,
+          0.0
+        ]
+      },
+      {
+        "number": "1",
+        "xy_mm": [
+          -0.9999979999999742,
+          0.0
+        ]
+      }
+    ],
+    "retrieved_utc": "2026-11-23T06:46:30+00:00",
+    "source": "https://easyeda.com/api/products/C77075/components?version=6.5.22",
+    "source_sha256": "2246ef3db512f214354b7a879ee6f1038bb852985378e3190eaf71661331e57b"
+  },
+  "C8269": {
+    "datum": "Published footprint XY in mm relative to its library origin; xy_mm increases downward. model_center_xy_up_mm is the separately published 3D origin offset expressed in metric Cartesian XY.",
+    "land_pattern": "CONN-TH_2P-P5.00_WJ128V-5.0-2P",
+    "model_center_xy_up_mm": [
+      -0.19999959999999772,
+      -0.0
+    ],
+    "numbered_pads": [
+      {
+        "number": "1",
+        "xy_mm": [
+          -2.5044400000000033,
+          0.0
+        ]
+      },
+      {
+        "number": "2",
+        "xy_mm": [
+          2.5044400000000033,
+          0.0
+        ]
+      }
+    ],
+    "retrieved_utc": "2026-11-23T06:46:30+00:00",
+    "source": "https://easyeda.com/api/products/C8269/components?version=6.5.22",
+    "source_sha256": "76f49ccd6cc135cb8fc0619e10206eae900781492f9c1d4ee7834408a3b981a3"
+  },
+  "C86206": {
+    "datum": "Published footprint XY in mm relative to its library origin; xy_mm increases downward. model_center_xy_up_mm is the separately published 3D origin offset expressed in metric Cartesian XY.",
+    "land_pattern": "TO-263-2_L10.0-W9.2-P5.08-LS15.3-TL-CW",
+    "model_center_xy_up_mm": [
+      1.3750035999999772,
+      0.0020066000000160786
+    ],
+    "numbered_pads": [
+      {
+        "number": "2",
+        "xy_mm": [
+          5.3975,
+          0.0
+        ]
+      },
+      {
+        "number": "3",
+        "xy_mm": [
+          -5.3975,
+          2.54
+        ]
+      },
+      {
+        "number": "1",
+        "xy_mm": [
+          -5.3975,
+          -2.54
+        ]
+      }
+    ],
+    "retrieved_utc": "2026-11-23T06:46:30+00:00",
+    "source": "https://easyeda.com/api/products/C86206/components?version=6.5.22",
+    "source_sha256": "30b0c89af560929533b8fd4575559556b9600bbd65c9cfad9795c425d887ace2"
+  }
+}

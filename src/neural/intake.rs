@@ -54,10 +54,16 @@ pub fn inspect(db: &Connection, work: &str, page: &Page) -> Result<Value> {
     })?.collect::<rusqlite::Result<Vec<_>>>()?;
     let setup = store::head(db, "project_start", "working-directory")?
         .map(|_| store::exact(db, "project_start:working-directory@1")).transpose()?;
+    let edition = original.body["from_edition"].as_str().map(|reference| -> Result<Value> {
+        let issued = super::delivery_feedback::issued(db, reference)?;
+        let body = &issued.record.body;
+        Ok(json!({"reference":reference, "title":body["title"], "owner":body["owner"], "work":body["work"]}))
+    }).transpose()?;
     Ok(json!({"work":work,"opening":{"brief":original.reference.handle(),"requester":original.body["requester"],
         "source":if origin.is_some(){"persona"}else{"operator"},"decision":origin.as_ref().map(|o|&o.decision),
         "source_work":origin.as_ref().map(|o|&o.parent),"created":created,
-        "need":original.body["original_need"],"files":original.body.get("materials").cloned().unwrap_or_else(||json!([]))},
+        "need":original.body["original_need"],"from_edition":edition,
+        "files":original.body.get("materials").cloned().unwrap_or_else(||json!([]))},
         "project_at_workspace_setup":setup,"through_event":end,"offset":page.offset,"page_size":page.page_size,
         "event_count":counts.values().sum::<i64>(),"event_kinds":counts,"events":events,
         "scope":"Events in this activity without a linked persona decision, including invitations and host controls. Not every entry is human input. This is not a log of files or services used by programs."}))

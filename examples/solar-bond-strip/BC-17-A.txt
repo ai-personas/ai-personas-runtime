@@ -1,0 +1,44 @@
+EXHIBIT SHOP   |   BC-17   |   REV A   |   mm
+Rear mounting adhesive for an unwired Voltaic P124 R4G
+
+Controlling component drawing: Voltaic Systems P124_dwg.pdf, R4G,
+2025-10-31, sheet 1 (rear view for solder pad features). Apply its general
+tolerance wherever a linear dimension has no individual tolerance. Use the
+finished module edges, including EVA. The two square pads have the common
+top location shown; allow each pad's width and height their own tolerance.
+
+Application drawing: look straight at the BACK of the panel, pads at the
+top. X goes right, Y goes down; panel upper-left is (0,0), finished panel
+width is W. The adhesive lies on the back. No part goes on the cell face.
+
+Placement: the nominal art's upper-right bounding-box datum lands at
+(W-2.00, 2.00). Independent setup errors are +/-0.35 in X and Y. Axes are
+aligned (no additional rotation, scale or skew). In this coordinate setup
+the actual tape may recede from or extend beyond its ideal cut boundary
+by 0.15 independently along either axis. Thus the finished material is
+bounded by square erosion and dilation of the nominal profile (+/-0.15
+in each coordinate). This allowance includes cutting; no extra offset is
+to be applied by the recipient.
+
+Functional requirements at every allowed component size, feature position,
+placement and cut:
+  * All adhesive is at least 1.00 inside the module's left, right and top
+    edges. No adhesive below Y=30.00.
+  * Keep one uninterrupted wire-exit aisle free of adhesive: from the top
+    of the panel down to 1.00 below the lowest pad edge, across the ENTIRE
+    pair including the gap, with 1.00 clear beyond each outer pad edge.
+  * The bracket's left bond land must be completely covered: X=5..19,
+    Y=6..17. Its right land must be completely covered: X=W-19..W-5,
+    Y=6..17. The transverse land X=5..W-5, Y=25..27 must also be covered.
+  * One continuous piece after cutting, minimum finished adhesive area
+    1150 square mm. No loose inner islands or separate strips.
+
+Shop interface: single straight-segment closed vector contour in one
+1:1 SVG with physical millimetre dimensions. No text or registration
+marks to cut. Supply art in the rear view above. Shop uses a digital
+knife on supported double-sided tape stock; the displayed face goes
+toward the installer while aligning it on the module back. Include the
+short placement/use directions with the cutting file in a ZIP. The
+operator can load artwork and position a first article, not redraw it.
+Qualification here is dimensional; peel strength, tape selection for
+the final substrates and actual cutting/installation are physical work.

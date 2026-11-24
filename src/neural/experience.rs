@@ -6,6 +6,8 @@ use std::collections::BTreeSet;
 
 pub(super) mod action;
 mod outcome_sources;
+mod receiving;
+pub(super) mod prior_checks;
 pub(super) mod recall;
 
 const EVENTS: &str = "SELECT 'event-' || e.seq AS id, e.work,e.actor,e.target,e.kind,e.digest,
@@ -223,6 +225,21 @@ pub(super) fn responses_to_call(
         replies.push(json!({"experience":e.metadata()["reference"],"sequence":e.id.trim_start_matches("event-").parse::<i64>()?,"author":e.actor,"kind":e.kind,
             "relation":relation,"target":target}));
     }
+    // Unlike a reply, the checker can also be the issuer exercising their own edition.
+    let sql = format!("{EVENTS} JOIN objects b ON e.digest=b.digest WHERE e.kind='delivery_check'
+        AND e.work=?1 AND e.target=?2 AND EXISTS (SELECT 1 FROM versions v WHERE v.kind='delivery'
+        AND v.invocation=?3 AND 'delivery:'||v.id||'@'||v.revision=json_extract(CAST(b.bytes AS TEXT),'$.delivery'))");
+    let mut checks = db.prepare_cached(&sql)?;
+    for row in checks.query_map(params![work,actor,call], Experience::row)? {
+        let event = row?;
+        let body: Value = store::object(db, &event.digest)?;
+        let Ok(linked) = receiving::link(db, &event, &body) else { continue };
+        if linked.call == call {
+            replies.push(json!({"experience":event.metadata()["reference"],"sequence":event.id[6..].parse::<i64>()?,
+                "author":event.actor,"kind":"delivery_check","relation":"receiving_check","target":linked.edition,
+                "checking_work":body["checking_work"],"receipt":body["receipt"]}));
+        }
+    }
     replies.extend(super::asset_feedback::responses(db, actor, call)?);
     replies.sort_by_key(|r|r["sequence"].as_i64());
     Ok(replies)
@@ -248,6 +265,9 @@ pub(super) fn availability(db: &Connection, actor: &str, work: &str) -> Result<V
     if let Some(feedback) = super::delivery_feedback::latest_elsewhere(db, actor, work)? {
         available["latest_delivery_feedback_elsewhere"] = feedback;
     }
+    if let Some(pointer) = receiving::elsewhere(db, actor, work)? {
+        available["latest_peer_receiving_check_elsewhere"] = pointer;
+    }
     Ok(available)
 }
 
@@ -256,6 +276,13 @@ pub(super) fn read(db: &Connection, actor: Option<&str>, reference: &str) -> Res
     let mut event = item.metadata();
     event["body"] = store::object(db, &item.digest)?;
     let mut result = json!({"reference":reference});
+    if item.kind == "delivery_check" {
+        match receiving::link(db, &item, &event["body"]) {
+            Ok(linked) => result["issuance_checked"] = json!({"decision":format!("experience:{}@1",linked.call),
+                "issuer":item.target,"operation":linked.operation,"delivery":linked.edition,"checking_call":item.invocation}),
+            Err(_) => result["issuance_link_status"] = json!("unavailable"),
+        }
+    }
     if item.kind == "accepted_decision" {
         let (snapshot, receipt): (String, Option<String>) = db.query_row(
             "SELECT snapshot,receipt FROM invocations WHERE id=?1",

@@ -182,10 +182,14 @@ pub fn parameters(ui: &mut Ui, value: &serde_json::Value) {
 }
 
 type Series = Vec<(String, Vec<Option<[f64; 2]>>)>;
+#[derive(Clone, Copy, PartialEq)]
+enum Layout { Table, Record, Plot }
+
 pub struct TableView {
     series: Series,
     selection: Option<(bool, Option<usize>, BTreeSet<usize>)>,
-    plot: bool,
+    layout: Layout,
+    record: usize, // position in the current (possibly filtered) data rows
     header: bool,
     page: usize,
     x: Option<usize>,
@@ -201,7 +205,8 @@ impl Default for TableView {
         Self {
             series: Vec::new(),
             selection: None,
-            plot: false,
+            layout: Layout::Table,
+            record: 0,
             header: true,
             page: 0,
             x: None,
@@ -244,8 +249,10 @@ impl TableView {
             self.initialized = true;
         }
         ui.horizontal_wrapped(|ui| {
-            ui.selectable_value(&mut self.plot, false, "Table");
-            ui.selectable_value(&mut self.plot, true, "Plot");
+            ui.selectable_value(&mut self.layout, Layout::Table, "Table");
+            ui.selectable_value(&mut self.layout, Layout::Record, "Record")
+                .on_hover_text("Read one row with its column names and copy individual fields");
+            ui.selectable_value(&mut self.layout, Layout::Plot, "Plot");
             ui.checkbox(&mut self.header, "First row is column names");
             ui.weak(format!(
                 "{} rows · {columns} columns",
@@ -256,14 +263,14 @@ impl TableView {
             if self.header {
                 rows.first()
                     .and_then(|r| r.get(c))
-                    .cloned()
+                    .filter(|name| !name.is_empty()).cloned()
                     .unwrap_or_else(|| format!("Column {}", c + 1))
             } else {
                 format!("Column {}", c + 1)
             }
         };
         let data = &rows[usize::from(self.header).min(rows.len())..];
-        if self.plot {
+        if self.layout == Layout::Plot {
             ui.horizontal_wrapped(|ui| {
                 ui.label("Horizontal axis");
                 egui::ComboBox::from_id_salt("plot-x")
@@ -326,6 +333,7 @@ impl TableView {
                 .desired_width(ui.available_width().min(330.))).changed();
             if changed || self.filter_header != Some(self.header) {
                 self.page = 0;
+                self.record = 0;
                 self.matches.clear();
                 let needle = self.filter.trim().to_lowercase();
                 if !needle.is_empty() {
@@ -338,6 +346,27 @@ impl TableView {
             let count = if filtered { self.matches.len() } else { data.len() };
             if filtered { ui.small(format!("Matching rows: {count} of {}", data.len())); }
             if count == 0 && filtered { return; }
+            if self.layout == Layout::Record {
+                if count == 0 { ui.weak("No data rows."); return; }
+                self.record = self.record.min(count - 1);
+                ui.horizontal_wrapped(|ui| {
+                    if ui.add_enabled(self.record > 0, egui::Button::new("Previous")).clicked() {
+                        self.record -= 1;
+                    }
+                    let mut position = self.record + 1;
+                    ui.add(egui::DragValue::new(&mut position).range(1..=count))
+                        .on_hover_text("Go to a record in the current results");
+                    self.record = position - 1;
+                    ui.weak(format!("of {count}"));
+                    if ui.add_enabled(position < count, egui::Button::new("Next")).clicked() {
+                        self.record += 1;
+                    }
+                });
+                self.page = self.record / PAGE;
+                let index = if filtered { self.matches[self.record] } else { self.record };
+                record_sheet(ui, index, &data[index], columns, &label);
+                return;
+            }
             let pages = count.div_ceil(PAGE).max(1);
             self.page = self.page.min(pages - 1);
             ui.horizontal(|ui| {
@@ -346,6 +375,7 @@ impl TableView {
                     .clicked()
                 {
                     self.page -= 1;
+                    self.record = self.page * PAGE;
                 }
                 ui.label(format!("Page {} / {pages}", self.page + 1));
                 if ui
@@ -353,6 +383,7 @@ impl TableView {
                     .clicked()
                 {
                     self.page += 1;
+                    self.record = self.page * PAGE;
                 }
             });
             egui::ScrollArea::both()
@@ -370,7 +401,10 @@ impl TableView {
                             for position in self.page * PAGE..((self.page + 1) * PAGE).min(count) {
                                 let i = if filtered { self.matches[position] } else { position };
                                 let row = &data[i];
-                                ui.weak((i + 1).to_string());
+                                if ui.link((i + 1).to_string()).on_hover_text("Read this record").clicked() {
+                                    self.record = position;
+                                    self.layout = Layout::Record;
+                                }
                                 for c in 0..columns {
                                     ui.add(
                                         egui::Label::new(
@@ -387,6 +421,38 @@ impl TableView {
         }
     }
 }
+
+/// A vertical reading surface for wide registers, including long filenames and
+/// hashes. Labels are presentation; copying always takes the parsed cell verbatim.
+fn record_sheet(ui: &mut Ui, index: usize, row: &[String], columns: usize, label: &impl Fn(usize) -> String) {
+    let palette = theme::palette(ui);
+    egui::ScrollArea::vertical().id_salt(("record-sheet", index)).auto_shrink([false, true]).show(ui, |ui| {
+        egui::Frame::new().fill(palette.panel).stroke(egui::Stroke::new(1., palette.border))
+            .inner_margin(12).corner_radius(6).show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.strong(format!("Row {}", index + 1));
+                for c in 0..columns {
+                    ui.separator();
+                    let name = label(c);
+                    let cell = row.get(c);
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(RichText::new(&name).small().strong().color(palette.muted));
+                        if let Some(value) = cell {
+                            if ui.small_button("Copy").on_hover_text(format!("Copy {name}")).clicked() {
+                                ui.ctx().copy_text(value.clone());
+                            }
+                        }
+                    });
+                    match cell {
+                        None => { ui.weak("No cell in this row"); }
+                        Some(v) if v.is_empty() => { ui.weak("Empty value"); }
+                        Some(v) => { ui.add(egui::Label::new(v.as_str()).selectable(true).wrap()); }
+                    }
+                }
+            });
+    });
+}
+
 fn plot(ui: &mut Ui, series: &[(String, Vec<Option<[f64; 2]>>)], x_label: &str, height: f32) {
     let p = theme::palette(ui);
     let colors = [

@@ -1021,6 +1021,9 @@ impl App {
             if let Some(recovery) = self.snapshot.inference_recovery.get(id).filter(|_| !invited) {
                 let seconds = recovery["not_before_unix"].as_i64().unwrap_or(0)
                     .saturating_sub(ai_personas::neural::now());
+                if recovery["cause"] == "provider_overload" && seconds > 0 {
+                    return format!("Provider busy · retry in {seconds}s");
+                }
                 return if seconds > 0 { format!("Inference recovery · {seconds}s") }
                     else { "Inference recovery eligible".into() };
             }
@@ -1840,7 +1843,7 @@ impl App {
                         }
                         let path=s(&self.preview_metadata,"path");
                         if (path.to_ascii_lowercase().ends_with(".stl") || self.preview_metadata["format"]=="stl") && ui.small_button("Measure mesh…").clicked() {
-                            self.mesh_profile.open(ui.ctx(),&self.root,&self.operator,&self.selected_reference,&self.work);
+                            self.mesh_profile.open(ui.ctx(),&self.root,&self.operator,&self.selected_reference,&self.work,None);
                         }
                         if self.selected_reference.starts_with("asset:") && path.to_ascii_lowercase().ends_with(".scad") && ui.button("Render model…").clicked() {
                             self.dialog=Some(Dialog::Render(super::render::RenderDialog::new(path,&self.selected_reference)));

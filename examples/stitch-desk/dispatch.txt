@@ -1,0 +1,1 @@
+Extract the ZIP, read README.txt and compare front_preview.png. Load RIGHT_RETURN.dst without scaling or mirroring and follow the sample acceptance checks before stitching the apron.

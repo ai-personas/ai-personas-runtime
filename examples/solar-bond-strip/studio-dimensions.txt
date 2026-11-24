@@ -1,0 +1,6 @@
+BC17-A-cut.svg
+SHA-256: 9e341c85c5393f8b30244455364092803275f37ac55bc6d5b0d0f281a475697c
+SVG centerline bounds: 62.000 × 27.500 mm
+SVG page: 62.000 × 27.500 mm
+Paths: 1 closed, 0 open
+SVG page units at 96 px/in; no stroke width or tool offset included.

@@ -48,6 +48,10 @@ pub enum Command {
     /// Record the exact need and explicit invitees. Personas choose whether to accept.
     Request {
         need: String,
+        /// Start a new brief about this exact issued delivery revision.
+        #[arg(long, value_name = "DELIVERY")]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        from_edition: Option<String>,
         #[arg(long, required = true, value_delimiter = ',')]
         invite: Vec<String>,
         #[command(flatten)]
@@ -119,7 +123,7 @@ pub enum Command {
     },
     /// Inspect a selected activity, its requested activities and their participants.
     ActivityTree { work: String },
-    /// Check when a human message and its attached material reached an accepted ordinary decision.
+    /// Check receipt in the original activity, its attached material, and a later full message read elsewhere.
     MessageReceipt { event: i64 },
     /// Read a physical request's original issue, human updates and explicitly addressed requester responses.
     RequestCorrespondence {
@@ -184,7 +188,9 @@ pub enum Command {
     /// Save the exact files of one delivery or human request as a portable ZIP.
     ExportPackage { reference: String, destination: PathBuf },
     /// Save exactly the files on an issuer's numbered dispatch slip (one file unchanged, otherwise ZIP).
-    ExportDispatch { delivery: String, number: usize, destination: PathBuf },
+    ExportDispatch { delivery: String, number: usize, destination: PathBuf,
+        /// Save a printable Dispatch.html and this recipient's exact files together in a ZIP.
+        #[arg(long)] packet: bool },
     /// Save a printable issued delivery or human request and its files together.
     ExportHandoff {
         reference: String,
@@ -241,8 +247,8 @@ pub enum Command {
         #[arg(long,default_value="{}")]
         parameters: String,
     },
-    /// Measure the triangles and coordinates of a retained STL asset or byte object.
-    InspectStl { reference:String },
+    /// Measure a retained STL, standalone or at an exact path inside a ZIP.
+    InspectStl { reference:String, #[arg(long)] #[serde(skip_serializing_if="Option::is_none")] member:Option<String> },
     /// Measure a line of surface crossings and spacings on an exact retained STL.
     MeshProfile {#[arg(long)] work:Option<String>,#[command(flatten)] profile:super::geometry::profile::Profile},
     /// Find recorded renders of an exact source or mesh across activities.
@@ -313,6 +319,8 @@ pub enum Command {
     RevisionUses(super::revision_uses::Query),
     /// Trace persona-originated activities, returned answers, exact deliveries and requester feedback.
     RequestHistory { work:String, #[command(flatten)] #[serde(flatten)] query:super::activity_requests::Query },
+    /// Trace full-file receiving checks on exact revisions before they were reissued.
+    PriorFileChecks { #[arg(long)] persona:Option<String>, #[command(flatten)] #[serde(flatten)] query:super::activity_sources::PriorChecks },
     /// Find exact lifetime records visible to a persona, optionally filtering by work, author and kind.
     ExperienceSearch {
         persona: String,
@@ -611,7 +619,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
             })
         }
         Command::MeshProfile{work,profile}=>super::geometry::profile::run(root,profile,operator,work.as_deref(),None).await,
-        Command::InspectStl{reference}=>super::geometry::inspect(root,&reference).await,
+        Command::InspectStl{reference,member}=>super::geometry::inspect(root,super::geometry::Inspect{reference,member}).await,
         Command::InstallCommand{package,from_file}=>{
             let control = Store::open(root)?;
             super::commands::install(root,operator,None,&package,from_file.as_deref(),|| workspace_command_paused(&control)).await
@@ -652,7 +660,10 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
                 }),
                 Command::ActivitySources{work,persona,query}=>store.snapshot(|db|super::activity_sources::inspect(db,&work,persona.as_deref(),&query)),
                 Command::ExportPackage{reference,destination}=>store.snapshot(|db|super::human_requests::export_package(db,&reference,&destination)),
-                Command::ExportDispatch{delivery,number,destination}=>store.snapshot(|db|super::human_requests::export_dispatch(db,&delivery,number,&destination)),
+                Command::ExportDispatch{delivery,number,destination,packet}=>store.snapshot(|db|{
+                    let export = if packet { super::human_requests::export_dispatch_packet } else { super::human_requests::export_dispatch };
+                    export(db,&delivery,number,&destination)
+                }),
                 Command::ExportHandoff{reference,destination,format}=>store.snapshot(|db|super::human_requests::export_handoff(db,&reference,&destination,format)),
                 Command::CommandHistory(query)=>store.snapshot(|db|super::commands::history(db,&query)),
                 Command::GeometryHistory{reference,offset,page_size}=>store.snapshot(|db|super::geometry::history::lookup(db,&super::geometry::history::Lookup{reference,offset,page_size})),
@@ -666,6 +677,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
                 Command::Read{reference,start,end}=>context::read(&store.db,&reference,start,end),
                 Command::QuestionHistory{reference}=>store.snapshot(|db|super::question_history::inspect(db,&reference)),
                 Command::RequestHistory{work,query}=>store.snapshot(|db|super::activity_requests::history(db,&work,None,&query)),
+                Command::PriorFileChecks{persona,query}=>store.snapshot(|db|super::activity_sources::prior_checks(db,persona.as_deref(),&query)),
                 Command::RevisionUses(query)=>store.snapshot(|db|super::revision_uses::inspect(db,None,&query)),
                 Command::CharacterPaths(query)=>store.snapshot(|db|super::character_paths::inspect(db,None,&query)),
                 Command::AppraisalContext{work,persona}=>store.snapshot(|db|{
@@ -722,9 +734,9 @@ fn operator_action(root: &Path, db: &rusqlite::Connection, operator: &str, comma
             }
             Ok(record)
         }
-        Command::Request{need,invite,files}=>operations::create_activity(db,ActivityKind::Task,need,&invite,operator,None,files.retain(db)?),
+        Command::Request{need,from_edition,invite,files}=>operations::create_activity(db,ActivityKind::Task,need,&invite,operator,None,files.retain(db)?,from_edition),
         Command::HumanRespond{request,response,note,files,field_report}=>super::human_requests::respond(db,operator,&request,response,&note,&files,&field_report),
-        Command::Social{topic,invite,files}=>operations::create_activity(db,ActivityKind::Social,topic,&invite,operator,None,files.retain(db)?),
+        Command::Social{topic,invite,files}=>operations::create_activity(db,ActivityKind::Social,topic,&invite,operator,None,files.retain(db)?,None),
         Command::AddPersona{id: requested,label,seed,provider_from}=>{
             let source:Persona=serde_json::from_value(store::required(db,"persona",&provider_from)?.body)?;
             let seed=Seed{id:match requested{Some(id)=>id,None=>id("persona")?},label,seed};

@@ -1,0 +1,16 @@
+{
+  "eeschema": {
+    "capture_sha256": "123e983b7722e0f0c04fd4e6df33f21bfb907a50c68d608c3c2adc8df8099aae",
+    "native_window": "inverter \u2014 Schematic Editor",
+    "project_files_edited": false,
+    "source_sha256": "db8e958e361dd3c50293b6e83ab9c43b72866e28b4bcdaafcc134add8b4c6ec2",
+    "workstation_notice": "Stock workstation lacked optional wxPython plugins; both native editors opened after dismissing that notice."
+  },
+  "pcbnew": {
+    "capture_sha256": "633a59c30f18c88f7fd0eed91cca12c673cce1493fd6f50c2b6c345817d3ad38",
+    "native_window": "inverter \u2014 PCB Editor",
+    "project_files_edited": false,
+    "source_sha256": "3c3a4d89ce44315d1b709ca342f2c96ad1bd178a6f34d5c312b210479a264e3c",
+    "workstation_notice": "Stock workstation lacked optional wxPython plugins; both native editors opened after dismissing that notice."
+  }
+}

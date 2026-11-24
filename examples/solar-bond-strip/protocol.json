@@ -1,0 +1,15 @@
+{
+  "design": "7d86efb31a0323e03166a5c5212cdcd8b2e32f36",
+  "runtime": "96981bf",
+  "model": "gpt-6.1-sol",
+  "effort": "medium",
+  "connection": "direct Codex OAuth",
+  "owner": "Exhibit shop",
+  "persona": "mara",
+  "source": "Continuing Mara after the P124 nest and her separate review at event 85. Oren remains available. New shared project; no earlier CAD or evaluator programs in it.",
+  "brief": "Our exhibit shop needs a knife-cut rear mounting adhesive for unwired Voltaic P124 R4G modules. Give the cutter operator a downloadable ZIP with the ready-to-cut 1:1 SVG and placement directions. The released shop interface BC-17 Rev A is attached; the manufacturer's P124_dwg.pdf and BC-17-A.txt are in the shared project reference folder. We need one adhesive piece that covers the bracket lands and leaves the pad pair and its top wire exit clear across the drawing and shop tolerances. Nobody is available to modify the artwork. Physical adhesion qualification and installation will happen later.",
+  "component_source": "https://voltaicsystems.com/content/P124_dwg.pdf",
+  "intake": "Invite Mara once in the packaged native Studio, with BC-17-A.txt as the only direct attachment. Run only this activity and its requested activities. Leave methods, quality checks, helpers, requests, development and stopping to the personas. No subsequent operator design input, resumption or second commission. Observe a voluntary settled stop, unmatched wait, hold, or 35 minutes from starting the listener; drain already admitted work at the bound.",
+  "receive": "Save the exact final dispatch and instructions through Studio; retain partial or missing results. Independently parse the actual SVG into physical coordinates with a stock vector reader, inspect number and closure of machinable straight paths, area, non-self-intersection and connectivity. Use the unedited geometry for the minimum-area eroded and maximum-extent dilated profile with a 0.15 mm axis-aligned square. Sweep each required land and the pad-pair aisle in the art frame over all applicable independent module, pad, registration and cutting allowances, retaining the shared width datum on the right land. Test the four outer limits separately, report actual margins or uncovered/intersected material, and read the ship directions for orientation, scale and setup. No physical test or inferred adhesive performance.",
+  "development": "Arm examples/stitch-desk/watch_epochs.py before inviting. Inspect all switch records through drain. If the earliest freely chosen post-initialization adoption of numerically different weights has both authentic active histories, use examples/stitch-desk/protocol.json held_out, paired_intake and pair_conditions once per state. Otherwise leave the registered paired task unseen. A practice, initial activation, requested change or rollback does not qualify."
+}

@@ -1,0 +1,101 @@
+{
+  "zip": "right_return_operator.zip",
+  "zip_sha256": "cdb75ec37efb34be8fdfa32a87027f1a5085c4ded338799c8f5851d3b93a1ecb",
+  "members": {
+    "README.txt": {
+      "bytes": 3690,
+      "sha256": "1ccd4fcef0f0740c1efe9c3a470a66ea363f8539b20b7db2a4c170ab5e459940"
+    },
+    "RIGHT_RETURN.dst": {
+      "bytes": 851,
+      "sha256": "92c11551b812aedccdf2da823fd407d9e0dedd98ed744cc84be8420592531ea6"
+    },
+    "front_preview.png": {
+      "bytes": 8775,
+      "sha256": "02763a6ab77414cade2dacf02f52ad27e30dcd7a382a435e65a87b5a568cf95d"
+    },
+    "verification.json": {
+      "bytes": 595,
+      "sha256": "ede6d644e041a02efa7ee450361d7f9f32c3645e7ad38141a969b5d3762aeb2f"
+    }
+  },
+  "reader": "pyembroidery 1.5.1",
+  "units": "mm, +X right, +Y up",
+  "sewn_bounds_lbrt": [
+    -16.0,
+    -8.0,
+    16.0,
+    8.0
+  ],
+  "sewn_size": [
+    32.0,
+    16.0
+  ],
+  "center": [
+    0.0,
+    0.0
+  ],
+  "tail_height": 6.0,
+  "left_side_y_range": [
+    2.0,
+    8.0
+  ],
+  "tail_sections_y": [
+    [
+      2.0,
+      8.0
+    ],
+    [
+      2.0,
+      8.0
+    ],
+    [
+      2.0,
+      8.0
+    ],
+    [
+      2.0,
+      8.0
+    ]
+  ],
+  "rightmost_y": [
+    0.0
+  ],
+  "head_sections_y": [
+    [
+      -6.82,
+      6.82
+    ],
+    [
+      -3.5714,
+      3.5714
+    ],
+    [
+      -0.3929,
+      0.3929
+    ]
+  ],
+  "blocks_with_stitches": 1,
+  "stitches": 110,
+  "jumps": 2,
+  "changes": 0,
+  "end": 1,
+  "last_lead_in_jump": [
+    -16.0,
+    8.0
+  ],
+  "first_needle": [
+    -15.5,
+    8.0
+  ],
+  "longest_sewn_segment": 2.0,
+  "checks": {
+    "sewn_size": true,
+    "origin_center": true,
+    "straight_left_tail": true,
+    "rightward_point": true,
+    "single_sewn_block_no_changes": true,
+    "all_moves_fit_field": true
+  },
+  "operator_text_sha256": "1ccd4fcef0f0740c1efe9c3a470a66ea363f8539b20b7db2a4c170ab5e459940"
+}

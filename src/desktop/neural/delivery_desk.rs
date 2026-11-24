@@ -22,6 +22,7 @@ pub(super) struct Desk {
     show_references: bool,
     file_page: usize,
     request_page: usize,
+    brief_page: usize,
     check_page: usize,
     origins: Option<origins::Window>,
     file_search: String,
@@ -91,6 +92,7 @@ struct Package {
     by_reference: BTreeMap<String, usize>,
     issued: Option<String>,
     requests: Vec<usize>,
+    briefs: Vec<usize>,
 }
 
 impl Package {
@@ -137,6 +139,8 @@ impl Package {
         Self {
             body: body.clone(),
             requests: requests::using_edition(app, &reference),
+            briefs: app.records("work").iter().enumerate()
+                .filter_map(|(i, w)| (w["body"]["from_edition"] == reference).then_some(i)).collect(),
             reference,
             by_reference: files.iter().enumerate().map(|(i, f)| (f.reference.clone(), i)).collect(),
             files,
@@ -231,6 +235,7 @@ impl App {
                 desk.selected = model.as_ref().map_or(0, |p| p.default_file());
                 desk.file_page = 0;
                 desk.request_page = 0;
+                desk.brief_page = 0;
                 desk.check_page = 0;
                 desk.slip = 0;
                 desk.slip_page = 0;
@@ -303,6 +308,7 @@ impl App {
                 self.receiving_checks(ui, &p);
                 self.dispatch_slips(ui, &p);
                 self.package_human_requests(ui, &p);
+                self.package_briefs(ui, &p);
                 ui.add_space(12.);
                 if ui.available_width() >= 820. && !p.files.is_empty() {
                     ui.columns(2, |columns| {
@@ -419,16 +425,39 @@ impl App {
                 });
                 ui.add_space(5.);
                 ui.horizontal_wrapped(|ui| {
+                    // A persona may have packed the entire edition into one file.
+                    // Let the recipient take those bytes directly from the heading.
+                    let single = match p.files.as_slice() {
+                        [file] => Some(file),
+                        _ => None,
+                    };
+                    if let Some(file) = single {
+                        let label = if file.format.archive() { "Save original ZIP…" } else { "Save original file…" };
+                        if ui
+                            .add_enabled(file.digest.is_some(), theme::primary(label))
+                            .on_hover_text(format!("Save {} exactly as issued.", file.path))
+                            .on_disabled_hover_text("This edition’s byte reference is unavailable.")
+                            .clicked()
+                        {
+                            if let Some(digest) = &file.digest {
+                                self.save_package_member(&p.reference, &file.reference, &file.path, digest, None);
+                            }
+                        }
+                    }
                     if ui
-                        .add(theme::primary("Save handoff…"))
+                        .add(if single.is_some() {
+                            egui::Button::new("Save handoff…")
+                        } else {
+                            theme::primary("Save handoff…")
+                        })
                         .on_hover_text("Save the printable delivery sheet and its files together.")
                         .clicked()
                     {
                         self.save_delivery_handoff(&p.reference, title, p.files.len());
                     }
-                    if ui
+                    if p.files.len() > 1 && ui
                         .button("Save files ZIP…")
-                        .on_hover_text("Save the files in this exact package.")
+                        .on_hover_text("Collect all the issued files into a ZIP.")
                         .clicked()
                     {
                         self.export_package(&p.reference, title);
@@ -448,6 +477,12 @@ impl App {
                             title,
                         );
                     }
+                    if ui.button("New brief from edition…")
+                        .on_hover_text("Start a separate activity with this exact edition as its source. Choose who to invite.")
+                        .clicked()
+                    {
+                        self.dialog = Some(Dialog::from_edition(&p.reference, title, s(b, "owner")));
+                    }
                 });
             });
         files_jump
@@ -461,6 +496,7 @@ impl App {
             Save,
             SaveEntry(ZipFile),
             InspectEntry(ZipFile),
+            Measure(Option<String>),
         }
         let desk = &mut self.delivery_desk;
         let mut action = None;
@@ -513,6 +549,10 @@ impl App {
                 ui.add_space(4.);
                 ui.horizontal_wrapped(|ui| {
                     if let Some(entry) = desk.inline.selected_member() {
+                        if entry.path.to_ascii_lowercase().ends_with(".stl") && ui.link("Measure mesh…")
+                            .on_hover_text("Measure this STL at its original path in the issued ZIP").clicked() {
+                            action = Some(Action::Measure(Some(entry.path.clone())));
+                        }
                         if ui.link("Inspect selected file ↗").clicked() {
                             action = Some(Action::InspectEntry(entry.clone()));
                         }
@@ -520,6 +560,8 @@ impl App {
                             .on_hover_text(format!("Save {} from the issued ZIP", entry.path)).clicked() {
                             action = Some(Action::SaveEntry(entry.clone()));
                         }
+                    } else if file.path.to_ascii_lowercase().ends_with(".stl") && ui.link("Measure mesh…").clicked() {
+                        action = Some(Action::Measure(None));
                     }
                     if ui
                         .link(if desk.inline.selected_member().is_some() { "Open full ZIP ↗" } else { "Open full file ↗" })
@@ -551,6 +593,9 @@ impl App {
         }
         let file = &p.files[desk.selected];
         match action {
+            Some(Action::Measure(member)) => self.mesh_profile.open(
+                ui.ctx(), &self.root, &self.operator, &file.reference, s(&p.body, "work"), member,
+            ),
             Some(Action::InspectEntry(entry)) => {
                 self.open_resource(ui.ctx(), file.reference.clone());
                 self.preview_zip_member = Some((entry.index,entry.path));

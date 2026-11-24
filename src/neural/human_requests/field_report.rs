@@ -1,6 +1,6 @@
 //! A field report identifies an exact exported request and the original files
 //! the observer chose to return. Only the operator supplies local file paths.
-use super::{exact, same_issue};
+use super::{exact, same_materials, same_terms};
 use crate::neural::{
     failure,
     input_files::{CapturedFile, InputFiles, Material},
@@ -16,7 +16,6 @@ use std::{
 };
 
 pub(super) const FORMAT: &str = "persona-studio.field-report.v1";
-pub(super) const MAX_BYTES: u64 = 1024 * 1024;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -51,7 +50,7 @@ fn portable_name(name: &str) -> bool {
 
 impl FieldReport {
     pub fn read(path: &Path) -> Result<Self> {
-        Self::parse(CapturedFile::read_bounded(path, MAX_BYTES)?)
+        Self::parse(CapturedFile::read(path)?)
     }
 
     fn parse(source: CapturedFile) -> Result<Self> {
@@ -102,14 +101,14 @@ impl FieldReport {
         let issued = exact(db, &self.doc.request)?;
         if issued.reference.digest != self.doc.request_sha256
             || issued.reference.revision > selected.reference.revision
-            || !same_issue(&issued.body, &selected.body)
+            || !same_terms(&issued.body, &selected.body)
             || !matches!(issued.body["state"].as_str(), Some("open" | "in_progress"))
         {
             return Err(failure(
                 "The report’s request edition differs from the retained request.",
             ));
         }
-        if super::correspondence::issued_origin(db, &issued)?.is_none() {
+        if super::correspondence::issued_origin(db, selected)?.is_none() {
             return Err(failure("The original requesting decision is unavailable."));
         }
         Ok(())
@@ -176,7 +175,7 @@ pub(super) fn recorded(
     files: &[Material],
 ) -> Result<bool> {
     let source: Material = serde_json::from_value(receipt["source"].clone())?;
-    if source.bytes > MAX_BYTES || !files.contains(&source) {
+    if !files.contains(&source) {
         return Ok(false);
     }
     let raw = store::bytes(db, &source.sha256)?;
@@ -219,7 +218,7 @@ impl ReturnForm {
 
     pub(crate) fn prepare(&mut self, note: &mut String, files: &mut InputFiles) -> Result<()> {
         if let Some(path) = self.path.take() {
-            self.captured = Some(CapturedFile::read_bounded(&path, MAX_BYTES)?);
+            self.captured = Some(CapturedFile::read(&path)?);
         }
         if let Some(source) = &self.captured {
             let report = FieldReport::parse(source.clone())?;
@@ -235,12 +234,16 @@ impl ReturnForm {
         db: &Connection,
         selected: &Record,
         files: &[CapturedFile],
+        closing_as_complete: bool,
     ) -> Result<Option<Value>> {
         let Some(source) = &self.captured else {
             return Ok(None);
         };
         let report = FieldReport::parse(source.clone())?;
         report.check_edition(db, selected)?;
+        if closing_as_complete && !same_materials(&exact(db, report.request())?.body, &selected.body) {
+            return Err(failure("This field report concerns an earlier packet. Send it as progress, or report completion against the current packet."));
+        }
         report.check_evidence(files)?;
         Ok(Some(report.receipt()))
     }

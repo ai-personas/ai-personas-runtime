@@ -1,0 +1,35 @@
+{
+  "adoptions": [],
+  "interpretation": {
+    "alternatives": "The lapse may reflect selection of the wrong retained output, compressed working notes or failure to integrate an already received result rather than insufficient verification inclination. A blanket increase in checking could add overhead without fixing reconciliation. This practice has not yet been tested in a later job.",
+    "base": null,
+    "candidate_review": null,
+    "contrary_evidence": [],
+    "disposition": "awaiting_evidence",
+    "evidence": [
+      "experience:call-b65afbaa3af9cd869ba11f078e2dff88@1",
+      "experience:event-1372@1",
+      "experience:event-1382@1"
+    ],
+    "follow_up": null,
+    "interpretation": "My issued report explicitly described the early exit-4 report-write failure. The receiving desk says later writable-path runs returned 0 and saved zero-finding reports, and that their output reached me before issue. The output retrieved in this review confirms only the early failure, so later success remains attributed to the desk here. The actionable contrast is claim-by-claim reconciliation, not simply more checking. Preserve the justified independent placement HOLD while correcting the distinction between diagnostic execution and release readiness.",
+    "prediction": "On a later unrelated job with repeated or superseding checks, before issuing I will pair each material execution claim with the latest applicable run's exact receipt, exit status and actual output artifact, explicitly marking earlier failures as superseded when supported. Compared with narrating from accumulated notes, this should reduce stale claims. Watch for both accurate supersession and unnecessary retrieval overhead; do not let a successful tool run erase independent unresolved acceptance conditions.",
+    "question": "When repeated checks produce different execution outcomes, does reconciling each final report claim with the latest applicable observed run prevent me from carrying an obsolete failure into the handoff?",
+    "revisit": {
+      "at_unix": null,
+      "condition": "A later unrelated handoff involves a repeated check whose newer result changes an earlier failure or qualification.",
+      "event_kind": null,
+      "work": null
+    }
+  },
+  "model_at_interpretation": "74582268e7d581ff5f8d0a9e5ff74afd4c4e0622b7427da0ccda16ccf48ecae4",
+  "origin_decision": "call-9063ae762a306655ee3465148641269b",
+  "origin_experiences": [
+    "experience:call-b65afbaa3af9cd869ba11f078e2dff88@1",
+    "experience:event-1372@1",
+    "experience:event-1382@1"
+  ],
+  "origin_work": "work-b3bb6af0736f9861d914f74dff95ec02",
+  "owner": "persona-0af7f9ee10bdffd91a09d4b1ce349988",
+  "revisit_after_event": 1382
+}

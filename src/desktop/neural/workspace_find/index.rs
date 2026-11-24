@@ -148,9 +148,10 @@ impl Index {
                     inbox::phase(state).0
                 );
                 let extra = format!(
-                    "{}\n{}\n{}",
+                    "{}\n{}\n{}\n{}",
                     s(body, "action"),
                     s(body, "return_requested"),
+                    s(&body["field_packet"], "instructions"),
                     file_names(body)
                 );
                 let entry = Entry::new(

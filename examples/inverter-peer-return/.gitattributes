@@ -1,0 +1,9 @@
+# Exact native downloads and verbatim messages, including original line endings.
+successor-evidence-hold.zip binary
+buyer-dispatch.txt -text
+cleo-to-arden.md -text
+cleo-to-buyer.md -text whitespace=-blank-at-eol
+linn-to-buyer.md -text
+independent-receiving-disposition.md -text
+linn-kicad-output.txt -text whitespace=-blank-at-eol,-blank-at-eof
+placement-calibration/easyeda-original.csv binary

@@ -18,7 +18,7 @@ pub struct Query {
     /// Inspect a single hidden unit, including a disconnected one.
     #[arg(long, requires = "axis")]
     pub hidden_unit: Option<usize>,
-    /// Exact candidate revision or object:<package digest> owned by the same persona.
+    /// previous-epoch, an exact candidate revision, or object:<package digest> owned by the same persona.
     #[arg(long)]
     pub compare: Option<String>,
 }
@@ -113,7 +113,14 @@ pub fn inspect(db: &Connection, actor: Option<&str>, query: &Query) -> Result<Va
     let mut alternate = Value::Null;
     let mut available_units = recorded.hidden_units;
     if let Some(reference) = query.compare.as_deref() {
-        let alternate_digest = if let Some(digest) = reference.strip_prefix("object:") {
+        let mut transition = None;
+        let alternate_digest = if reference == "previous-epoch" {
+            let epoch = verified["epoch"].as_u64().ok_or_else(|| failure("Missing supplied epoch"))?;
+            let config = verified["configuration"].as_str().ok_or_else(|| failure("Missing identity edition"))?;
+            let (prior, change) = super::revision_uses::preceding_epoch(db, owner, config, epoch, digest)?;
+            transition = Some(json!({"epoch":epoch - 1,"change":change}));
+            prior
+        } else if let Some(digest) = reference.strip_prefix("object:") {
             digest.to_owned()
         } else {
             let candidate = super::revision_uses::issued_candidate(db, owner, reference)?;
@@ -139,6 +146,9 @@ pub fn inspect(db: &Connection, actor: Option<&str>, query: &Query) -> Result<Va
         }).collect();
         alternate = json!({"reference":reference,"package":format!("object:{alternate_digest}"),
             "numerical":other.numerical_digest(&contract).map_err(failure)?,"paths":comparison,"changed_outputs":changes});
+        if let Some(previous) = transition {
+            alternate["previous"] = previous;
+        }
     }
     if query.hidden_unit.is_some_and(|i| i >= available_units) {
         return Err(failure(

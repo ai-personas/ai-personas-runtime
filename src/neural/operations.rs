@@ -187,7 +187,7 @@ pub(super) fn resolve_operation(op: &mut Operation, aliases: &BTreeMap<String, S
     Ok(())
 }
 pub(super) fn returns_alias(tool: &str) -> bool {
-    matches!(tool, "asset.save" | "asset.register" | "relationship.record" | "relationship.retire" | "result.review" | "result.deliver" | "human.request" | "human.withdraw" | "work.propose_agreement" | "work.agreement_position")
+    matches!(tool, "asset.save" | "asset.register" | "relationship.record" | "relationship.retire" | "result.review" | "result.deliver" | "human.request" | "human.issue_packet" | "human.withdraw" | "work.propose_agreement" | "work.agreement_position")
 }
 
 pub(super) fn apply_organization(body: &mut Value, previous: &str, actor: &str, work: &str, change: &tools::AssetMetadata) {
@@ -465,7 +465,7 @@ fn internal(
             let x: tools::Register = decode(input)?;
             let digest = x.reference.strip_prefix("object:").ok_or_else(||failure("Register the exact object reference returned with the retained bytes"))?;
             if !snapshot.supplied_references.contains(&x.reference) {
-                return Err(failure("Read or select the receipt containing this object before registering its bytes"));
+                return Err(failure("Read or select the receipt containing this object before registering its bytes. For an earlier command output, command.history with its exact object reference finds the retained capture; select the matching command_run receipt in next_context.references. You need not rerun the command or recapture the current file."));
             }
             let size = super::provider_evidence::resource_bytes(db,digest)?.len();
             let asset = save_asset(db,actor,call,&operation.id,&x.path,x.base.as_deref(),digest,&x.cues,&x.qualifications,x.resource.as_ref())?;
@@ -700,6 +700,7 @@ fn internal(
             Ok(json!({"reference":r.handle()}))
         }
         "human.request" => super::human_requests::create(db,snapshot,decode(input)?),
+        "human.issue_packet" => super::human_requests::issue_packet(db,snapshot,decode(input)?),
         "human.withdraw" => super::human_requests::withdraw(db,snapshot,decode(input)?),
         "result.review" => super::package_review::publish(db,work,actor,Some(call),&decode(input)?),
         "result.reviews" => super::package_review::lookup_for(db,Some(work),Some(actor),&decode(input)?),
@@ -767,11 +768,12 @@ fn internal(
         }
         "work.requests" => super::activity_requests::history(db,work,Some(actor),&decode(input)?),
         "work.sources" => super::activity_sources::own(db,work,actor,&decode(input)?),
+        "result.prior_checks" => super::activity_sources::prior_checks(db,Some(actor),&decode(input)?),
         "work.respond" => super::activity_requests::respond(db,snapshot,decode(input)?),
         "work.request" => {
             let x: tools::RequestWork = decode(input)?;
             let materials = x.retained_materials(db)?;
-            let mut result = create_activity(db, x.kind, x.need, &x.invitees, actor, Some(call), materials)?;
+            let mut result = create_activity(db, x.kind, x.need, &x.invitees, actor, Some(call), materials, x.from_edition)?;
             result["returns"] = json!({"activity":work,"recipient":actor,"on_events":["request_return"],
                 "correspond":"work.respond","history":"work.requests"});
             Ok(result)
@@ -788,6 +790,7 @@ pub(super) fn create_activity(
     requester: &str,
     invocation: Option<&str>,
     materials: Vec<super::input_files::Material>,
+    from_edition: Option<String>,
 ) -> Result<Value> {
     if kind == ActivityKind::Task && need.trim().is_empty() {
         return Err(failure("Describe what you would like the task to accomplish"));
@@ -795,11 +798,14 @@ pub(super) fn create_activity(
     if invitees.iter().collect::<BTreeSet<_>>().len() != invitees.len() {
         return Err(failure("Each persona may appear only once in an invitation"));
     }
+    if let Some(reference) = &from_edition {
+        super::delivery_feedback::issued(db, reference)?;
+    }
     let invitation = match kind {
         ActivityKind::Task => "Choose whether and how to contribute to this need",
         ActivityKind::Social => "An open social invitation. Choose whether to join, what to discuss and when to leave",
     };
-    let activity = Work { id: id("work")?, kind, original_need: need, requester: requester.into(),
+    let activity = Work { id: id("work")?, kind, original_need: need, from_edition, requester: requester.into(),
         phase: "open".into(), last_dissolution:None, amendments: Vec::new(), materials };
     let reference = store::write(db, "work", &activity.id, 0, &activity, invocation)?;
     for actor in invitees {
@@ -807,6 +813,7 @@ pub(super) fn create_activity(
     }
     let mut result=json!({"work":activity.id,"kind":kind,"reference":reference.handle(),"invited":invitees,"need":activity.original_need});
     if !activity.materials.is_empty() {result["materials"]=json!(activity.materials);}
+    if let Some(reference) = activity.from_edition { result["from_edition"] = json!(reference); }
     Ok(result)
 }
 
@@ -1075,7 +1082,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
                 super::development::trial::propose(db,snapshot,&persona,trial,decision.considered_experience.as_deref().unwrap_or(&[]))?;
             }
         }
-        maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"result.review"|"asset.feedback"|"image.read"|"image.render_svg"|"document.print_html"|"document.render_pdf"|"command.run"|"command.local"|"geometry.render"|"geometry.inspect_stl"|"geometry.profile_stl"|"work.outcome"|"result.deliver"),false)
+        maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"result.review"|"asset.feedback"|"image.read"|"image.render_svg"|"document.print_html"|"document.render_pdf"|"command.run"|"command.local"|"geometry.render"|"geometry.inspect_stl"|"geometry.profile_stl"|"work.outcome"|"result.deliver"|"human.issue_packet"),false)
             .map_err(|e|failure(format!("asset_maintenance: {e}")))?;
         super::development::practice::consider(db,snapshot,decision,part.accepted && !part.declined)?;
         super::development::record_applications(db,snapshot,decision)?;
@@ -1091,7 +1098,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
             resolve_operation(&mut op,&aliases)?;
             if part.departure.is_some(){return Err(failure("work.leave ends your operations in this activity; issue it last and stop"));}
             if persona.model.is_none()&&!matches!(op.tool.as_str(),"persona.initialize"|"persona.read"|"tools.search"|"tools.describe"|"asset.read") {return Err(failure("initialize and activate your character before accepting or doing work"));}
-            if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.search"|"asset.history"|"asset.deliveries"|"asset.find"|"history.search"|"experience.search"|"relationship.contacts"|"relationship.history"|"persona.revision_uses"|"persona.paths"|"persona.replay_input"|"peer.message"|"work.requests"|"work.sources"|"work.agreements") {return Err(failure("accept your invitation before ordinary work"));}
+            if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.search"|"asset.history"|"asset.deliveries"|"asset.find"|"history.search"|"experience.search"|"relationship.contacts"|"relationship.history"|"persona.revision_uses"|"persona.paths"|"persona.replay_input"|"peer.message"|"work.requests"|"work.sources"|"work.agreements"|"result.prior_checks") {return Err(failure("accept your invitation before ordinary work"));}
             if part.declined{return Err(failure("declined participation cannot perform operations"));}
             if tools::is_external(&op.tool) {
                 validate_external(db,&persona,&op)?;

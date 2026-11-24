@@ -15,7 +15,8 @@ pub(super) fn using_edition(app: &App, edition: &str) -> Vec<usize> {
             if !strings(&body["deliveries"]).any(|r| r == edition) {
                 return None;
             }
-            let origin = format!("human_request:{}@1", record["reference"]["id"].as_str()?);
+            let origin = body["field_packet"]["edition"].as_str().map(str::to_owned)
+                .unwrap_or_else(|| format!("human_request:{}@1", s(&record["reference"], "id")));
             let seq = app.home_index.request_origin(&origin)?;
             let pos = app
                 .events
@@ -23,13 +24,16 @@ pub(super) fn using_edition(app: &App, edition: &str) -> Vec<usize> {
                 .ok()?;
             let issue = &app.events[pos];
             let call = issue["invocation"].as_str()?;
-            (issue["kind"] == "human_request"
+            let (kind, decision) = if body["field_packet"].is_object() {
+                ("human_request_packet", &body["field_packet"]["decision"])
+            } else { ("human_request", &body["decision"]) };
+            (issue["kind"] == kind
                 && issue["target"] == "user"
                 && issue["work"] == body["work"]
                 && issue["actor"] == body["requester"]
                 && issue["body"]["reference"] == origin
                 && issue["body"]["deliveries"] == body["deliveries"]
-                && body["decision"] == format!("experience:{call}@1"))
+                && decision == &format!("experience:{call}@1"))
             .then_some(index)
         })
         .collect();
@@ -46,6 +50,33 @@ pub(super) fn using_edition(app: &App, edition: &str) -> Vec<usize> {
 }
 
 impl App {
+    pub(super) fn package_briefs(&mut self, ui: &mut Ui, package: &Package) {
+        let total = package.briefs.len();
+        if total == 0 { return; }
+        let mut page = self.delivery_desk.brief_page.min((total - 1) / PER_PAGE);
+        let mut open = None;
+        ui.add_space(10.);
+        panel(ui).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            heading(ui, "Briefs from this edition");
+            for &index in package.briefs.iter().skip(page * PER_PAGE).take(PER_PAGE) {
+                let brief = &self.records("work")[index]["body"];
+                let work = s(brief, "id");
+                let need = self.work_name(work);
+                ui.horizontal_wrapped(|ui| {
+                    ui.weak(format!("{} asked", self.label(s(brief, "requester"))));
+                    let length = (ui.available_width() / 8.).clamp(30., 92.) as usize;
+                    if ui.link(home::short_text(&need, length)).on_hover_text(&need).clicked() {
+                        open = Some(work.to_owned());
+                    }
+                });
+            }
+            super::super::home::pager(ui, &mut page, total, PER_PAGE, "briefs");
+        });
+        self.delivery_desk.brief_page = page;
+        if let Some(work) = open { self.open_home_activity(&work); }
+    }
+
     pub(super) fn package_human_requests(&mut self, ui: &mut Ui, package: &Package) {
         let total = package.requests.len();
         if total == 0 {

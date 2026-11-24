@@ -2,6 +2,7 @@
 //! that received it. The founding decision identifies the requester even when
 //! a local operator uses the same name as a persona.
 mod correspondence;
+mod brief_receipts;
 
 use super::{
     character, context::Snapshot, experience, failure, operations, protocol, store, tools, Result,
@@ -21,6 +22,8 @@ pub(super) struct Origin {
     pub decision: String,
     pub operation: String,
     pub need: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_edition: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub materials: Vec<super::input_files::Material>,
     pub invited: Vec<String>,
@@ -173,6 +176,8 @@ pub(super) fn origin(db: &Connection, child: &str) -> Result<Option<Origin>> {
             || asked.kind != activity.kind
             || invited != asked.invitees
             || asked.need != activity.original_need
+            || asked.from_edition != activity.from_edition
+            || result.get("from_edition") != asked.from_edition.as_ref().map(|s| json!(s)).as_ref()
             || supplied != activity.materials
             || result.get("materials") != (!supplied.is_empty()).then(|| json!(supplied)).as_ref()
             || result
@@ -196,6 +201,7 @@ pub(super) fn origin(db: &Connection, child: &str) -> Result<Option<Origin>> {
             decision: format!("experience:{call}@1"),
             operation: event["operation"].as_str().unwrap().to_owned(),
             need: activity.original_need,
+            from_edition: activity.from_edition,
             materials: activity.materials,
             invited,
         }));
@@ -486,6 +492,7 @@ pub fn history(db: &Connection, work: &str, actor: Option<&str>, query: &Query) 
                 "originating_activity"
             });
             if query.request.is_some() {
+                item["brief_receipts"] = brief_receipts::inspect(db, &origin, child_participant)?;
                 item["correspondence"] =
                     correspondence::exchanges(db, &origin, child_participant, query)?;
             }

@@ -1,0 +1,3 @@
+contributor,expected_packet,receipt_status,received_packet_filename,packet_sha256,files_for_recipient,missing_or_outstanding,physical_status
+Relief volunteer,Relief volunteer kit,Not received,,,Not established pending receipt,Entire expected kit outstanding,Digital receipt only; printing and physical desk work not verified
+Desk lead,Desk lead sheet,Not received,,,Not established pending receipt,Entire expected sheet outstanding,Digital receipt only; printing and physical desk work not verified

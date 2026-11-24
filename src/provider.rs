@@ -11,7 +11,6 @@ mod public_reply;
 mod reply_progress;
 pub(crate) use sse::retained_decision_matches;
 mod http_error;
-pub(crate) use http_error::input_image_patch_rejection;
 mod network_error;
 mod output_items;
 mod input_history;

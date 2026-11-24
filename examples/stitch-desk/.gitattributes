@@ -1,0 +1,4 @@
+*.zip binary
+dispatch.txt -text
+studio-measurements.txt -text
+independent-moves.csv -text

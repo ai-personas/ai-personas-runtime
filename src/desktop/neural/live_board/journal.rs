@@ -17,6 +17,26 @@ enum Action {
 }
 
 impl App {
+    /// Follow a receipt to the actual choice, even when sender and receiver
+    /// worked in different activities. Later choices must not move this view.
+    pub(in super::super) fn open_choice_or_record(&mut self, ctx: &egui::Context, reference: String) {
+        let call = reference.strip_prefix("experience:").and_then(|r| r.strip_suffix("@1"));
+        let choice = call.and_then(|id| {
+            self.character_decisions.iter().find(|d| d["invocation"] == id && d["character_use"].is_string())
+        });
+        if let Some(choice) = choice {
+            let work = s(choice, "work").to_owned();
+            let person = s(choice, "actor").to_owned();
+            let pinned = s(choice, "invocation").to_owned();
+            self.open_home_activity(&work);
+            self.persona.clone_from(&person);
+            self.live_board.view = View::Journal;
+            self.live_board.journal = Journal { person: Some(person), pinned: Some(pinned) };
+        } else {
+            self.open_resource(ctx, reference);
+        }
+    }
+
     pub(super) fn decision_journal(&mut self, ui: &mut Ui) {
         egui::ScrollArea::vertical()
             .id_salt(("decision-journal", &self.work))
@@ -125,7 +145,11 @@ impl App {
                     }
                 };
                 if ui.available_width() >= 630. {
-                    ui.columns(2, |cols| { remaining(&mut cols[0]); next(&mut cols[1]); });
+                    ui.columns(2, |cols| {
+                        let left = egui::Layout::top_down(egui::Align::Min);
+                        cols[0].with_layout(left, remaining);
+                        cols[1].with_layout(left, next);
+                    });
                 } else {
                     remaining(ui); ui.add_space(8.); next(ui);
                 }

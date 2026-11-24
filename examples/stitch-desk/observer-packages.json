@@ -1,0 +1,108 @@
+{
+  "source_sha256": "272fca08c9d1efcbbe754e8dd951e4072423a83c136326e6a0b9b868f61ab40b",
+  "scope": "Historical timing controls on copies. Both switches belonged to a requested reversible experiment. No new provider calls or held-out arms.",
+  "cases": {
+    "single": {
+      "before_through": 63,
+      "after_through": 65,
+      "exact_packages": [
+        {
+          "event": 64,
+          "decision": "call-bdddf3b36f6a2ed4626ca2846ea29572",
+          "numerical": "d9d9bbdc7b9fac6fa4d4da5e27997dcb2398d10fd6f9e0ada6aaa432b0c64854",
+          "prior_numerical": "0eaf2bcbd1a4f3140268a97424b422a922037343181226e40a021ad175a7de26",
+          "package_files": {
+            "before": {
+              "file": "packages/da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a.json",
+              "sha256": "da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a",
+              "bytes": 1914
+            },
+            "after": {
+              "file": "packages/b6ae80a39f63018a7d33b515802193279900f5cee5922e00c2f148119009cecc.json",
+              "sha256": "b6ae80a39f63018a7d33b515802193279900f5cee5922e00c2f148119009cecc",
+              "bytes": 2008
+            }
+          },
+          "observed_both_heads": true,
+          "kind": "activate",
+          "reason": "This exact observed candidate has completed assessment. The user requests a temporary reversible live-use instrument check despite inconclusive probes; no behavioral benefit is assumed.",
+          "parameter_changes": [
+            [
+              "direct",
+              2,
+              2,
+              0.3,
+              0.9
+            ]
+          ]
+        }
+      ]
+    },
+    "activation_and_rollback": {
+      "before_through": 63,
+      "after_through": 125,
+      "exact_packages": [
+        {
+          "event": 64,
+          "decision": "call-bdddf3b36f6a2ed4626ca2846ea29572",
+          "numerical": "d9d9bbdc7b9fac6fa4d4da5e27997dcb2398d10fd6f9e0ada6aaa432b0c64854",
+          "prior_numerical": "0eaf2bcbd1a4f3140268a97424b422a922037343181226e40a021ad175a7de26",
+          "package_files": {
+            "before": {
+              "file": "packages/da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a.json",
+              "sha256": "da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a",
+              "bytes": 1914
+            },
+            "after": {
+              "file": "packages/b6ae80a39f63018a7d33b515802193279900f5cee5922e00c2f148119009cecc.json",
+              "sha256": "b6ae80a39f63018a7d33b515802193279900f5cee5922e00c2f148119009cecc",
+              "bytes": 2008
+            }
+          },
+          "observed_both_heads": false,
+          "kind": "activate",
+          "reason": "This exact observed candidate has completed assessment. The user requests a temporary reversible live-use instrument check despite inconclusive probes; no behavioral benefit is assumed.",
+          "parameter_changes": [
+            [
+              "direct",
+              2,
+              2,
+              0.3,
+              0.9
+            ]
+          ]
+        },
+        {
+          "event": 86,
+          "decision": "call-62ed9651e288d8bb1c4d9045e8d795d7",
+          "numerical": "0eaf2bcbd1a4f3140268a97424b422a922037343181226e40a021ad175a7de26",
+          "prior_numerical": "d9d9bbdc7b9fac6fa4d4da5e27997dcb2398d10fd6f9e0ada6aaa432b0c64854",
+          "package_files": {
+            "before": {
+              "file": "packages/b6ae80a39f63018a7d33b515802193279900f5cee5922e00c2f148119009cecc.json",
+              "sha256": "b6ae80a39f63018a7d33b515802193279900f5cee5922e00c2f148119009cecc",
+              "bytes": 2008
+            },
+            "after": {
+              "file": "packages/da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a.json",
+              "sha256": "da2e9708ff20bce90b1822600b29d52acaafa048b62afa4d905511fc67d16e7a",
+              "bytes": 1914
+            }
+          },
+          "observed_both_heads": false,
+          "kind": "rollback",
+          "reason": "The agreed live observation has occurred. Restore the starting model as promised without claiming either benefit or causal harm from this single observation.",
+          "parameter_changes": [
+            [
+              "direct",
+              2,
+              2,
+              0.9,
+              0.3
+            ]
+          ]
+        }
+      ]
+    }
+  }
+}

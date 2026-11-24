@@ -13,7 +13,7 @@ impl App {
         let colors = theme::palette(ui);
         let issuer = s(&p.body, "owner");
         let ink = colors.ink(persona_color(issuer));
-        let mut save = false;
+        let mut save_packet = None;
         let mut preview = None;
         let mut page = self.delivery_desk.slip_page;
         ui.add_space(8.);
@@ -111,12 +111,20 @@ impl App {
                     )
                     .clicked()
                 {
-                    save = true;
+                    save_packet = Some(false);
+                }
+                if ui.add_enabled(ready, egui::Button::new("Save recipient packet…").small())
+                    .on_hover_text("Pack this recipient’s instructions, the open items at issue and their selected files together.")
+                    .clicked()
+                {
+                    save_packet = Some(true);
                 }
             };
             if ui.available_width() >= 680. {
                 ui.columns(2, |c| {
-                    direction(&mut c[0]);
+                    // A justified column can stretch a short word across the
+                    // whole line before a long filename or checksum.
+                    c[0].with_layout(egui::Layout::top_down(egui::Align::Min), direction);
                     contents(&mut c[1]);
                 });
             } else {
@@ -150,7 +158,7 @@ impl App {
             self.delivery_desk.selected = i;
             self.delivery_desk.focus_preview = true;
         }
-        if save {
+        if let Some(packet) = save_packet {
             let slip = &slips[index];
             let refs: Vec<_> = strings(&slip["artifacts"]).collect();
             let path = (refs.len() == 1)
@@ -163,6 +171,7 @@ impl App {
                 s(slip, "recipient"),
                 refs.len(),
                 path,
+                packet,
             );
         }
     }

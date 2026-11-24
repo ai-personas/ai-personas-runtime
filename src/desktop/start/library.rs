@@ -280,6 +280,7 @@ impl App {
     }
 
     pub(super) fn restore(&mut self, ctx: &egui::Context, archive: PathBuf, root: PathBuf, working_directory: Option<PathBuf>) {
+        self.error = None;
         self.busy = true;
         self.cancellable = false;
         self.error = None;

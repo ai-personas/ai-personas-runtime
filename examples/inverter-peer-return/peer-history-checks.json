@@ -1,0 +1,121 @@
+{
+  "altered_founding_receipts": {
+    "different addressee": "{\"automatic_retry\":false,\"error\":\"invalid application input: The issued activity differs from its founding operation and receipt\",\"status\":\"error\"}",
+    "different founding actor": "{\"automatic_retry\":false,\"error\":\"invalid application input: The issued activity differs from its founding operation and receipt\",\"status\":\"error\"}",
+    "different founding need": "{\"automatic_retry\":false,\"error\":\"invalid application input: The issued activity differs from its founding operation and receipt\",\"status\":\"error\"}",
+    "different recipient response": "{\"automatic_retry\":false,\"error\":\"invalid application input: Retained provider output differs from its receipt\",\"status\":\"error\"}",
+    "different source issue": "{\"automatic_retry\":false,\"error\":\"invalid application input: The issued activity differs from its founding operation and receipt\",\"status\":\"error\"}",
+    "invitation body": "{\"automatic_retry\":false,\"error\":\"invalid application input: The receiving decision does not contain the founding invitation and brief\",\"status\":\"error\"}",
+    "invitation time": "{\"automatic_retry\":false,\"error\":\"invalid application input: The receiving decision does not contain the founding invitation and brief\",\"status\":\"error\"}",
+    "invited only": "invitation present; no receiving choice",
+    "missing issue events": "{\"automatic_retry\":false,\"error\":\"invalid application input: Delivery has no matching issue event\",\"status\":\"error\"}"
+  },
+  "final_linux_release": {
+    "cli_sha256": "478494c01eb78405f9b5fe14bfb42d7f3ce3b421be07219208d56ab104e06705",
+    "comparison_workspace": "Stopped engineering history, not a new commission.",
+    "desktop_sha256": "44af5c1b41b1cba60febe79bb88d9ae3f093aae413eab6b50afa53485bc75949",
+    "launcher": "./personas --gui",
+    "native_prior_links": {
+      "event_decision_and_outbox_rows_equal_to_stopped_source": true,
+      "opened_observation_reference_copied_from_viewer": "experience:event-1310@1",
+      "original_issue": "delivery:delivery-60a0bcd4031dbc57e2943715d0d7afeb@1",
+      "second_checking_choice": "experience:call-6798821877b39160787dd43540c0b032@1"
+    },
+    "observed_file_history_events": [
+      1310,
+      1301
+    ]
+  },
+  "founding_receipt": {
+    "invitees": [
+      {
+        "first_supplied": {
+          "brief": "work:work-5fc8fe2a8bab82eaf2436fcaa47fb64f@1",
+          "decision": "experience:call-ee62d2a83bc36ded51a22f5692fc86e8@1",
+          "opening_revision": true
+        },
+        "invitation": "experience:event-975@1",
+        "recipient": "arden"
+      }
+    ],
+    "starting_edition": {
+      "issuer": "arden",
+      "reference": "delivery:delivery-89f04a8d85b038ce343b87b53b462122@1",
+      "title": "Inverter revised project and order files — manufacturing hold"
+    }
+  },
+  "native_receiving_and_requesting_links_opened_in_decision_journal": true,
+  "prior_file_checks": {
+    "at_issue_event": 1316,
+    "delivery": "delivery:delivery-f6d161232b743040623be9c737f0b6e3@1",
+    "file_revisions": 1,
+    "items": [
+      {
+        "cancelled": false,
+        "checker": "cleo",
+        "checking_choice": "experience:call-0476603d507a7103f61bb5af8620e3b5@1",
+        "earlier_edition": "delivery:delivery-60a0bcd4031dbc57e2943715d0d7afeb@1",
+        "exit_code": 0,
+        "issued_by_choice": "experience:call-6798821877b39160787dd43540c0b032@1",
+        "issuer": "arden",
+        "missing_outputs": [],
+        "observation": "experience:event-1310@1",
+        "process_started": true,
+        "purpose": "Inspect final successor contents and bounded placement evidence before buyer handoff.",
+        "receipt": "command_run:local-7f584ed53ce8da2e2e31ab052f812b420b07bc1ec166a16722b11615d6f9ab23@1",
+        "success": true,
+        "timed_out": false,
+        "title": "Corrected inverter successor with bounded placement evidence — NO-GO hold"
+      },
+      {
+        "cancelled": false,
+        "checker": "arden",
+        "checking_choice": "experience:call-6798821877b39160787dd43540c0b032@1",
+        "earlier_edition": "delivery:delivery-60a0bcd4031dbc57e2943715d0d7afeb@1",
+        "exit_code": 0,
+        "issued_by_choice": "experience:call-6798821877b39160787dd43540c0b032@1",
+        "issuer": "arden",
+        "missing_outputs": [],
+        "observation": "experience:event-1301@1",
+        "process_started": true,
+        "purpose": "Verify the exact exported ZIP integrity, every checksum, editable project presence and explicit placement hold.",
+        "receipt": "command_run:local-39cb5731938c4082bd9bb66edb60cf9c090d299e3d3b77b8832cbbbef4a9385e@1",
+        "success": true,
+        "timed_out": false,
+        "title": "Corrected inverter successor with bounded placement evidence — NO-GO hold"
+      }
+    ],
+    "offset": 0,
+    "page_size": 8,
+    "scope": "Earlier full-edition runs on the identical asset revisions at their original paths, before this issue. Instructions and judgments belong to their own editions.",
+    "total": 2
+  },
+  "prior_file_visibility_and_rejected_inputs": {
+    "as arden": [
+      "experience:event-1310@1",
+      "experience:event-1301@1"
+    ],
+    "as bell": [],
+    "as cleo": [
+      "experience:event-1310@1"
+    ],
+    "as persona-0af7f9ee10bdffd91a09d4b1ce349988": [],
+    "checking provider output": "{\"automatic_retry\":false,\"error\":\"invalid application input: Retained provider output differs from its receipt\",\"status\":\"error\"}",
+    "different ZIP revisions": "not matched; same project/changed bytes do not inherit checks",
+    "different purpose": "{\"automatic_retry\":false,\"error\":\"invalid application input: Receiving notice differs from the issued edition or checking decision\",\"status\":\"error\"}",
+    "different receipt": "{\"automatic_retry\":false,\"error\":\"invalid application input: No retained version matches exact reference command_run:missing@1; copy its observed handle or search its path/cues\",\"status\":\"error\"}",
+    "newer observation": [
+      "experience:event-1301@1"
+    ],
+    "not started": [
+      "experience:event-1301@1"
+    ],
+    "other selection": [
+      "experience:event-1301@1"
+    ],
+    "same path, different revision": [],
+    "superset": [],
+    "zero page": "{\"automatic_retry\":false,\"error\":\"invalid application input: Choose a positive page size\",\"status\":\"error\"}"
+  },
+  "read_only_fixture": "Independent copy of the original histories. These checks did not run another persona decision."
+}

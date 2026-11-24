@@ -1,0 +1,402 @@
+{
+  "application": "EasyEDA Standard 6.5.61, Linux; Projects Offline mode",
+  "download": "https://image.easyeda.com/files/easyeda-linux-x64-6.5.61.zip",
+  "binary_archive_sha256": "28136f62b0dac9b4051ca0e467d69ab2c58b18360b4656d21ff9bfc15ccb6777",
+  "source_doc_sha256": "7efcef3c9ddcdb1b1fb1d73c906cae1ec7adcf8da6fefce78f1c9e733e2b8116",
+  "output_sha256": "eb25593606704828fbde8d7cff4b2d056665090dd68ec4de4a7fc6e5d8acba6b",
+  "source": {
+    "X1": {
+      "code": "C13527",
+      "mpn": "CD4013BM96",
+      "land_pattern": "SOIC-14_L8.7-W3.9-P1.27-LS6.0-BL",
+      "source_origin": [
+        4000.0,
+        3000.0
+      ],
+      "source": "https://easyeda.com/api/products/C13527/components?version=6.5.22",
+      "source_sha256": "2e08f4823d694f62997573f772d4fbab0d719e232766225f722964bf8f5f8a4b",
+      "pad_count": 14,
+      "mid_xy_mm": [
+        1016.0,
+        -762.0
+      ],
+      "ref_xy_mm": [
+        1016.0,
+        -762.0
+      ],
+      "pad1_xy_mm": [
+        1012.19,
+        -764.62
+      ],
+      "mid_minus_ref_xy_mm": [
+        0.0,
+        0.0
+      ]
+    },
+    "X2": {
+      "code": "C17414",
+      "mpn": "0805W8F1002T5E",
+      "land_pattern": "R0805",
+      "source_origin": [
+        4000.0,
+        3000.0
+      ],
+      "source": "https://easyeda.com/api/products/C17414/components?version=6.5.22",
+      "source_sha256": "ffa5015163c42c4e9fd7a30a5e87a55fd55acb105dc1d3f3df294a190fc641df",
+      "pad_count": 2,
+      "mid_xy_mm": [
+        1016.0,
+        -762.0
+      ],
+      "ref_xy_mm": [
+        1016.0,
+        -762.0
+      ],
+      "pad1_xy_mm": [
+        1015.0,
+        -762.0
+      ],
+      "mid_minus_ref_xy_mm": [
+        0.0,
+        0.0
+      ]
+    },
+    "X3": {
+      "code": "C17865",
+      "mpn": "0805W8F9100T5E",
+      "land_pattern": "R0805",
+      "source_origin": [
+        4000.0,
+        3000.0
+      ],
+      "source": "https://easyeda.com/api/products/C17865/components?version=6.5.22",
+      "source_sha256": "c3e4e4a404fe3a56aeeebd11909152fbe588c9fe1f5bc0e2b48e0bce8ee8235b",
+      "pad_count": 2,
+      "mid_xy_mm": [
+        1016.0,
+        -762.0
+      ],
+      "ref_xy_mm": [
+        1016.0,
+        -762.0
+      ],
+      "pad1_xy_mm": [
+        1015.0,
+        -762.0
+      ],
+      "mid_minus_ref_xy_mm": [
+        0.0,
+        0.0
+      ]
+    },
+    "X4": {
+      "code": "C2836442",
+      "mpn": "RVT100UF35V67RV0034",
+      "land_pattern": "CAP-SMD_BD6.3-L6.6-W6.6-LS7.4-FD",
+      "source_origin": [
+        4000.2345,
+        2999.286
+      ],
+      "source": "https://easyeda.com/api/products/C2836442/components?version=6.5.22",
+      "source_sha256": "185bd6d72043ab894adc19e3fe87ce5c5718a70bc3573c8083ff154298791749",
+      "pad_count": 2,
+      "mid_xy_mm": [
+        1016.06,
+        -761.82
+      ],
+      "ref_xy_mm": [
+        1016.06,
+        -761.82
+      ],
+      "pad1_xy_mm": [
+        1013.39,
+        -761.82
+      ],
+      "mid_minus_ref_xy_mm": [
+        0.0,
+        0.0
+      ]
+    },
+    "X5": {
+      "code": "C2907283",
+      "mpn": "FRC0805F6802TS",
+      "land_pattern": "R0805",
+      "source_origin": [
+        4000.0,
+        3000.0
+      ],
+      "source": "https://easyeda.com/api/products/C2907283/components?version=6.5.22",
+      "source_sha256": "88ec2016124a28a0eab862d510674230ec56199cd9943dbd08f7043d5509c710",
+      "pad_count": 2,
+      "mid_xy_mm": [
+        1016.0,
+        -762.0
+      ],
+      "ref_xy_mm": [
+        1016.0,
+        -762.0
+      ],
+      "pad1_xy_mm": [
+        1015.0,
+        -762.0
+      ],
+      "mid_minus_ref_xy_mm": [
+        0.0,
+        0.0
+      ]
+    },
+    "X6": {
+      "code": "C2933485",
+      "mpn": "FRC0805F6492TS",
+      "land_pattern": "R0805",
+      "source_origin": [
+        4000.0,
+        3000.0
+      ],
+      "source": "https://easyeda.com/api/products/C2933485/components?version=6.5.22",
+      "source_sha256": "72e7d734a369fc20acc96a9c774a14b463bdab4122a328807b7594bc6999e43c",
+      "pad_count": 2,
+      "mid_xy_mm": [
+        1016.0,
+        -762.0
+      ],
+      "ref_xy_mm": [
+        1016.0,
+        -762.0
+      ],
+      "pad1_xy_mm": [
+        1015.0,
+        -762.0
+      ],
+      "mid_minus_ref_xy_mm": [
+        0.0,
+        0.0
+      ]
+    },
+    "X7": {
+      "code": "C309049",
+      "mpn": "TCC0805X7R334K500DT",
+      "land_pattern": "C0805",
+      "source_origin": [
+        4000.0,
+        3000.0
+      ],
+      "source": "https://easyeda.com/api/products/C309049/components?version=6.5.22",
+      "source_sha256": "2603335206d88dc50e86698fd8c35562d292afc227180f07e2f66f75b6e948b4",
+      "pad_count": 2,
+      "mid_xy_mm": [
+        1016.0,
+        -762.0
+      ],
+      "ref_xy_mm": [
+        1016.0,
+        -762.0
+      ],
+      "pad1_xy_mm": [
+        1015.0,
+        -762.0
+      ],
+      "mid_minus_ref_xy_mm": [
+        0.0,
+        0.0
+      ]
+    },
+    "X8": {
+      "code": "C49678",
+      "mpn": "CC0805KRX7R9BB104",
+      "land_pattern": "C0805",
+      "source_origin": [
+        4000.0,
+        3000.0
+      ],
+      "source": "https://easyeda.com/api/products/C49678/components?version=6.5.22",
+      "source_sha256": "0fdedc3c30b490b1f3bcf7294aaa2730e555bcc699c24ca986761e7d7c26e498",
+      "pad_count": 2,
+      "mid_xy_mm": [
+        1016.0,
+        -762.0
+      ],
+      "ref_xy_mm": [
+        1016.0,
+        -762.0
+      ],
+      "pad1_xy_mm": [
+        1015.0,
+        -762.0
+      ],
+      "mid_minus_ref_xy_mm": [
+        0.0,
+        0.0
+      ]
+    },
+    "X9": {
+      "code": "C519911",
+      "mpn": "CC0805KRX7R8BB103",
+      "land_pattern": "C0805",
+      "source_origin": [
+        4000.0,
+        3000.0
+      ],
+      "source": "https://easyeda.com/api/products/C519911/components?version=6.5.22",
+      "source_sha256": "d70a286c707dbdab0a0fecd783d3d045c6f9dd118a583d85e0100a66e7b49def",
+      "pad_count": 2,
+      "mid_xy_mm": [
+        1016.0,
+        -762.0
+      ],
+      "ref_xy_mm": [
+        1016.0,
+        -762.0
+      ],
+      "pad1_xy_mm": [
+        1015.0,
+        -762.0
+      ],
+      "mid_minus_ref_xy_mm": [
+        0.0,
+        0.0
+      ]
+    },
+    "X10": {
+      "code": "C6987",
+      "mpn": "TLC555IDR",
+      "land_pattern": "SOIC-8_L4.9-W3.9-P1.27-LS6.0-BL",
+      "source_origin": [
+        4000.0,
+        3000.0
+      ],
+      "source": "https://easyeda.com/api/products/C6987/components?version=6.5.22",
+      "source_sha256": "aedc91cecd9272c9d640e526165c23fbc1b5b9bb141d7be5beffcc7fddefe9b0",
+      "pad_count": 8,
+      "mid_xy_mm": [
+        1016.0,
+        -762.0
+      ],
+      "ref_xy_mm": [
+        1016.0,
+        -762.0
+      ],
+      "pad1_xy_mm": [
+        1014.1,
+        -764.6
+      ],
+      "mid_minus_ref_xy_mm": [
+        0.0,
+        0.0
+      ]
+    },
+    "X11": {
+      "code": "C75864",
+      "mpn": "DRV8871DDAR",
+      "land_pattern": "SO-8_L4.9-W3.9-P1.27-LS6.0-BL-EP",
+      "source_origin": [
+        399.4109,
+        300.5891
+      ],
+      "source": "https://easyeda.com/api/products/C75864/components?version=6.5.22",
+      "source_sha256": "75c2fcc84638b9ff4fa7883fd5646a0926c182234b292c8298c462fcbbfe6bac",
+      "pad_count": 9,
+      "mid_xy_mm": [
+        101.45,
+        -76.35
+      ],
+      "ref_xy_mm": [
+        101.45,
+        -76.35
+      ],
+      "pad1_xy_mm": [
+        99.55,
+        -79.35
+      ],
+      "mid_minus_ref_xy_mm": [
+        0.0,
+        0.0
+      ]
+    },
+    "X12": {
+      "code": "C77075",
+      "mpn": "GRM21BR61C106KE15L",
+      "land_pattern": "C0805",
+      "source_origin": [
+        4000.0,
+        3000.0
+      ],
+      "source": "https://easyeda.com/api/products/C77075/components?version=6.5.22",
+      "source_sha256": "2246ef3db512f214354b7a879ee6f1038bb852985378e3190eaf71661331e57b",
+      "pad_count": 2,
+      "mid_xy_mm": [
+        1016.0,
+        -762.0
+      ],
+      "ref_xy_mm": [
+        1016.0,
+        -762.0
+      ],
+      "pad1_xy_mm": [
+        1015.0,
+        -762.0
+      ],
+      "mid_minus_ref_xy_mm": [
+        0.0,
+        0.0
+      ]
+    },
+    "X13": {
+      "code": "C8269",
+      "mpn": "WJ128V-5.0-2P",
+      "land_pattern": "CONN-TH_2P-P5.00_WJ128V-5.0-2P",
+      "source_origin": [
+        399.86,
+        300.0
+      ],
+      "source": "https://easyeda.com/api/products/C8269/components?version=6.5.22",
+      "source_sha256": "76f49ccd6cc135cb8fc0619e10206eae900781492f9c1d4ee7834408a3b981a3",
+      "pad_count": 2,
+      "mid_xy_mm": [
+        101.56,
+        -76.2
+      ],
+      "ref_xy_mm": [
+        101.56,
+        -76.2
+      ],
+      "pad1_xy_mm": [
+        99.06,
+        -76.2
+      ],
+      "mid_minus_ref_xy_mm": [
+        0.0,
+        0.0
+      ]
+    },
+    "X14": {
+      "code": "C86206",
+      "mpn": "L7805ABD2T-TR",
+      "land_pattern": "TO-263-2_L10.0-W9.2-P5.08-LS15.3-TL-CW",
+      "source_origin": [
+        3980.6949,
+        3007.5668
+      ],
+      "source": "https://easyeda.com/api/products/C86206/components?version=6.5.22",
+      "source_sha256": "30b0c89af560929533b8fd4575559556b9600bbd65c9cfad9795c425d887ace2",
+      "pad_count": 3,
+      "mid_xy_mm": [
+        1011.1,
+        -763.92
+      ],
+      "ref_xy_mm": [
+        1011.1,
+        -763.92
+      ],
+      "pad1_xy_mm": [
+        1005.7,
+        -761.38
+      ],
+      "mid_minus_ref_xy_mm": [
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "scope": "Part-specific public EasyEDA Standard CAD exporter coordinates. Product listings and the JLCPCB EasyEDA file guide associate these parts and file format with JLCPCB. This is not a machine library export, upload, or production acceptance."
+}
