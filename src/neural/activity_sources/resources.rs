@@ -1,3 +1,4 @@
+mod archive;
 use super::{Moment, Page};
 use crate::neural::{accepted_choice::Choice, context, store, Result};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -248,6 +249,9 @@ pub(super) fn supplied(
             continue;
         }
         let result = &event["supplied_result"];
+        if let Some(tool @ ("asset.zip_members" | "asset.read_zip_text")) = event["body"]["tool"].as_str() {
+            archive::observed(catalog, time, page, tool, result)?;
+        }
         if matches!(
             event["body"]["tool"].as_str(),
             Some("asset.read" | "persona.read")

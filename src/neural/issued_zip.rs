@@ -1,7 +1,9 @@
 //! Recipient-side comparison of two explicitly selected files in exact issued editions.
 //! Read the ZIPs as data: no extraction, host paths, command execution or review state.
+mod inspection;
 mod paths;
 mod retained;
+pub use inspection::{MemberText, Members};
 use super::{activity_sources::delivery, failure, store, Result};
 pub use paths::Contents;
 pub use retained::{compare_registered, RegisteredQuery};

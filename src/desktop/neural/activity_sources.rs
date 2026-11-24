@@ -278,6 +278,9 @@ fn file_row(
     let source = s(row, "source_work");
     let path = s(row, "path");
     let (label, color) = match s(row, "kind") {
+        "catalog" if row["role"] == "zip_directory" => ("ZIP directory received", PURPLE),
+        "catalog" if row["role"] == "zip_member_metadata" => ("Member metadata only", PURPLE),
+        "text" if row["role"] == "zip_member_text" => ("Member text received", TEAL),
         "catalog" => ("Listed in search", PURPLE),
         "text" => ("Text received", TEAL),
         "image" => ("Image received", TEAL),
@@ -320,6 +323,25 @@ fn file_row(
             ui.weak(format!("rev. {rev}"));
         }
     });
+    let detail = &row["detail"];
+    if let Some(member) = detail["member"].as_str() {
+        ui.horizontal_wrapped(|ui| {
+            ui.add(egui::Label::new(format!("Inside ZIP · {member}")).wrap().selectable(true));
+            if let Some(index) = detail["member_index"].as_u64().and_then(|n| usize::try_from(n).ok()) {
+                if ui.link("Open whole member ↗").on_hover_text("View this member of the exact archive, not just the range supplied to the persona.").clicked() {
+                    app.open_resource(ui.ctx(), reference.into());
+                    app.preview_zip_member = Some((index, member.into()));
+                }
+            }
+        });
+        if row["role"] == "zip_member_text" {
+            if let (Some(start), Some(end), Some(size)) = (detail["member_range"][0].as_u64(), detail["member_range"][1].as_u64(), detail["member_bytes"].as_u64()) {
+                ui.small(format!("Member bytes {start}..{end} of {size}"));
+            }
+        }
+    } else if let Some(count) = detail["listed_member_count"].as_u64() {
+        ui.small(format!("Directory entries shown: {count} · no contents"));
+    }
     let source_name = app.work_name(source);
     let author = app.label(s(row, "author")).to_owned();
     ui.horizontal_wrapped(|ui| {

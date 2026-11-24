@@ -1,7 +1,7 @@
 //! Persona-selected content inspection. A library file may be a draft. Unlike
 //! the delivery desk, these operands make no assertion of issuance or review.
+use super::inspection::registered;
 use super::{failure, fingerprint, paths, Difference, Result};
-use crate::neural::context;
 use rusqlite::Connection;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -50,22 +50,12 @@ impl RegisteredQuery {
 
 pub fn compare_registered(db: &Connection, actor: &str, q: &RegisteredQuery) -> Result<Value> {
     q.validate()?;
-    let read = |reference: &str| -> Result<_> {
-        let resource = context::byte_resource_for(db, Some(actor), reference)?;
-        let path = resource
-            .asset
-            .as_ref()
-            .and_then(|a| a["path"].as_str())
-            .ok_or_else(|| failure("Missing registered file path"))?;
-        let meta = json!({"reference":reference,"path":path,"sha256":resource.digest,"bytes":resource.bytes.len()});
-        Ok((meta, resource.bytes))
-    };
-    let (a, left) = read(&q.baseline)?;
+    let (a, left) = registered(db, Some(actor), &q.baseline)?;
     let files = fingerprint(&left)?;
     drop(left);
     // Read and authorize the selected revision independently, including when
     // two registrations share bytes. Equal bytes need not share a history.
-    let (b, right) = read(&q.selected)?;
+    let (b, right) = registered(db, Some(actor), &q.selected)?;
     let other = if a["sha256"] == b["sha256"] {
         files.clone()
     } else {

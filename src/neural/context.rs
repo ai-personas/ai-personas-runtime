@@ -582,9 +582,14 @@ fn read_resource(
         Ok(text) => Ok(
             json!({"reference":reference,"metadata":body,"bytes":bytes.len(),"range":[start,end],"text":text}),
         ),
-        Err(_) => Ok(
-            json!({"reference":reference,"metadata":body,"bytes":bytes.len(),"range":[start,end],"binary":true,"note":"Not valid UTF-8 at this range. Select a whole retained PNG, JPEG, GIF or WebP for visual input, or export the resource. Byte excerpts are not image crops."}),
-        ),
+        Err(_) => {
+            let note = if reference.starts_with("asset:") && (bytes.starts_with(b"PK\x03\x04") || bytes.starts_with(b"PK\x05\x06")) {
+                "No text supplied. This registered file has a ZIP header. asset.zip_members lists original paths; asset.read_zip_text reads a selected text member or byte range without extracting the project."
+            } else {
+                "Not valid UTF-8 at this range. Select a whole retained PNG, JPEG, GIF or WebP for visual input, or export the resource. Byte excerpts are not image crops."
+            };
+            Ok(json!({"reference":reference,"metadata":body,"bytes":bytes.len(),"range":[start,end],"binary":true,"note":note}))
+        }
     }
 }
 

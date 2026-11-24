@@ -440,6 +440,8 @@ fn internal(
         "asset.list" => super::discovery::folder(db,&decode(input)?),
         "asset.search" => super::discovery::catalog(db,&decode(input)?),
         "asset.find" => super::discovery::find(db,Some(actor),&decode(input)?),
+        "asset.zip_members" => decode::<super::issued_zip::Members>(input)?.inspect(db,Some(actor)),
+        "asset.read_zip_text" => decode::<super::issued_zip::MemberText>(input)?.inspect(db,Some(actor)),
         "asset.compare_zips" => super::issued_zip::compare_registered(db,actor,&decode(input)?),
         "asset.read" | "persona.read" => {
             let x: tools::Read = decode(input)?;
@@ -1064,7 +1066,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
             resolve_operation(&mut op,&aliases)?;
             if part.departure.is_some(){return Err(failure("work.leave ends your operations in this activity; issue it last and stop"));}
             if persona.model.is_none()&&!matches!(op.tool.as_str(),"persona.initialize"|"persona.read"|"tools.search"|"tools.describe"|"asset.read") {return Err(failure("initialize and activate your character before accepting or doing work"));}
-            if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"human.requests"|"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.list"|"asset.search"|"asset.history"|"asset.deliveries"|"asset.find"|"asset.compare_zips"|"history.search"|"experience.search"|"relationship.contacts"|"relationship.history"|"persona.revision_uses"|"persona.paths"|"persona.replay_input"|"peer.message"|"work.briefs"|"work.requests"|"work.sources"|"work.agreements"|"result.prior_checks") {return Err(failure("accept your invitation before ordinary work"));}
+            if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"human.requests"|"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.list"|"asset.search"|"asset.history"|"asset.deliveries"|"asset.find"|"asset.zip_members"|"asset.read_zip_text"|"asset.compare_zips"|"history.search"|"experience.search"|"relationship.contacts"|"relationship.history"|"persona.revision_uses"|"persona.paths"|"persona.replay_input"|"peer.message"|"work.briefs"|"work.requests"|"work.sources"|"work.agreements"|"result.prior_checks") {return Err(failure("accept your invitation before ordinary work"));}
             if part.declined{return Err(failure("declined participation cannot perform operations"));}
             if tools::is_external(&op.tool) {
                 validate_external(db,&persona,&op)?;

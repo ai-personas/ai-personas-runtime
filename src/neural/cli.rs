@@ -278,6 +278,10 @@ pub enum Command {
     Catalog(super::discovery::Catalog),
     /// Browse the folders and files chosen by shared library authors, without loading their contents.
     LibraryFolder(super::discovery::FolderQuery),
+    /// Browse regular file names and declared sizes inside one exact registered ZIP.
+    ZipMembers(super::issued_zip::Members),
+    /// Read a selected text member of a registered ZIP without unpacking the project.
+    ReadZipText(super::issued_zip::MemberText),
     /// Locate byte ranges in an exact retained UTF-8 asset or object without printing its body.
     Find(super::discovery::FindText),
     /// Read an exact immutable resource or object.
@@ -561,6 +565,8 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
         }
         Command::ExportHandoff{reference,destination,format}=>super::human_requests::export_handoff(&store::open_inspection(root)?,&reference,&destination,format),
         Command::LibraryFolder(query)=>super::discovery::folder(&store::open_inspection(root)?,&query),
+        Command::ZipMembers(query)=>query.inspect(&store::open_inspection(root)?,None),
+        Command::ReadZipText(query)=>query.inspect(&store::open_inspection(root)?,None),
         Command::CommandHistory(query)=>super::commands::history(&store::open_inspection(root)?,&query),
         Command::QuestionHistory{reference}=>super::question_history::inspect(&store::open_inspection(root)?,&reference),
         Command::MessageReceipt{event}=>super::live::message_receipt(&store::open_inspection(root)?,event),
