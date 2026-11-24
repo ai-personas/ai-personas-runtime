@@ -60,6 +60,12 @@ impl Stream {
     pub fn finish(&mut self) -> Result<String, Failure> {
         match self { Self::Responses { collector, .. } => collector.finish(), Self::Messages(c) => c.finish() }
     }
+    pub fn error_event(&self) -> Option<&[u8]> {
+        match self {
+            Self::Responses { collector, .. } => collector.error_event(),
+            Self::Messages(_) => None,
+        }
+    }
     pub fn receipt(&self, r: &mut AttemptReceipt, failed: bool) {
         match self {
             Self::Responses { collector:c, model } => {
@@ -76,7 +82,7 @@ impl Stream {
                 r.previous_reported_effort = c.previous_reported_effort.clone();
                 r.reported_model = c.completed.then(|| model.clone());
                 r.usage = c.usage.clone();
-                r.stream_progress = failed.then(|| c.progress_receipt());
+                r.stream_progress = Some(c.progress_receipt());
             }
             Self::Messages(c) => {
                 r.stream_bytes_observed = c.observed;

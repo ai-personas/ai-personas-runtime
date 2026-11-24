@@ -138,6 +138,27 @@ fn file_hash(path: &Path) -> Option<String> {
     Some(hex::encode(hash.finalize()))
 }
 
+fn runner_artifact_hash() -> Option<String> {
+    // Every command in this process uses the same executable. Hash it once,
+    // rather than rereading a large debug binary before each command launch.
+    // Linux's executable handle also preserves the running image's identity
+    // when a build replaces the executable at its original filesystem path.
+    static HASH: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    HASH.get_or_init(|| {
+        #[cfg(target_os = "linux")]
+        {
+            file_hash(Path::new("/proc/self/exe"))
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            std::env::current_exe()
+                .ok()
+                .and_then(|path| file_hash(&path))
+        }
+    })
+    .clone()
+}
+
 fn captured(path: &Path) -> std::io::Result<OutputCapture> {
     let mut file = File::open(path)?;
     let length = file.metadata()?.len();
@@ -243,7 +264,19 @@ pub(crate) fn environment_sha256(environment: &[(OsString, OsString)]) -> String
 pub fn execute(
     input: &Inputs,
     directory: &Path,
+    observe_stop: impl FnMut() -> Option<serde_json::Value>,
+) -> Outcome {
+    execute_with_start(input, directory, observe_stop, |_, _, _| Ok(()))
+}
+
+/// Report the actual launched process and its live log paths. The callback
+/// must finish successfully before execution is allowed to continue unobserved.
+/// These paths are mutable host files, never immutable output evidence.
+pub fn execute_with_start(
+    input: &Inputs,
+    directory: &Path,
     mut observe_stop: impl FnMut() -> Option<serde_json::Value>,
+    mut on_start: impl FnMut(u32, &Path, &Path) -> std::io::Result<()>,
 ) -> Outcome {
     let started = Instant::now();
     let environment = command_environment();
@@ -260,9 +293,7 @@ pub fn execute(
         working_directory: directory.to_string_lossy().into_owned(),
         shell: SHELL.into(),
         shell_sha256: file_hash(Path::new(SHELL)),
-        runner_artifact_sha256: std::env::current_exe()
-            .ok()
-            .and_then(|path| file_hash(&path)),
+        runner_artifact_sha256: runner_artifact_hash(),
         // SAFETY: geteuid has no arguments or memory access requirements.
         effective_uid: unsafe { libc::geteuid() },
         inherited_environment_sha256: environment_sha256(&environment),
@@ -301,8 +332,10 @@ pub fn execute(
             .stderr(Stdio::from(stderr))
             .process_group(0)
             .spawn()?;
+        let execution_started = Instant::now();
         let mut child = RunningCommand { child, reaped: false };
         outcome.process_started = true;
+        on_start(child.child.id(), &stdout_path, &stderr_path)?;
         let mut next_control_check = Instant::now();
         let status = loop {
             if let Some(status) = child.try_wait()? {
@@ -317,7 +350,7 @@ pub fn execute(
             }
             if input
                 .timeout_seconds
-                .is_some_and(|seconds| started.elapsed() >= Duration::from_secs(seconds))
+                .is_some_and(|seconds| execution_started.elapsed() >= Duration::from_secs(seconds))
             {
                 outcome.timed_out = true;
                 // The timeout is explicitly chosen in this command's input.

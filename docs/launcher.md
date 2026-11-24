@@ -1,6 +1,8 @@
 # One-command foreground launch
 
-With **no arguments**, `./personas` now opens [integrated first-run and returning-work interaction](interactive-launch.md). The manual setup and thin-wrapper behavior below describe **explicit argument-based commands**, not the no-argument journey.
+With **no arguments**, `./personas` opens Persona Studio in a graphical session or the numerical terminal otherwise. Use `--terminal` to open that terminal directly, or `--neural --help` for the numerical CLI. [Numerical workspace guide](editable-persona-models.md)
+
+Use `--journal-terminal` for the historical journal onboarding described below. [Journal onboarding guide](interactive-launch.md)
 
 With explicit arguments, `./personas "Your exact need"` replaces itself with the
 selected installed executable. Options without a need prompt on terminal input.

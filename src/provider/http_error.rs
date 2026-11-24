@@ -47,7 +47,9 @@ impl Capture {
         if !complete { return result; }
         let Ok(value) = serde_json::from_slice::<Value>(&self.bytes) else { return result; };
         result.json_observed = true;
-        let error = &value["error"];
+        // Responses standalone error events can use flat code/message fields;
+        // HTTP and some streaming routes use the nested error object.
+        let error = value.get("error").filter(|error| error.is_object()).unwrap_or(&value);
         if let Some(message) = error["message"].as_str().or_else(|| value["detail"].as_str()) {
             let mut message = message.to_owned();
             // A provider can echo a fragment of an opaque input item. Keep the

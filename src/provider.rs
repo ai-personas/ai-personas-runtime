@@ -20,6 +20,7 @@ mod messages;
 mod web_search;
 pub use http_error::Diagnostic as HttpErrorDiagnostic;
 pub(crate) use http_error::input_text_length_rejected;
+pub(crate) use http_error::input_image_patch_rejection;
 pub use network_error::{Diagnostic as NetworkDiagnostic, Stage as NetworkFailureStage, TransportDiagnostics};
 pub use output_items::RetainedOutputItems;
 pub use input_history::InputHistory;
@@ -705,6 +706,16 @@ impl ImageInput {
 /// Redacted fixed-shape stream failure metadata. Values are static labels,
 /// numeric positions or bounded digests, never free-form provider text.
 #[derive(Clone, Debug, Serialize)]
+pub struct StreamStatusObservation {
+    pub value_type: &'static str,
+    /// Only known lifecycle labels are copied. Other strings stay fingerprinted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recognized_value: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value_sha256: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct StreamDiagnostic {
     pub stage: &'static str,
     pub event_index: Option<u64>,
@@ -724,6 +735,9 @@ pub struct StreamDiagnostic {
     pub incomplete_reason: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub incomplete_reason_sha256: Option<String>,
+    /// Status from the item in this rejected event, before shape validation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub item_status: Option<StreamStatusObservation>,
     pub rule: &'static str,
     pub field: Option<&'static str>,
 }
@@ -779,8 +793,12 @@ pub struct AttemptReceipt {
     pub reported_terminal_status: Option<ReportedTerminalStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_diagnostic: Option<StreamDiagnostic>,
-    /// Content-free observations from a failed stream. These describe local
-    /// receipt progress, not a completed response, usable decision or token usage.
+    /// Structured standalone SSE error with the same credential redaction and
+    /// private-continuation protection as HTTP errors. Not a response body.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream_error_diagnostic: Option<HttpErrorDiagnostic>,
+    /// Content-free stream observations. Local lifecycle and status observations
+    /// do not establish decision adoption or independently measured token usage.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_progress: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -825,6 +843,7 @@ impl AttemptReceipt {
             response_completed: false,
             reported_terminal_status: None,
             stream_diagnostic: None,
+            stream_error_diagnostic: None,
             stream_progress: None,
             response_id: None,
             response_id_sha256: None,
@@ -1650,7 +1669,7 @@ impl DirectCall {
                     ).await?;
                     receipt.http_status = Some(response.status);
                     if response.status != 200 {
-                        let mut capture = http_error::Capture::new(error_secrets, audit.input_history.is_some());
+                        let mut capture = http_error::Capture::new(error_secrets.clone(), audit.input_history.is_some());
                         receipt.http_diagnostic = Some(capture.diagnostic(false));
                         let mut body = response.body;
                         loop {
@@ -1699,6 +1718,11 @@ impl DirectCall {
                     receipt.intake_prelaunch_checked_at_unix.is_some();
             }
             collector.receipt(&mut receipt, result.is_err());
+            if let Some(event) = collector.error_event() {
+                let mut capture = http_error::Capture::new(error_secrets, audit.input_history.is_some());
+                capture.push(event);
+                receipt.stream_error_diagnostic = Some(capture.diagnostic(true));
+            }
             receipt.network_diagnostic = diagnostics.snapshot();
             receipt.elapsed_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
             receipt.remote_effects_and_charges_may_remain = receipt.dispatch_may_have_begun;

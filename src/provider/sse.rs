@@ -1,4 +1,4 @@
-use super::{Failure, ReportedTerminalStatus, RetainedResponseId, StreamDiagnostic, Usage};
+use super::{Failure, ReportedTerminalStatus, RetainedResponseId, StreamDiagnostic, StreamStatusObservation, Usage};
 use crate::files::{parse_json_unique, JsonProfileError};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -179,6 +179,8 @@ struct Item {
     kind: Kind,
     added: bool,
     done: bool,
+    added_status: Option<StreamStatusObservation>,
+    done_status: Option<StreamStatusObservation>,
     incomplete: bool,
     part_added: bool,
     part_done: bool,
@@ -295,10 +297,13 @@ pub(super) struct Collector {
     event_type: Option<&'static str>,
     last_observed_event: Option<&'static str>,
     event_type_sha256: Option<String>,
+    last_item_status: Option<StreamStatusObservation>,
     remote_error_type: Option<&'static str>,
     remote_error_code: Option<&'static str>,
     remote_error_type_sha256: Option<String>,
     remote_error_code_sha256: Option<String>,
+    // Host-only until credential redaction in the transport receipt.
+    remote_error_event: Option<Vec<u8>>,
     incomplete_reason: Option<&'static str>,
     incomplete_reason_sha256: Option<String>,
     pub diagnostic: Option<StreamDiagnostic>,
@@ -322,6 +327,12 @@ impl Collector {
             };
             let mut progress = serde_json::json!({"index":index,"kind":kind,
                 "done":item.done,"incomplete":item.incomplete});
+            if let Some(status) = &item.added_status {
+                progress["added_status"] = serde_json::json!(status);
+            }
+            if let Some(status) = &item.done_status {
+                progress["done_status"] = serde_json::json!(status);
+            }
             if matches!(item.kind, Kind::Message | Kind::Decision) {
                 progress["delta_bytes"] = serde_json::json!(item.deltas.len());
                 progress["final_text_bytes"] = serde_json::json!(item.final_text.as_ref().map(String::len));
@@ -329,10 +340,10 @@ impl Collector {
             }
             progress
         }).collect();
-        // Only fixed event labels, local flags and byte counts cross this
-        // boundary. Never include output text, IDs or reasoning contents.
+        // Only fixed labels, value types/fingerprints, local flags and byte
+        // counts cross this boundary. No output text, IDs or reasoning content.
         serde_json::json!({"profile":"provider-stream-progress-v1","wire":"responses",
-            "last_observed_event":self.last_observed_event,"items":items,
+            "last_observed_event":self.last_observed_event,"response_completed":self.completed,"items":items,
             "buffered_line_bytes":self.line.len(),"buffered_data_bytes":self.data.len()})
     }
 
@@ -363,10 +374,12 @@ impl Collector {
             event_type: None,
             last_observed_event: None,
             event_type_sha256: None,
+            last_item_status: None,
             remote_error_type: None,
             remote_error_code: None,
             remote_error_type_sha256: None,
             remote_error_code_sha256: None,
+            remote_error_event: None,
             incomplete_reason: None,
             incomplete_reason_sha256: None,
             diagnostic: None,
@@ -451,6 +464,7 @@ impl Collector {
             remote_error_code_sha256: self.remote_error_code_sha256.clone(),
             incomplete_reason: self.incomplete_reason,
             incomplete_reason_sha256: self.incomplete_reason_sha256.clone(),
+            item_status: self.last_item_status.clone(),
             rule: failure.rule,
             field: failure.field,
         });
@@ -461,6 +475,9 @@ impl Collector {
         self.last_observed_event = self.event_type;
         self.event_type_sha256 =
             (self.event_type == Some("unrecognized")).then(|| super::digest(name.as_bytes()));
+    }
+    pub fn error_event(&self) -> Option<&[u8]> {
+        self.remote_error_event.as_deref()
     }
     // Called only immediately before a sticky remote failure.
     fn observe_remote_error(&mut self, error_type: Option<&Value>, code: Option<&Value>) {
@@ -482,6 +499,7 @@ impl Collector {
                 "insufficient_quota",
                 "context_length_exceeded",
                 "invalid_encrypted_content",
+                "invalid_value",
                 "model_not_found",
                 "slow_down",
                 "server_is_overloaded",
@@ -537,6 +555,7 @@ impl Collector {
                 self.event_index = Some(self.events as u64 + 1);
                 self.event_type = None;
                 self.event_type_sha256 = None;
+                self.last_item_status = None;
                 continue;
             }
             let line = std::str::from_utf8(&line).map_err(|_| protocol("frame_invalid_utf8"))?;
@@ -573,6 +592,7 @@ impl Collector {
         self.event_index = None;
         self.event_type = None;
         self.event_type_sha256 = None;
+        self.last_item_status = None;
         let result = self.finish_inner();
         result.map_err(|failure| self.retain_failure(failure))
     }
@@ -584,6 +604,7 @@ impl Collector {
     }
     fn event(&mut self, bytes: &[u8]) -> Result<()> {
         self.stage = "event";
+        self.last_item_status = None;
         self.events += 1;
         self.event_index = Some(self.events as u64);
         let event = parse_json_unique(bytes).map_err(|error| {
@@ -678,6 +699,29 @@ impl Collector {
                 }
             }
             return Ok(());
+        }
+        if matches!(kind, "error" | "response.error") {
+            // A provider can reject a request before creating a response.
+            // Preserve its sanitized error labels without inventing response
+            // identity, usage, completion or authority to adopt any output.
+            if let (Some(expected), Some(id)) =
+                (self.response_id.as_deref(), event.get("response_id"))
+            {
+                if id.as_str() != Some(expected) {
+                    return Err(protocol("event_response_id_mismatch"));
+                }
+            }
+            let error = event.get("error").filter(|value| value.is_object());
+            self.remote_error_event = Some(bytes.to_vec());
+            self.observe_remote_error(
+                error.and_then(|value| value.get("type")),
+                error.unwrap_or(&event).get("code"),
+            );
+            return Err(StreamFailure {
+                failure: Failure::RemoteFailure,
+                rule: "provider_error",
+                field: None,
+            });
         }
         let response_id = self
             .response_id
@@ -862,20 +906,13 @@ impl Collector {
                     field: None,
                 });
             }
-            "error" | "response.error" => {
-                // A nested error object takes precedence over flat error fields.
-                let error = event.get("error").filter(|value| value.is_object());
-                self.observe_remote_error(
-                    error.and_then(|value| value.get("type")),
-                    error.unwrap_or(&event).get("code"),
-                );
-                return Err(Failure::RemoteFailure.into());
-            }
             "response.refusal.delta" | "response.refusal.done" => {
                 return Err(Failure::RemoteFailure.into());
             }
             "response.output_item.added" | "response.output_item.done" => {
                 let value = event.get("item").ok_or(protocol("output_item_missing"))?;
+                let observed_status = status_observation(value.get("status"));
+                self.last_item_status = Some(observed_status.clone());
                 let kind_of_item = item_kind(value)?;
                 if kind_of_item == Kind::Decision && !self.decision_carrier {
                     return Err(protocol("unexpected_decision_carrier"));
@@ -892,6 +929,7 @@ impl Collector {
                     item.observe_call(value)?;
                 }
                 if kind == "response.output_item.added" {
+                    item.added_status = Some(observed_status);
                     if item.added
                         || item.done
                         || item.saw_delta
@@ -930,6 +968,7 @@ impl Collector {
                     }
                     item.added = true;
                 } else {
+                    item.done_status = Some(observed_status);
                     if item.done {
                         return Err(protocol("duplicate_item_done"));
                     }
@@ -1205,6 +1244,8 @@ impl Collector {
             kind,
             added: false,
             done: false,
+            added_status: None,
+            done_status: None,
             incomplete: false,
             part_added: false,
             part_done: false,
@@ -1221,6 +1262,30 @@ impl Collector {
         }
         Ok(item)
     }
+}
+fn status_observation(value: Option<&Value>) -> StreamStatusObservation {
+    let value_type = match value {
+        None => "missing",
+        Some(Value::Null) => "null",
+        Some(Value::Bool(_)) => "boolean",
+        Some(Value::Number(_)) => "number",
+        Some(Value::String(_)) => "string",
+        Some(Value::Array(_)) => "array",
+        Some(Value::Object(_)) => "object",
+    };
+    let recognized_value = match value.and_then(Value::as_str) {
+        Some("in_progress") => Some("in_progress"),
+        Some("completed") => Some("completed"),
+        Some("incomplete") => Some("incomplete"),
+        Some("failed") => Some("failed"),
+        Some("queued") => Some("queued"),
+        Some("cancelled") => Some("cancelled"),
+        Some("searching") => Some("searching"),
+        _ => None,
+    };
+    let value_sha256 = value.and_then(Value::as_str)
+        .filter(|_| recognized_value.is_none()).map(|label| super::digest(label.as_bytes()));
+    StreamStatusObservation { value_type, recognized_value, value_sha256 }
 }
 fn check_metadata_headers(headers: Option<&Value>, model: &str) -> Result<()> {
     let Some(headers) = headers.filter(|v| !v.is_null()) else {

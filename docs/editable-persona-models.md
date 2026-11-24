@@ -111,6 +111,8 @@ For a portable Python environment, `command.install` with `{"engine":"python"}` 
 
 The numerical representation and the studio build on the implementation referenced by the November design. [Design and conformance criteria](https://github.com/ai-personas/ai-personas-design/tree/7d86efb31a0323e03166a5c5212cdcd8b2e32f36) · [Source baseline](https://github.com/ai-personas/ai-personas-runtime/tree/1aabb15c56b8a1f3c0403bdb28feeedb57c5bd7e)
 
+The [November 9 runtime observations](live-validation-2026-11-09.md) and [manufacturing trial](manufacturing-validation-2026-11-09.md) describe that earlier build.
+
 ## Working with the same society
 
 ```sh
