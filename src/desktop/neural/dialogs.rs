@@ -99,6 +99,20 @@ impl Dialog {
             provider: provider.into(),
         }
     }
+    fn scroll_identity(&self) -> egui::Id {
+        let id = egui::Id::new(std::mem::discriminant(self));
+        match self {
+            Self::Review { reference, .. } => id.with(reference),
+            Self::Reasoning { persona, expected, .. } => id.with((persona, expected)),
+            Self::Participation { work, person, action, reply_to, .. } =>
+                id.with((work, person, action.title(), reply_to.as_ref().map(|r| &r.0))),
+            Self::ActivityState { work, expected, reopen, .. } => id.with((work, expected, reopen)),
+            Self::Activity { edition, .. } => id.with(edition.as_ref().map(|e| &e.reference)),
+            Self::Agreement(form) => id.with(form.title()),
+            _ => id,
+        }
+    }
+
     fn title(&self) -> &str {
         match self {
             Self::ActivityState {reopen:true,..} => "Reopen activity",
@@ -130,10 +144,11 @@ fn multiline(ui: &mut Ui, value: &mut String, hint: &str) {
 #[cfg(test)]
 mod layout_tests;
 
-fn dialog_contents(ui: &mut Ui, scroll: bool, show: impl FnOnce(&mut Ui)) {
+fn dialog_contents(ui: &mut Ui, scroll: bool, identity: egui::Id, fresh: bool, show: impl FnOnce(&mut Ui)) {
     if scroll {
-        egui::ScrollArea::vertical()
-            .max_height((ui.ctx().content_rect().height() - 100.).max(80.))
+        let mut area = egui::ScrollArea::vertical().id_salt(identity);
+        if fresh { area = area.vertical_scroll_offset(0.); }
+        area.max_height((ui.ctx().content_rect().height() - 100.).max(80.))
             .auto_shrink([false, true])
             .show(ui, show);
     } else {
@@ -222,8 +237,12 @@ impl App {
 
     pub(super) fn dialogs(&mut self, ctx: &egui::Context) {
         let Some(mut draft) = self.dialog.take() else {
+            self.dialog_scroll_identity = None;
             return;
         };
+        let scroll_identity = draft.scroll_identity();
+        let fresh = self.dialog_scroll_identity != Some(scroll_identity);
+        self.dialog_scroll_identity = Some(scroll_identity);
         let mut open = true;
         let mut command = None;
         let mut start_workspace = false;
@@ -262,7 +281,7 @@ impl App {
             .open(&mut open)
             .default_width(510.0_f32.min(width))
             .resizable(true)
-            .show(ctx, |ui| dialog_contents(ui, scroll, |ui| {
+            .show(ctx, |ui| dialog_contents(ui, scroll, scroll_identity, fresh, |ui| {
                 ui.add_enabled_ui(!self.busy, |ui| match &mut draft {
                     Dialog::Activity {
                         social,
@@ -483,8 +502,9 @@ impl App {
                 self.submitting_dialog = true;
                 self.dispatch(ctx, command, request, start_workspace);
             }
-        } else if matches!(draft, Dialog::Settings(_)) {
-            self.save_layout();
+        } else {
+            self.dialog_scroll_identity = None;
+            if matches!(draft, Dialog::Settings(_)) { self.save_layout(); }
         }
     }
 

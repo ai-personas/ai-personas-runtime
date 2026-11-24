@@ -31,6 +31,43 @@ fn settings_fit_after_zoom_and_viewport_changes() {
 }
 
 #[test]
+fn new_review_starts_at_its_edition_not_another_forms_scroll_offset() {
+    let directory=tempfile::tempdir().unwrap();
+    let ctx=egui::Context::default();
+    let mut app=App::new(&ctx,directory.path().to_path_buf(),None,"Reviewer".into());
+    theme::apply(&ctx,app.layout.dark,3.);
+    let screen=egui::Rect::from_min_size(egui::Pos2::ZERO,egui::vec2(780.,560.)/3.);
+    let frame=|app:&mut App,delta:f32| ctx.run(egui::RawInput {
+        screen_rect:Some(screen),events:vec![egui::Event::PointerMoved(screen.center()),
+            egui::Event::MouseWheel { unit:egui::MouseWheelUnit::Point,delta:egui::vec2(0.,delta),modifiers:Default::default() }],
+        ..Default::default()
+    },|ctx|app.dialogs(ctx));
+    let visible=|output:&egui::FullOutput,title:&str| output.shapes.iter().any(|shape| match &shape.shape {
+        egui::epaint::Shape::Text(text) if text.galley.text()==title => {
+            let rect=text.galley.rect.translate(text.pos.to_vec2());
+            screen.contains_rect(rect) && shape.clip_rect.contains_rect(rect)
+        }, _=>false,
+    });
+    app.open_workspace_settings();
+    for _ in 0..5 {frame(&mut app,0.);}
+    for _ in 0..5 {frame(&mut app,-10000.);}
+    for (reference,title) in [("delivery:alpha@1","Alpha"),("delivery:beta@1","Beta"),("delivery:beta@1","Beta")] {
+        app.dialog=Some(Dialog::Review { reference:reference.into(),title:title.into(),reason:"Unsubmitted draft. ".repeat(80) });
+        let mut title_visible=false;
+        for _ in 0..5 {title_visible|=visible(&frame(&mut app,0.),title);}
+        assert!(title_visible,"A newly opened review must show its edition title: {reference}");
+        let mut output=frame(&mut app,0.);
+        for _ in 0..5 {output=frame(&mut app,-10000.);}
+        assert!(!visible(&output,title),"The regression must actually scroll past the title");
+        if reference=="delivery:beta@1" {
+            // Closing and opening even the same edition creates a fresh draft.
+            app.dialog=None;
+            frame(&mut app,0.);
+        }
+    }
+}
+
+#[test]
 fn selected_person_inspector_fits_scaled_viewport() {
     let directory = tempfile::tempdir().unwrap();
     let ctx = egui::Context::default();
