@@ -63,7 +63,8 @@ fn nested_exposure(
 // Visit only typed host fields. Authored text, arbitrary observation payloads,
 // delivery bundles, archives and nested historical records are never rewritten.
 // Version 1 permits references only in observation/message exposures. Version 2
-// adds this explicit inventory of Exposure-typed State fields, never a recursive
+// adds this explicit inventory of Exposure-typed State fields; version 3 shares
+// their constituent references through typed tables. Neither uses a recursive
 // search for similarly named or shaped values in authored content.
 pub(super) fn manifests(
     state: & $($mutability)* Value,
@@ -82,12 +83,17 @@ pub(super) fn manifests(
     if version == 1 {
         return Ok(());
     }
-    if version != POOL_VERSION {
+    if version != 2 && version != POOL_VERSION {
         return Err(invalid_storage("unsupported retained exposure pool"));
     }
     for persona in object_records(state, "personas")? {
         nested_exposure(persona, "character", &mut visit)?;
+        nested_exposure(persona, "character_development", &mut visit)?;
         for focus in object_records(persona, "focus")? {
+            // Earlier immutable snapshots can contain this removed interface.
+            // Validate their pooled exposure before State discards the field;
+            // current State serialization never writes it or supplies its body.
+            nested_exposure(focus, "working_state", &mut visit)?;
             nested_exposure(focus, "authored_continuation", &mut visit)?;
             exposure_field(focus, "judgment_exposure", &mut visit)?;
             for exposure in array_records(focus, "maintenance_exposures")? {

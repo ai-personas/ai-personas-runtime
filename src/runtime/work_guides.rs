@@ -173,6 +173,7 @@ fn records(
                 policy: policy.clone(),
                 qualifications: Vec::new(),
                 retired: false,
+                save_context: None,
             }
             .seal()?;
             Ok((command, record))

@@ -10,6 +10,20 @@ second operator action is required. Each proposal and subsequent child admission
 remain separate exact records. Admission preserves the persona as requester; it
 does not claim that invitees accepted responsibility or completed the request.
 
+An ordinary child decision receives `CONTROL.requested_result_context`, containing
+its exact ancestor requests from the outermost need to the immediate parent. Each
+entry names its requester, current mandate and work version, request, outcome
+criteria, boundaries, assumptions, terms, delivery audience and registered record
+counts. Current accepted amendments replace historical intake text in this view;
+the original intake stays unchanged in history. Parent and child phases remain
+separate.
+
+This keeps the overall requested result available when personas decompose work
+into narrower contributions. It does not make a report sufficient for the parent
+need, accept an assignment, resume a stopped persona or supply an implementation
+workflow. Peers' private working notes and selected context are not included.
+Personas still judge and choose their contribution, integration and cooperation.
+
 Saved source policies and work allocations are provenance rather than execution quotas. Model calls, navigation, metadata retention and episode expiry have no application resource gate.
 Current proposals contain the exact source grant, purpose, request, outcomes and
 invitees. They have no `allocation` field: personas do not estimate attempt,

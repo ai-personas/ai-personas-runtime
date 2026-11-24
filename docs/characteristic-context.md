@@ -4,6 +4,22 @@ A valid profile, supplied characteristic text, observable behavior and useful
 accomplishment are distinct claims. This page documents the current-context
 invariant; it does not report a live persona evaluation.
 
+## Observed maintenance across work
+
+`CONTROL.character_development` supplies a compact record of the persona's
+accepted ordinary maintenance choices across its work: decisions since tracking
+began, consecutive `no_change` choices, decisions that accepted fragment file
+revisions, actual character transitions, and the last attributed maintenance
+choice. Initial authorship and rejected decisions do not advance these counters.
+An absent record means untracked history, not zero past development. The desktop
+Character view displays the same facts.
+
+This projection neither edits fragments nor infers a trait, lesson or quality
+score. The persona decides whether experience warrants a change. Accepted changes,
+later supplied fragments and observable behavioral benefit remain separate facts.
+Retained source lineage keeps later applicable warnings visible even when optional
+source bodies have been deselected.
+
 ## Character reaches the decision
 
 Fresh setup retains each attributed seed. The initial persona decision authors
@@ -26,6 +42,26 @@ reflection calls or tool invocations. There is no mandatory profession, leader,
 reviewer or deliverable format. Initial instructions require preservation of
 starting tendencies rather than converting every seed into an idealized common
 collaborator. Structural validation does not establish semantic individuality.
+
+## Fragments and supporting files
+
+Characteristic fragments express the persona's perspective and ways of working.
+Task facts, conclusions, procedures, failed approaches and plans can be retained
+as supporting files through ordinary file operations and asset maintenance.
+The persona chooses useful paths and discovery cues, and selects relevant files
+or ranges through `next_assets`. Characteristic context uses `next_fragments`.
+Saving or reading a file does not automatically select it for later calls.
+
+There is no separate automatically supplied task-memory record or learning
+mechanism. Current needs, accepted commitments and actual observations remain
+runtime inputs; the primary persona chooses its optional supporting context.
+Neither retained notes nor activity counts establish verified work or character
+development. A reasoned maintenance decision can leave files unchanged.
+
+The former `working_state` response and control fields are removed from the live
+interface. Earlier accepted decisions and input records remain exact historical
+evidence, available through normal history selection. They are not converted
+into fragments or automatically supplied as current task understanding.
 
 ## Nonblank resolved characteristic text
 

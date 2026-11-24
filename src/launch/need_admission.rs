@@ -281,9 +281,9 @@ fn proof(
         s::sha256_bytes(raw.as_bytes()) == pending.response_sha256,
         "exact authored response hash differs",
     )?;
-    let parsed = p::parse_decision(raw.as_bytes())?;
+    let parsed = p::parse_recorded_decision(raw.as_bytes())?;
     require(
-        parsed == adopted.response
+        p::matches_recorded_decision(&parsed, &adopted.response)
             && adopted.actor == pending.author
             && adopted.work == pending.parent_work
             && adopted.response_hash == pending.response_sha256

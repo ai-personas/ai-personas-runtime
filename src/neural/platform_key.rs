@@ -94,6 +94,7 @@ pub(super) fn settings(path: &Path, model: &str, effort: &str) -> Result<provide
         env: BINDING.into(),
     };
     let settings = provider::DirectSettings {
+        max_output_tokens: None,
         mode,
         model: model.into(),
         effort: effort.into(),

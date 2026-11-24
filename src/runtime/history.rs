@@ -5,6 +5,8 @@
 use super::work_inspection::{bounded, Permissions, PROJECTION_BYTES, PROJECTION_REVISIONS};
 use super::*;
 pub(super) mod records;
+mod decision_inputs;
+pub(super) use decision_inputs::own_sources as own_decision_input_sources;
 pub(super) mod input;
 
 // Per focus, including duplicate memberships in separate handles. The byte

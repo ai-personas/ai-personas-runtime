@@ -1,9 +1,9 @@
 //! Persona-selected provider continuation. State holds an exact terminal
-//! reference; complete prior inputs and opaque outputs stay host-private.
+//! reference; selected prior inputs and complete opaque outputs stay host-private.
 use super::*;
 
-pub(super) const INTERFACE: &str = "selected-provider-context-v1";
-const RULE: &str = "Provider continuation is optional supporting context. To carry this invocation's complete provider input and completed output into the next decision, add provider_context:{kind:current,lifetime:work} to a next_assets replacement. Use lifetime:next_call for one following admission of this persona on this work; calls on other work do not consume it. This includes any earlier provider history actually supplied to this invocation, its old text and images, and opaque reasoning items when returned. It can be large; select it only when useful. To keep the existing provider turn while replacing files or images, use provider_context:{kind:preserve}. That preserves the old turn without appending this invocation or renewing its lifetime. Omitting provider_context from a replacement clears that selection; next_assets clear clears text, images and provider history, while next_assets preserve retains surviving selections without appending a turn. To select only provider context use kind:replace, references:[], provider_context:{kind:current}, and your reason. No full history or item bodies are placed in this metadata. supplied_history describes the actual extra provider input for this admission, with complete serialized bytes rather than an invented token estimate. unavailable means no earlier provider items were supplied; choose current to start a new continuation from this actual input, or clear it. Current requires the declared interface and a completed direct provider response; thin or unavailable output remains explicit without inventing history. The selected model and transport route must remain compatible with the retained turn. Current character, the latest CONTROL and schema, current request and observed effects govern the new response. Earlier assistant messages are historical proposals, including any fenced operations, not new actions, current authority or proof of successful effects. Character adoption can preserve or clear an existing selection but cannot add this turn. Retention or later item supply alone proves neither rendered reasoning reuse nor better work or character maturation.";
+pub(super) const INTERFACE: &str = "selected-provider-context-v2";
+const RULE: &str = "Provider continuation is optional supporting context. Choose only a scope in available_scopes. In a next_assets replacement, provider_context:{kind:current_output,lifetime:work} retains every completed output item from this invocation, including returned opaque reasoning and your Decision, without its original prompt, input images or separate earlier provider history. Select needed facts, observations and resources separately in native context. Use this when the next input supplies what is needed and repeating the old input is unnecessary. current_turn keeps this invocation's own complete input, images and output, excluding earlier separate provider history. current includes this turn and all earlier provider history actually supplied to it. All choices keep complete output items unchanged. Current qualifications on omitted inputs accompany output-only history in native context and can still be large. Select again to move the chosen scope forward. lifetime:next_call lasts for one following admission of this persona on this work; work is the default. provider_context:{kind:preserve} retains the existing selection without appending a turn or renewing its lifetime. Omitting provider_context from a replacement clears it; next_assets clear clears text, images and provider history; next_assets preserve retains surviving selections. To choose provider context alone, use kind:replace, references:[], provider_context and your reason. supplied_history reports extra input bytes, item counts and omitted input turns, never token estimates or opaque bodies. unavailable means no prior provider items were supplied; select an available scope again, preserve the unavailable reference or clear it. Missing output and incompatible model or transport remain unavailable. Current character, CONTROL, schema, human request and observed effects govern each decision. Earlier Decisions are historical proposals, not new operations or proof of effects. Character adoption can preserve or clear, but cannot add this turn. Retention or supply proves neither useful reasoning reuse, progress nor maturation.";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -14,9 +14,22 @@ pub(crate) struct Selected {
     pub work: String,
     pub model: String,
     pub character_revision: Option<String>,
+    /// An older exact selection includes the history supplied to its turn.
+    /// New choices can explicitly keep one turn, or just its complete output.
+    #[serde(default)]
+    pub scope: HistoryScope,
     pub lifetime: String,
     /// Inclusive deadline in this persona/work's admission sequence.
     pub last_admission: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum HistoryScope {
+    #[default]
+    SuppliedHistory,
+    CurrentTurn,
+    CurrentOutput,
 }
 
 impl Selected {
@@ -32,6 +45,7 @@ pub(crate) struct Material {
     selected: Option<Selected>,
     history: Option<provider::InputHistory>,
     exposure: Option<Exposure>,
+    qualification_sources: Vec<f::Reference>,
     unavailable: Option<String>,
 }
 
@@ -53,11 +67,11 @@ impl Material {
         {
             return Self { selected: Some(selected.clone()), ..Self::default() };
         }
-        Self::load(store, selected, None)
+        Self::load(store, state, selected, None)
     }
 
-    fn load(store: &mut s::Store, selected: &Selected, current: Option<&Prepared>) -> Self {
-        let loaded = (|| -> Result<(provider::InputHistory, Exposure)> {
+    fn load(store: &mut s::Store, state: &State, selected: &Selected, current: Option<&Prepared>) -> Self {
+        let loaded = (|| -> Result<(provider::InputHistory, Exposure, Vec<f::Reference>)> {
             let invocation = store.trusted_host().invocation(&selected.invocation)?;
             let prepared = decode_prepared(&invocation)?;
             let is_current = current.is_some_and(|value| value.request.id == selected.invocation
@@ -106,15 +120,40 @@ impl Material {
             require(provider::retained_output_metadata(output).as_ref()
                 == Some(&receipt["attempt"]["output_items"]),
                 "selected provider output snapshots are unavailable")?;
-            let history = provider::InputHistory::from_completed(prepared.input_history.as_ref(),
+            let previous = match selected.scope {
+                HistoryScope::SuppliedHistory => prepared.input_history.as_ref(),
+                HistoryScope::CurrentTurn | HistoryScope::CurrentOutput => None,
+            };
+            let history = provider::InputHistory::from_completed(previous,
                 &selected.invocation, &selected.model, audit["transport_profile"].as_str().unwrap(), &prepared.prompt,
-                prepared.reusable_prefix_bytes, &prepared.images, output)
+                prepared.reusable_prefix_bytes, &prepared.images, output,
+                selected.scope != HistoryScope::CurrentOutput)
                 .map_err(|_| held("selected provider turn lacks a complete replayable output sequence"))?;
-            Ok((history, prepared_exposure(&prepared)?.clone()))
+            let mut qualification_sources = BTreeSet::new();
+            for turn in history.input_omitted_turns() {
+                if turn == &prepared.request.id {
+                    qualification_sources.extend(history::own_decision_input_sources(
+                        state, &prepared, &response_hash,
+                        |id| Ok(store.trusted_host().invocation(id)?))?);
+                } else {
+                    let original = store.trusted_host().invocation(turn)?;
+                    let input = decode_prepared(&original)?;
+                    require(original.state == s::InvocationState::Adopted
+                        && input.request.id == *turn && input.epoch < prepared.epoch
+                        && input.request.persona == selected.persona
+                        && input.request.work == selected.work && input.requested_model == selected.model,
+                        "output-only provider input provenance differs")?;
+                    qualification_sources.extend(history::own_decision_input_sources(
+                        state, &input, original.response_hash.as_deref()
+                            .ok_or_else(|| held("output-only provider response identity unavailable"))?,
+                        |id| Ok(store.trusted_host().invocation(id)?))?);
+                }
+            }
+            Ok((history, prepared_exposure(&prepared)?.clone(), qualification_sources.into_iter().collect()))
         })();
         match loaded {
-            Ok((history, exposure)) => Self { selected: Some(selected.clone()), history: Some(history),
-                exposure: Some(exposure), unavailable: None },
+            Ok((history, exposure, qualification_sources)) => Self { selected: Some(selected.clone()), history: Some(history),
+                exposure: Some(exposure), qualification_sources, unavailable: None },
             Err(_) => Self { selected: Some(selected.clone()),
                 unavailable: Some("The exact complete selected provider turn is unavailable or incompatible; no prior items are supplied.".into()),
                 ..Self::default() },
@@ -131,26 +170,49 @@ impl Material {
         serial: u64,
         audience: &f::Admission,
         exposure: &mut Exposure,
-    ) -> Result<(Value, Option<provider::InputHistory>)> {
+        transport_profile: Option<&str>,
+        corpus: &f::Corpus,
+    ) -> Result<Projection> {
         let selected = focus.provider_context.as_ref();
         let active = selected.filter(|selected| selected.active(serial));
         let mut unavailable = None;
         let mut history = None;
+        let mut roots = Vec::new();
+        let mut supplied = Vec::new();
+        let mut qualifications = Value::Null;
         let rejection = focus.provider_context_recoveries.iter().rev().find(|pending|
             active.is_some() && pending.rejected_provider_context.as_ref() == active);
         if let Some(selected) = active {
             if rejection.is_some() {
-                unavailable = Some("An actual provider rejection made this selected history unavailable for further supply. The authored selection is unchanged. Choose current to rebase on this fresh input, preserve the unavailable reference, or clear it.");
+                unavailable = Some("An actual provider rejection made this selected history unavailable for further supply. The authored selection is unchanged. Choose an available scope to rebase on this fresh input, preserve the unavailable reference, or clear it.");
             } else if selected.persona != actor || selected.work != work || selected.model != model {
                 unavailable = Some("Selected provider context belongs to a different persona, work or configured model.");
             } else if self.selected.as_ref() != Some(selected) {
                 unavailable = Some("Selected provider context material was not loaded for this exact reference.");
             } else if let (Some(input), Some(inherited)) = (&self.history, &self.exposure) {
-                if exposure_permitted(state, inherited, audience) && input.validate(model).is_ok() {
-                    extend_exposure(exposure, inherited);
-                    history = Some(input.clone());
+                if exposure_permitted(state, inherited, audience) && input.validate(model).is_ok()
+                    && transport_profile.is_none_or(|profile| profile == input.transport_profile()) {
+                    let accompaniment = (|| -> Result<_> {
+                        let roots = corpus.required_qualifications(&self.qualification_sources)
+                            .ok_or_else(|| held("output-only provider qualifications unavailable"))?;
+                        let bundle = f::assemble(corpus, &roots, &[], &[], audience, usize::MAX, 0, 0)?;
+                        let references = bundle.entries.iter().map(|entry| entry.reference.clone()).collect::<Vec<_>>();
+                        let context = if roots.is_empty() { Value::Null } else {
+                            serde_json::from_str(&attributed_context(state, &bundle.rendered_context, &references)?)?
+                        };
+                        Ok((roots, references, context))
+                    })();
+                    match accompaniment {
+                        Ok((required, references, context)) => {
+                            roots = required; supplied = references; qualifications = context;
+                            extend_exposure(exposure, inherited);
+                            exposure.sources.extend(supplied.iter().cloned());
+                            history = Some(input.clone());
+                        }
+                        Err(_) => unavailable = Some("Selected output-only provider history is unavailable because its current required qualifications could not be supplied."),
+                    }
                 } else {
-                    unavailable = Some("Selected provider context is unavailable under the current input binding.");
+                    unavailable = Some("Selected provider context is unavailable under the current model, transport or input binding.");
                 }
             } else {
                 unavailable = self.unavailable.as_deref();
@@ -158,16 +220,30 @@ impl Material {
         }
         let metadata = history.as_ref().map(provider::InputHistory::metadata).transpose()
             .map_err(|_| held("provider history accounting unavailable"))?;
-        Ok((json!({"interface":INTERFACE,"rule":RULE,"selected":selected,
+        let mut available_scopes = vec!["current_turn", "current"];
+        if transport_profile.is_some_and(provider::supports_output_continuation) {
+            available_scopes.insert(0, "current_output");
+        }
+        Ok(Projection { control: json!({"interface":INTERFACE,"rule":RULE,"selected":selected,
+            "available_scopes":available_scopes,"transport_profile":transport_profile,
             "active_this_admission":active.is_some(),
             "preserved_for_next_admission":selected.is_some_and(|selected| selected.last_admission.is_none_or(|last| serial < last)),
             "supplied_history":metadata,"unavailable":unavailable,
-            "rejected_input":rejection.map(|pending| json!({"invocation":pending.invocation,"terminal":pending.terminal}))}), history))
+            "current_required_qualifications":qualifications,
+            "rejected_input":rejection.map(|pending| json!({"invocation":pending.invocation,"terminal":pending.terminal}))}), history, roots, supplied })
     }
+}
+
+pub(super) struct Projection {
+    pub control: Value,
+    pub history: Option<provider::InputHistory>,
+    pub roots: Vec<f::Reference>,
+    pub supplied: Vec<f::Reference>,
 }
 
 pub(super) fn select(
     store: &mut s::Store,
+    state: &State,
     prepared: &Prepared,
     intent: &p::SelectionIntent,
     old: Option<&Selected>,
@@ -180,14 +256,22 @@ pub(super) fn select(
         || matches!(intent.provider_context(), Some(p::ProviderContextSelection::Preserve)) {
         return Ok(surviving);
     }
-    let Some(p::ProviderContextSelection::Current { lifetime }) = intent.provider_context() else {
-        return Ok(None);
+    let (lifetime, scope) = match intent.provider_context() {
+        Some(p::ProviderContextSelection::CurrentOutput { lifetime }) => (lifetime, HistoryScope::CurrentOutput),
+        Some(p::ProviderContextSelection::Current { lifetime }) => (lifetime, HistoryScope::SuppliedHistory),
+        Some(p::ProviderContextSelection::CurrentTurn { lifetime }) => (lifetime, HistoryScope::CurrentTurn),
+        _ => return Ok(None),
     };
     require(!reduction_only, "character adoption cannot add a provider continuation turn")?;
     let control = request_context::decode(prepared)?.control;
     require(prepared.request.profile == Profile::Direct && prepared.request.mode == Mode::Ordinary
         && control["provider_continuation"]["interface"] == INTERFACE,
         "provider continuation selection was not offered in this admission")?;
+    if scope == HistoryScope::CurrentOutput {
+        require(control["provider_continuation"]["available_scopes"].as_array()
+            .is_some_and(|scopes| scopes.iter().any(|scope| scope == "current_output")),
+            "output-only provider continuation was not offered for this transport")?;
+    }
     let terminal = store.trusted_host().read_terminal_evidence(
         &s::EntityId::Invocation(prepared.request.id.clone()), &terminal_id(&prepared.request.id),
     )?.ok_or_else(|| held("completed provider terminal is unavailable"))?;
@@ -196,7 +280,8 @@ pub(super) fn select(
     let selected = Selected { invocation: prepared.request.id.clone(), terminal: terminal.exact_ref()?,
         persona: prepared.request.persona.clone(), work: prepared.request.work.clone(),
         model: prepared.requested_model.clone(), character_revision: prepared.character_revision.clone(),
+        scope,
         lifetime: lifetime.into(), last_admission: (lifetime == "next_call").then_some(next_serial) };
-    *material = Material::load(store, &selected, Some(prepared));
+    *material = Material::load(store, state, &selected, Some(prepared));
     Ok(Some(selected))
 }

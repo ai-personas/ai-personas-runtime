@@ -3,13 +3,15 @@
 use super::{
     helpers::{self, Cancel, Helpers},
     journal::{self, CodexPaths, Journal, Progress, Result, Runtime, Session},
+    providers::{self, ApiProvider, Selection},
 };
 use eframe::egui;
+mod provider_change;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     path::PathBuf,
-    sync::{atomic::Ordering, mpsc},
+    sync::{atomic::Ordering, mpsc, Arc},
     thread,
     time::{Duration, Instant},
 };
@@ -20,6 +22,12 @@ pub struct PersonaDraft {
     pub profile: String,
     pub model: String,
     pub effort: String,
+    #[serde(default)]
+    pub provider: Option<ApiProvider>,
+    #[serde(default)]
+    pub max_output_tokens: Option<u64>,
+    #[serde(default)]
+    pub manual: bool,
 }
 #[derive(Clone)]
 pub struct Setup {
@@ -61,12 +69,20 @@ pub struct View {
     pub native: bool,
     pub account: Value,
     pub models: Value,
+    pub api_provider: Option<ApiProvider>,
+    pub configured_providers: std::collections::BTreeSet<ApiProvider>,
+    pub provider_defaults: std::collections::BTreeMap<ApiProvider, Selection>,
+    pub provider_catalogs: std::collections::BTreeMap<ApiProvider, Value>,
+    pub provider_status: std::collections::BTreeMap<ApiProvider, String>,
     pub saved_settings: Value,
     pub preview: Value,
     pub inspection: Value,
     pub selected: Option<String>,
-    pub result: Value,
-    pub conversation: Value,
+    // Retained message provenance can dwarf its display text. Share complete
+    // immutable snapshots between the controller and frames, without copying
+    // that evidence on each publication or repaint.
+    pub result: Arc<Value>,
+    pub conversation: Arc<Value>,
     pub questions: Value,
     pub development: Value,
     pub session_status: Value,
@@ -76,13 +92,21 @@ pub struct View {
     pub running: Option<String>,
     pub login: bool,
     pub loading_models: bool,
+    pub refreshing: bool,
     pub closing: bool,
     pub pending_control: bool,
+    pub pending_provider_change: bool,
     pub ready: bool,
     pub read_only: bool,
     pub files: Option<helpers::ResultFiles>,
 }
 pub enum Action {
+    ApplyProvider { provider: Option<ApiProvider>, selection: Selection, preserve_models: bool, effort_override: Option<String> },
+    FinishProviderChange,
+    SelectProvider(Option<ApiProvider>),
+    SaveProvider { provider: ApiProvider, key: String, selection: Selection },
+    RemoveProvider(ApiProvider),
+    CheckProvider(ApiProvider),
     Discover(PathBuf),
     Open {
         root: PathBuf,
@@ -113,6 +137,7 @@ pub enum Action {
     },
     ConfirmPendingNeed(String),
     Run(String),
+    RecoverWork(String),
     Control {
         work: String,
         action: String,
@@ -163,10 +188,12 @@ pub enum Event {
 }
 pub enum Input {
     Action(Action),
+    SnapshotDone { job: String, generation: u64, result: Result<Value> },
     RunDone(Result<Value>),
     LoginDone(Result<Value>),
     MetadataDone {
         job: String,
+        provider: Option<ApiProvider>,
         account: Result<Value>,
         models: Result<Value>,
     },
@@ -240,6 +267,7 @@ pub fn start(ctx: egui::Context) -> (mpsc::Sender<Input>, mpsc::Receiver<Event>)
                 }
                 Ok(Input::RunDone(result)) => {
                     if let Some(c) = controller.as_mut() {
+                        c.snapshot_generation += 1;
                         c.run = None;
                         c.view.running = None;
                         match result {
@@ -255,6 +283,36 @@ pub fn start(ctx: egui::Context) -> (mpsc::Sender<Input>, mpsc::Receiver<Event>)
                         c.publish();
                         if c.maybe_close() {
                             break;
+                        }
+                    }
+                }
+                Ok(Input::SnapshotDone { job, generation, result }) => {
+                    if let Some(c) = controller.as_mut() {
+                        if c.snapshot_job.as_ref().is_some_and(|(id, _)| *id == job) {
+                            c.snapshot_job = None;
+                            c.view.refreshing = false;
+                            let mut publish = c.snapshot_loading_published;
+                            if generation == c.snapshot_generation {
+                                let result = result.and_then(|value| c.apply_snapshot(value));
+                                match result {
+                                    Err(error) => {
+                                        if c.last_refresh_error.as_ref() != Some(&error) {
+                                            sender.send(Event::Error(error.clone()));
+                                        }
+                                        c.last_refresh_error = Some(error);
+                                    }
+                                    Ok(changed) => {
+                                        publish |= changed;
+                                        c.last_refresh_error = None;
+                                    }
+                                }
+                            }
+                            if std::mem::take(&mut c.snapshot_pending) {
+                                if let Err(error) = c.refresh() { sender.send(Event::Error(error)); }
+                                publish = true;
+                            }
+                            if publish { c.publish(); }
+                            next = Instant::now() + Duration::from_secs(1);
                         }
                     }
                 }
@@ -281,6 +339,7 @@ pub fn start(ctx: egui::Context) -> (mpsc::Sender<Input>, mpsc::Receiver<Event>)
                 }
                 Ok(Input::MetadataDone {
                     job,
+                    provider,
                     account,
                     models,
                 }) => {
@@ -289,12 +348,21 @@ pub fn start(ctx: egui::Context) -> (mpsc::Sender<Input>, mpsc::Receiver<Event>)
                             c.metadata = None;
                             c.view.loading_models = false;
                             if !c.view.closing {
+                                if let Some(provider) = provider {
+                                    c.view.provider_status.insert(provider, match &models {
+                                        Ok(_) => "Connection check passed · model list loaded. This check does not test inference.".into(),
+                                        Err(error) => error.clone(),
+                                    });
+                                    if let Ok(catalogue) = &models { c.view.provider_catalogs.insert(provider, catalogue.clone()); }
+                                }
                                 match account {
-                                    Ok(v) => c.view.account = v,
+                                    Ok(v) if provider == c.view.api_provider => c.view.account = v,
+                                    Ok(_) => (),
                                     Err(e) => sender.send(Event::Notice(e)),
                                 }
                                 match models {
-                                    Ok(v) => c.view.models = v,
+                                    Ok(v) if provider == c.view.api_provider => c.view.models = v,
+                                    Ok(_) => (),
                                     Err(e) => sender.send(Event::Notice(e)),
                                 }
                             }
@@ -309,16 +377,14 @@ pub fn start(ctx: egui::Context) -> (mpsc::Sender<Input>, mpsc::Receiver<Event>)
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
             }
             if Instant::now() >= next {
-                if let Some(c) = controller.as_mut().filter(|c| c.run.is_some() || c.j.read_only) {
+                if let Some(c) = controller.as_mut().filter(|c|
+                    (c.run.is_some() || c.j.read_only) && c.snapshot_job.is_none()) {
                     if let Err(e) = c.refresh() {
                         if c.last_refresh_error.as_deref() != Some(&e) {
                             sender.send(Event::Error(e.clone()));
                             c.last_refresh_error = Some(e);
                         }
-                    } else {
-                        c.last_refresh_error = None;
                     }
-                    c.publish();
                 }
                 next = Instant::now() + Duration::from_secs(1);
             }
@@ -336,7 +402,15 @@ struct Controller {
     login: Option<Cancel>,
     metadata: Option<(String, Cancel)>,
     last_refresh_error: Option<String>,
+    snapshot_job: Option<(String, Cancel)>,
+    snapshot_generation: u64,
+    snapshot_pending: bool,
+    conversation_requested: Option<String>,
+    snapshot_digest: Option<String>,
+    snapshot_loading_published: bool,
     close_ready: bool,
+    provider_config: providers::Configuration,
+    credentials: providers::Credentials,
 }
 impl Controller {
     fn open(
@@ -351,17 +425,23 @@ impl Controller {
         let inspection = existing.map(|r| -> Result<Vec<String>> {
             Ok(vec!["--state-root".into(), r.path.clone(), "--operator".into(),
                 j.data.operator.clone().ok_or("The workspace has no saved operator.")?,
-                "inspect".into(), "--limit".into(), "1".into()])
+                "desktop-snapshot-server".into()])
         }).transpose()?;
         let existing = existing.is_some();
         let h = Helpers::discover(helpers.as_deref(), j.data.installation.as_ref(), inspection.as_deref())?;
         let codex = helpers::codex(j.data.codex_auth.as_ref());
         let native = j.data.codex_auth.is_none() && (j.data.vault.is_some() || codex.is_none());
+        let provider_config = providers::Configuration::load(&j)?;
+        let credentials = providers::Credentials::load(&j)?;
         let view = View {
+            api_provider: provider_config.selected,
+            configured_providers: credentials.configured(),
+            provider_defaults: provider_config.defaults.clone(),
             root: j.root.clone(),
             codex,
             native,
             read_only: j.read_only,
+            ready: existing,
             progress: Some(j.data.clone()),
             ..View::default()
         };
@@ -380,7 +460,15 @@ impl Controller {
             login: None,
             metadata: None,
             last_refresh_error: None,
+            snapshot_job: None,
+            snapshot_generation: 0,
+            snapshot_pending: false,
+            conversation_requested: None,
+            snapshot_digest: None,
+            snapshot_loading_published: false,
             close_ready: true,
+            provider_config,
+            credentials,
         };
         if !c.j.read_only {
             c.j.data.installation = Some(c.h.installation.clone());
@@ -402,8 +490,13 @@ impl Controller {
         Ok(c)
     }
     fn publish(&mut self) {
+        self.snapshot_loading_published = self.view.refreshing;
+        self.view.api_provider = self.provider_config.selected;
+        self.view.configured_providers = self.credentials.configured();
+        self.view.provider_defaults = self.provider_config.defaults.clone();
         self.view.progress = Some(self.j.data.clone());
         self.view.pending_control = self.j.pending_control().ok().flatten().is_some();
+        self.view.pending_provider_change = self.provider_change_pending().unwrap_or(true);
         self.events.send(Event::View(Box::new(self.view.clone())));
     }
     fn session_args(&self, args: Vec<String>) -> Result<Vec<String>> {
@@ -454,6 +547,7 @@ impl Controller {
         }
     }
     fn metadata(&mut self) -> Result<()> {
+        if let Some(provider) = self.provider_config.selected { return self.provider_metadata(provider); }
         if let Some((_, cancel)) = self.metadata.take() {
             cancel.store(true, Ordering::Release);
         }
@@ -488,13 +582,37 @@ impl Controller {
             };
             let _ = tx.send(Input::MetadataDone {
                 job,
+                provider: None,
                 account,
                 models,
             });
         });
         Ok(())
     }
+    fn provider_metadata(&mut self, provider: ApiProvider) -> Result<()> {
+        if let Some((_, cancel)) = self.metadata.take() { cancel.store(true, Ordering::Release); }
+        self.view.loading_models = false;
+        self.view.provider_catalogs.remove(&provider);
+        if self.provider_config.selected == Some(provider) { self.view.models = Value::Null; self.view.account = Value::Null; }
+        let key = self.credentials.key(provider)?;
+        let job = journal::id("provider-catalogue")?;
+        let token = helpers::cancel();
+        self.metadata = Some((job.clone(), token.clone()));
+        self.view.loading_models = true;
+        self.view.provider_status.insert(provider, "Checking connection…".into());
+        let tx = self.internal.clone();
+        thread::spawn(move || {
+            let models = providers::catalogue(provider, key, token);
+            let account = Ok(json!({"connected":models.is_ok(),"provider":provider}));
+            let _ = tx.send(Input::MetadataDone { job, provider:Some(provider), account, models });
+        });
+        Ok(())
+    }
     fn refresh(&mut self) -> Result<()> {
+        if self.snapshot_job.is_some() {
+            self.snapshot_pending = true;
+            return Ok(());
+        }
         if self.j.read_only {
             self.j.reload()?;
         }
@@ -504,44 +622,50 @@ impl Controller {
         if self.j.data.runtime.as_ref().is_some_and(|r| r.owned) && !self.j.data.setup_authorized {
             return Ok(());
         }
-        let mut after = None;
-        let mut seen = std::collections::BTreeSet::new();
-        let mut all = vec![];
-        loop {
-            let mut args = vec!["inspect".into(), "--limit".into(), "50".into()];
-            if let Some(cursor) = after {
-                args.extend(["--after".into(), cursor]);
-            }
-            let page = self.session(args)?;
-            all.extend(
-                page["works"]
-                    .as_array()
-                    .ok_or("The task list response is invalid.")?
-                    .clone(),
-            );
-            after = page["next_after"].as_str().map(str::to_owned);
-            self.view.inspection = page;
-            if let Some(ref cursor) = after {
-                journal::require(
-                    seen.insert(cursor.clone()),
-                    "The task list repeated a page.",
-                )?;
-            } else {
-                break;
-            }
+        let conversation = self.view.selected.as_deref().is_some_and(|work|
+            self.conversation_requested.as_deref() == Some(work)
+                || self.view.conversation["work"].as_str() == Some(work));
+        let request = json!({"kind":"snapshot","work":self.view.selected,
+            "session":self.j.data.session.as_ref().map(|session| &session.id),"conversation":conversation});
+        let args = self.session_args(vec!["desktop-snapshot-server".into()])?;
+        let job = journal::id("snapshot")?;
+        let token = helpers::cancel();
+        self.snapshot_job = Some((job.clone(), token.clone()));
+        self.view.refreshing = true;
+        let generation = self.snapshot_generation;
+        let helpers = self.h.clone();
+        let tx = self.internal.clone();
+        thread::spawn(move || {
+            let result = helpers.snapshot(&args, &request, &token);
+            let _ = tx.send(Input::SnapshotDone { job, generation, result });
+        });
+        Ok(())
+    }
+    fn apply_snapshot(&mut self, mut snapshot: Value) -> Result<bool> {
+        journal::require(snapshot["snapshot_atomic"] == true
+            && snapshot["inspection"]["works"].is_array(), "The desktop snapshot is invalid.")?;
+        // Validate the entire reply before replacing any visible panel.
+        if let Some(session) = &self.j.data.session {
+            let status = &snapshot["session_status"];
+            journal::require(status["status"] == "not_recorded"
+                || (status["claim"]["request"]
+                    == json!({"id":session.id,"operator":self.j.data.operator,"work":session.work,"route":session.route})
+                    && status["claim"]["launch"] == session.expected_launch),
+                "The saved session binding changed. No request was replayed.")?;
         }
-        self.view.inspection["works"] = all.into();
+        // A polling timestamp alone changes no displayed work. Keep checking
+        // full fresh snapshots, but avoid waking the renderer for identical data.
+        let inspected_at = snapshot["inspection"].as_object_mut().unwrap().remove("inspected_at_unix");
+        let digest = journal::digest(&serde_json::to_vec(&snapshot)
+            .map_err(|_| "Could not identify the desktop snapshot.")?);
+        if let Some(at) = inspected_at { snapshot["inspection"]["inspected_at_unix"] = at; }
+        let changed = self.snapshot_digest.as_ref() != Some(&digest);
+        self.view.inspection = snapshot["inspection"].clone();
         self.view.saved_settings = self.view.inspection["settings"].clone();
         self.view.ready = true;
-        if self.view.selected.is_none() {
-            self.view.selected = self.view.inspection["works"]
-                .as_array()
-                .and_then(|v| v.first())
-                .and_then(|v| v["id"].as_str())
-                .map(str::to_owned);
-        }
+        self.view.selected = snapshot["selected"].as_str().map(str::to_owned);
         if let Some(work) = &self.view.selected {
-            self.view.result = self.session(vec!["result".into(), work.clone()])?;
+            self.view.result = snapshot["result"].take().into();
             let messages: Vec<_> = self.view.result["messages"].as_array().into_iter().flatten()
                 .filter(|m| m["file_references"].as_array().is_some_and(|v| !v.is_empty())
                     || m["history_references"].as_array().is_some_and(|v| !v.is_empty()))
@@ -552,47 +676,39 @@ impl Controller {
                 .map_err(|_| "Could not identify the recorded file list.")?);
             self.view.files = Some(self.h.result_files(
                 self.session_args(vec!["result".into(), work.clone()])?, revision));
-            self.view.questions = self.session(vec!["questions".into(), work.clone()])?;
-            if self.view.conversation["work"].as_str() == Some(work) {
-                self.view.conversation = self.session(vec!["conversation".into(), work.clone()])?;
+            self.view.questions = snapshot["questions"].clone();
+            if !snapshot["conversation"].is_null() {
+                self.view.conversation = snapshot["conversation"].take().into();
             }
         }
-        if let Some(s) = &self.j.data.session {
-            let status =
-                self.session(vec!["session-status".into(), "--id".into(), s.id.clone()])?;
-            if status["status"] != "not_recorded" {
-                journal::require(
-                    status["claim"]["request"]
-                        == json!({"id":s.id,"operator":self.j.data.operator,"work":s.work,"route":s.route})
-                        && status["claim"]["launch"] == s.expected_launch,
-                    "The saved session binding changed. No request was replayed.",
-                )?;
-            }
-            self.view.session_status = status;
+        if self.j.data.session.is_some() {
+            self.view.session_status = snapshot["session_status"].take();
         }
-        Ok(())
+        self.snapshot_digest = Some(digest);
+        Ok(changed)
     }
     fn current(&self, work: &str) -> Result<(Value, Value)> {
-        let mut after = None;
-        loop {
-            let mut args = vec!["inspect".into(), "--limit".into(), "50".into()];
-            if let Some(c) = after {
-                args.extend(["--after".into(), c]);
-            }
-            let page = self.session(args)?;
-            if let Some(item) = page["works"]
-                .as_array()
-                .and_then(|v| v.iter().find(|w| w["id"] == work))
-            {
-                return Ok((item.clone(), page));
-            }
-            after = page["next_after"].as_str().map(str::to_owned);
-            if after.is_none() {
-                return Err("This task is unavailable in the selected workspace.".into());
-            }
-        }
+        // Ask the persistent reader for fresh state, rather than starting
+        // another full history decode for a control or run preflight. The
+        // session status and task references come from the same transaction.
+        let snapshot = self.h.snapshot(
+            &self.session_args(vec!["desktop-snapshot-server".into()])?,
+            &json!({"kind":"control","session":self.j.data.session.as_ref().map(|s| &s.id)}),
+            &helpers::cancel(),
+        )?;
+        journal::require(snapshot["snapshot_atomic"] == true,
+            "The desktop snapshot is invalid.")?;
+        let current = snapshot["inspection"]["works"].as_array()
+            .and_then(|works| works.iter().find(|item| item["id"] == work))
+            .ok_or("This task is unavailable in the selected workspace.")?.clone();
+        Ok((current, snapshot))
     }
     fn handle(&mut self, action: Action) -> Result<()> {
+        // A snapshot started before an action must not overwrite its newer view
+        // or control result. The read worker never owns the action queue.
+        self.snapshot_generation += 1;
+        self.snapshot_digest = None;
+        if self.snapshot_job.is_some() { self.snapshot_pending = true; }
         if self.j.read_only {
             journal::require(matches!(&action,
                 Action::Refresh | Action::Select(_) | Action::SelectSession(_)
@@ -602,18 +718,63 @@ impl Controller {
                 "This window is viewing live progress. Close the controlling launcher and reopen this workspace to use its controls.")?;
         }
         match action {
+            Action::SaveProvider { provider, key, selection } => {
+                journal::require(self.run.is_none() && self.login.is_none(), "Pause current work before changing provider settings.")?;
+                if !key.is_empty() {
+                    self.credentials.save_key(&self.j, provider, key)?;
+                    if let Some((_, token)) = self.metadata.take() { token.store(true, Ordering::Release); }
+                    self.view.loading_models = false;
+                    self.view.provider_catalogs.remove(&provider);
+                    if self.provider_config.selected == Some(provider) { self.view.models = Value::Null; self.view.account = Value::Null; }
+                }
+                self.provider_config.defaults.insert(provider, selection);
+                self.provider_config.save(&self.j)?;
+                self.view.provider_status.insert(provider, "Saved locally; connection not yet checked".into());
+                self.events.send(Event::Notice(format!("{} settings saved.", provider.label())));
+            }
+            Action::RemoveProvider(provider) => {
+                journal::require(self.run.is_none(), "Pause current work before removing a provider key.")?;
+                self.credentials.remove(&self.j, provider)?;
+                if let Some((_, token)) = self.metadata.take() { token.store(true, Ordering::Release); }
+                self.view.loading_models = false;
+                self.view.provider_status.remove(&provider);
+                self.view.provider_catalogs.remove(&provider);
+                if self.provider_config.selected == Some(provider) {
+                    self.view.account = Value::Null; self.view.models = Value::Null;
+                }
+            }
+            Action::CheckProvider(provider) => { self.provider_metadata(provider)?; }
+            Action::SelectProvider(provider) => {
+                journal::require(self.run.is_none() && self.login.is_none(), "Finish the active operation before changing provider.")?;
+                journal::require(self.j.data.settings.is_none() && self.j.data.bootstrap.is_none(), "This workspace has retained provider selections. Use its original providers or create a new workspace.")?;
+                self.provider_config.selected = provider;
+                self.provider_config.save(&self.j)?;
+                self.view.api_provider = provider;
+                self.view.account = Value::Null;
+                self.view.models = provider.and_then(|p| self.view.provider_catalogs.get(&p).cloned()).unwrap_or(Value::Null);
+                if provider.is_none() || provider.is_some_and(|p| self.credentials.configured().contains(&p)) { self.metadata()?; }
+            }
+            Action::ApplyProvider { provider, selection, preserve_models, effort_override } => {
+                self.change_provider(provider, selection, preserve_models, effort_override)?;
+            }
+            Action::FinishProviderChange => self.finish_provider_change()?,
             Action::Open { .. } | Action::Discover(_) => unreachable!(),
             Action::Refresh => {
                 self.refresh()?;
             }
             Action::Select(work) => {
+                // The task opens on its conversation. Include that panel in
+                // this same snapshot, instead of another full history decode.
+                self.conversation_requested = Some(work.clone());
                 self.view.selected = Some(work);
-                self.view.result = Value::Null;
-                self.view.conversation = Value::Null;
+                self.view.result = Value::Null.into();
+                self.view.conversation = Value::Null.into();
                 self.view.questions = Value::Null;
                 self.view.files = None;
                 self.view.selected_session = None;
                 self.view.session_detail = Value::Null;
+                // Discard an obsolete reply by generation, while preserving
+                // the reader's decoded history for the pending selection.
                 self.refresh()?;
             }
             Action::Conversation(work) => {
@@ -621,7 +782,8 @@ impl Controller {
                     self.view.selected.as_ref() == Some(&work),
                     "Select this task first.",
                 )?;
-                self.view.conversation = self.session(vec!["conversation".into(), work])?;
+                self.conversation_requested = Some(work);
+                self.refresh()?;
             }
             Action::SelectSession(id) => {
                 let session = self
@@ -647,6 +809,7 @@ impl Controller {
                 self.view.session_detail = detail;
             }
             Action::Account { native, codex } => {
+                journal::require(self.provider_config.selected.is_none(), "Choose ChatGPT sign-in in provider settings first.")?;
                 journal::require(
                     self.login.is_none(),
                     "Finish or cancel the current sign-in first.",
@@ -682,6 +845,7 @@ impl Controller {
                 self.metadata()?;
             }
             Action::SignIn { device } => {
+                journal::require(self.provider_config.selected.is_none(), "Choose ChatGPT sign-in before signing in.")?;
                 journal::require(
                     self.login.is_none() && self.run.is_none(),
                     "Another operation is still active.",
@@ -818,12 +982,26 @@ impl Controller {
                 ));
             }
             Action::Run(work) => self.run_work(work)?,
+            Action::RecoverWork(work) => {
+                journal::require(self.run.is_none(), "Wait for the running session to finish before recovery.")?;
+                let receipt = self.session(vec!["recover-work".into(), work])?;
+                journal::require(receipt["inference_performed"] == false
+                    && receipt["replay_authorized"] == false && receipt["work_resumed"] == false,
+                    "The recovery receipt is incomplete. Inspect the retained task state.")?;
+                self.refresh()?;
+                self.events.send(Event::Notice(format!(
+                    "Recovered local status: {} abandoned calls released, {} calls still held. Existing stops and pauses remain; remote outcomes and missing usage remain unresolved.",
+                    receipt["released_local_calls"].as_array().map_or(0, Vec::len),
+                    receipt["still_held_calls"].as_array().map_or(0, Vec::len),
+                )));
+            }
             Action::Control { work, action } => {
                 self.control(&work, &action)?;
                 self.refresh()?;
             }
             Action::ResumePersona { work, persona } => {
-                let (current, page) = self.current(&work)?;
+                let (current, snapshot) = self.current(&work)?;
+                let page = &snapshot["inspection"];
                 journal::require(
                     current["participants"].as_array().is_some_and(|v| {
                         v.iter()
@@ -952,14 +1130,20 @@ impl Controller {
                 .all(|s| !s.is_empty() && !s.chars().any(char::is_whitespace)),
             "Choose a model and reasoning effort.",
         )?;
-        let mut args = self.route_args("configure")?;
+        let mut args = Vec::new();
+        let settings = if let Some(provider) = self.provider_config.selected {
+            let max_output_tokens = self.provider_config.defaults.get(&provider).and_then(|s| s.max_output_tokens);
+            serde_json::to_value(self.credentials.settings(provider, &Selection { model:s.model.clone(), effort:s.effort.clone(), max_output_tokens })?).map_err(|_| "Could not serialize provider settings.")?
+        } else {
+        args = self.route_args("configure")?;
         args.extend([
             "--model".into(),
             s.model.clone(),
             "--effort".into(),
             s.effort.clone(),
         ]);
-        let settings = self.h.call("personas-provider", &args)?;
+        self.h.call("personas-provider", &args)?
+        };
         self.j.data.operator = Some(s.operator.clone());
         if self.j.data.runtime.is_none() {
             self.j.data.runtime = Some(Runtime {
@@ -967,7 +1151,10 @@ impl Controller {
                 owned: true,
             });
         }
-        if self.view.native {
+        if self.provider_config.selected.is_some() {
+            self.j.data.codex_auth = None;
+            self.j.data.vault = None;
+        } else if self.view.native {
             self.j.data.codex_auth = None;
             self.j.data.vault = Some(args[1].clone());
         } else {
@@ -984,10 +1171,20 @@ impl Controller {
                 seed["model"] = p.model.clone().into();
                 seed["effort"] = p.effort.clone().into();
             }
+            if let Some(provider) = p.provider.or_else(|| p.max_output_tokens.and(self.provider_config.selected)) {
+                journal::require(self.provider_config.selected.is_some(), "Choose an API-key workspace to mix providers.")?;
+                let defaults = self.provider_config.defaults.get(&provider).cloned().unwrap_or_default();
+                let selection = Selection {
+                    model: if p.model.is_empty() { defaults.model } else { p.model.clone() },
+                    effort: if p.effort.is_empty() { defaults.effort } else { p.effort.clone() },
+                    max_output_tokens:p.max_output_tokens.or(defaults.max_output_tokens),
+                };
+                seed["provider"] = serde_json::to_value(self.credentials.settings(provider, &selection)?).map_err(|_| "Could not serialize persona provider.")?;
+            }
             seeds.insert(format!("persona-{:04}", i + 1), seed);
         }
         let request = json!({"id":journal::id("bootstrap")?,"operator":s.operator,"persona_seeds":seeds,
-            "setup":{"cohort":s.personas.len(),"destination":"openai","provider":settings,"working_directory":workspace}});
+            "setup":{"cohort":s.personas.len(),"destination":self.provider_config.selected.map_or("openai", |p| p.mode().destination()),"provider":settings,"working_directory":workspace}});
         // Validate before retaining the immutable bootstrap; a typo should remain editable.
         self.j.write("setup-preview.json", &request)?;
         self.view.preview = self.session(vec![
@@ -1064,15 +1261,15 @@ impl Controller {
             self.run.is_none() && self.login.is_none(),
             "Another operation is active.",
         )?;
-        if let Some(s) = &self.j.data.session {
-            let status =
-                self.session(vec!["session-status".into(), "--id".into(), s.id.clone()])?;
+        let (current, snapshot) = self.current(&work)?;
+        let page = &snapshot["inspection"];
+        if self.j.data.session.is_some() {
+            let status = &snapshot["session_status"];
             journal::require(status["status"]=="finished","The previous session has no recorded outcome. Inspect it and retain it in history before explicitly starting a new session.")?;
         }
-        let (current, page) = self.current(&work)?;
         journal::require(
             current["phase"] == "open",
-            "This task is paused or ended. Use Resume work for a pause.",
+            "This task is paused or ended. Use Unpause task for a pause, then Start / Continue.",
         )?;
         journal::require(
             current["participants"].as_array().is_some_and(|v| {
@@ -1085,7 +1282,16 @@ impl Controller {
             "No participant can currently continue. Review their status or use Resume participant.",
         )?;
         let settings = &page["settings"];
-        let route = if settings["mode"] == "siwc_oauth" {
+        journal::require(!self.provider_change_pending()?, "Finish the saved provider change in Settings before running personas.")?;
+        let api_key = providers::ApiProvider::ALL.into_iter().any(|p| serde_json::to_value(p.mode()).ok().as_ref() == Some(&settings["mode"]));
+        let mut environment = std::collections::BTreeMap::new();
+        let route = if api_key {
+            let required: Vec<ai_personas::provider::DirectSettings> = serde_json::from_value(settings["api_key_settings"].clone())
+                .map_err(|_| "Current provider credential references are unavailable. Use matching runtime helpers.")?;
+            journal::require(!required.is_empty(), "Current API-key provider settings are unavailable.")?;
+            environment = self.credentials.environment(&required)?;
+            json!({"kind":"saved_environment"})
+        } else if settings["mode"] == "siwc_oauth" {
             json!({"kind":"native_siwc","vault":self.j.data.vault.as_ref().ok_or("Select the workspace's native account.")?})
         } else {
             journal::require(
@@ -1126,7 +1332,7 @@ impl Controller {
         ];
         if s.route["kind"] == "native_siwc" {
             args.extend(["--vault".into(), s.route["vault"].as_str().unwrap().into()]);
-        } else {
+        } else if s.route["kind"] == "codex_auth_only" {
             args.extend(helpers::codex_args(self.view.codex.as_ref().unwrap()));
         }
         let args = self.session_args(args)?;
@@ -1136,10 +1342,11 @@ impl Controller {
         let h = self.h.clone();
         let tx = self.internal.clone();
         thread::spawn(move || {
-            let result = h.call_events(
+            let result = h.call_events_with_environment(
                 "personas-session",
                 &args,
                 Some((token, libc::SIGTERM)),
+                &environment,
                 |_| {},
             );
             let _ = tx.send(Input::RunDone(result));
@@ -1227,7 +1434,8 @@ impl Controller {
         let mut request =
             json!({"id":journal::id("control")?,"operator":self.j.data.operator,"work":work});
         let kind = if action == "resume" {
-            let (current, page) = self.current(work)?;
+            let (current, snapshot) = self.current(work)?;
+            let page = &snapshot["inspection"];
             journal::require(current["phase"] == "paused", "The task is not paused.")?;
             request["expected_runtime"] = page["runtime"].clone();
             request["expected_launch"] = page["launch"].clone();
@@ -1286,8 +1494,17 @@ impl Controller {
         self.j.write("work-control.json", &item)?;
         if receipt["snapshot_changed"] == true {
             self.events.send(Event::Notice(
-                "The task changed before resuming. Refresh and choose Resume work again.".into(),
+                "The task changed before unpausing. Refresh and choose Unpause task again.".into(),
             ));
+        } else if receipt["control_recorded"] == true {
+            let notice = if item["kind"] == "resume-work" {
+                "Task unpaused. Choose Start / Continue to begin eligible work."
+            } else if item["request"]["action"] == "pause" {
+                "Task paused."
+            } else {
+                "Task canceled."
+            };
+            self.events.send(Event::Notice(notice.into()));
         }
         Ok(())
     }
@@ -1305,6 +1522,10 @@ impl Controller {
 }
 impl Drop for Controller {
     fn drop(&mut self) {
+        if let Some((_, token)) = &self.snapshot_job {
+            token.store(true, Ordering::Release);
+        }
+        self.h.close_snapshot_reader();
         if let Some((_, token)) = &self.metadata {
             token.store(true, Ordering::Release);
         }

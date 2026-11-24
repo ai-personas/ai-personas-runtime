@@ -35,6 +35,8 @@ struct Job {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     result_context: Option<context::ResultContext>,
     stdin_asset: Option<input::Receipt>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    context_sources: Vec<input::Receipt>,
     directory: PathBuf,
     exposure: Exposure,
     qualification_sources: Vec<f::Reference>,
@@ -102,7 +104,7 @@ fn checked_inputs(
     decision: &p::Decision,
     operation: &p::Operation,
 ) -> Result<input::Inputs> {
-    let p::Operation::Effect { capability_id, inputs, depends_on, .. } = operation else {
+    let p::Operation::Effect { id, capability_id, inputs, depends_on } = operation else {
         return Err(held("host command absent"));
     };
     require(prepared.request.mode == Mode::Ordinary, "host command unavailable in this mode")?;
@@ -120,7 +122,7 @@ fn checked_inputs(
         require(decision.operations.iter().any(|o| o.id() == dependency && o.file_save().is_some()),
             "host command dependencies name accepted local saves; combine shell steps in one script")?;
     }
-    input.validate(prepared, decision, depends_on)?;
+    input.validate(prepared, decision, id, depends_on)?;
     Ok(input)
 }
 
@@ -142,6 +144,77 @@ pub(super) fn validate(
     validate_inputs(prepared, decision, operation)
 }
 
+// The entire job is prepared from one immutable candidate state. The caller
+// ends read reuse before inserting the job marker or preparing another command.
+fn prepare_job(
+    state: &State,
+    prepared: &Prepared,
+    decision: &p::Decision,
+    operation: &p::Operation,
+    proposals: &BTreeMap<String, String>,
+    now: i64,
+) -> Result<(String, tools::JobMarker, Job)> {
+    let offered = current_interface(prepared, operation)?.clone();
+    let authored = checked_inputs(prepared, decision, operation)?;
+    let p::Operation::Effect { id, .. } = operation else {
+        unreachable!()
+    };
+    let result_context = Some(authored.result_context);
+    let context_sources = authored.context_receipts(state, prepared, proposals, now)?;
+    let (input, stdin_asset) = authored.materialize(state, prepared, proposals, now)?;
+    let requested = input
+        .working_directory
+        .as_deref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(&offered.default_working_directory));
+    let directory = if requested.is_absolute() {
+        requested
+    } else {
+        PathBuf::from(&offered.default_working_directory).join(requested)
+    };
+    let mut input_sources = stdin_asset.iter().chain(&context_sources)
+        .map(|receipt| file_reference(&receipt.reference)).collect::<Result<Vec<_>>>()?;
+    input_sources.sort();
+    input_sources.dedup();
+    let mut exposure = prepared_exposure(prepared)?.clone();
+    exposure.sources.extend(input_sources.iter().cloned());
+    let exposure = expanded_exposure(state, &exposure)?;
+    require(exposure_permitted(state, &exposure,
+        &admission(&state.personas[&prepared.request.persona], now)),
+        "host command input lineage unavailable")?;
+    let intent_id = composite_id("host-command", &[&prepared.request.id, id]);
+    let marker = tools::JobMarker {
+        actor: prepared.request.persona.clone(),
+        work: prepared.request.work.clone(),
+        invocation: prepared.request.id.clone(),
+        operation: id.clone(),
+        host_working_directory: Some(directory.clone()),
+        state: s::IntentState::Admitted,
+        observation: None,
+        result_source: None,
+        exposure: exposure.clone(),
+    };
+    let job = Job {
+        interface: offered,
+        actor: marker.actor.clone(),
+        work: marker.work.clone(),
+        invocation: marker.invocation.clone(),
+        operation: id.clone(),
+        input,
+        result_context,
+        stdin_asset,
+        context_sources,
+        directory,
+        exposure,
+        // Preserve the complete call exposure above as provenance. Raw
+        // execution results inherit operative inputs and authored context
+        // dependencies, not every unrelated file the persona had read.
+        qualification_sources: input_sources,
+        dispatch_scope: None,
+    };
+    Ok((intent_id, marker, job))
+}
+
 pub(super) fn stage(
     state: &mut State,
     prepared: &Prepared,
@@ -156,57 +229,8 @@ pub(super) fn stage(
         .iter()
         .filter(|o| allowed.contains(o.id()) && is_host_command(o))
     {
-        let offered = current_interface(prepared, operation)?.clone();
-        let authored = checked_inputs(prepared, decision, operation)?;
-        let p::Operation::Effect { id, .. } = operation else {
-            unreachable!()
-        };
-        let result_context = Some(authored.result_context);
-        let (input, stdin_asset) = authored.materialize(state, prepared, proposals, now)?;
-        let requested = input
-            .working_directory
-            .as_deref()
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(&offered.default_working_directory));
-        let directory = if requested.is_absolute() {
-            requested
-        } else {
-            PathBuf::from(&offered.default_working_directory).join(requested)
-        };
-        let input_sources = stdin_asset.as_ref().map(|receipt| file_reference(&receipt.reference))
-            .transpose()?.into_iter().collect::<Vec<_>>();
-        let mut exposure = prepared_exposure(prepared)?.clone();
-        exposure.sources.extend(input_sources.iter().cloned());
-        let exposure = expanded_exposure(state, &exposure)?;
-        require(exposure_permitted(state, &exposure,
-            &admission(&state.personas[&prepared.request.persona], now)),
-            "host command input lineage unavailable")?;
-        let intent_id = composite_id("host-command", &[&prepared.request.id, id]);
-        let marker = tools::JobMarker {
-            actor: prepared.request.persona.clone(),
-            work: prepared.request.work.clone(),
-            invocation: prepared.request.id.clone(),
-            operation: id.clone(),
-            host_working_directory: Some(directory.clone()),
-            state: s::IntentState::Admitted,
-            observation: None,
-            result_source: None,
-            exposure: exposure.clone(),
-        };
-        let job = Job {
-            interface: offered,
-            actor: marker.actor.clone(),
-            work: marker.work.clone(),
-            invocation: marker.invocation.clone(),
-            operation: id.clone(),
-            input,
-            result_context,
-            stdin_asset,
-            directory,
-            exposure,
-            qualification_sources: tools::qualification_inputs(prepared, &input_sources)?,
-            dispatch_scope: None,
-        };
+        let (intent_id, marker, job) = with_read_validation(state, ||
+            prepare_job(state, prepared, decision, operation, proposals, now))?;
         require(
             state
                 .host_command_jobs
@@ -230,6 +254,42 @@ pub(super) fn stage(
 }
 
 impl Runtime {
+    /// Publish durable results and cancellations at a quiescent boundary. An
+    /// undispatched command invalidated by current authority is canceled; a
+    /// still-valid admission remains staged. Never dispatch through this path
+    /// or infer an execution outcome without evidence.
+    pub(in crate::runtime) fn publish_retained_host_command_results(
+        &mut self,
+        state: &State,
+        works: &[String],
+        now: i64,
+    ) -> Result<usize> {
+        let pending = state.host_command_jobs.iter()
+            .filter(|(_, job)| works.contains(&job.work)
+                && (job.observation.is_none() || job.result_source.is_none()))
+            .map(|(id, job)| (id.clone(), job.clone())).collect();
+        let ids = tools::pending_job_ids(self, &pending)?;
+        let mut published = 0;
+        for id in ids {
+            if self.host_command_background.as_ref().is_some_and(|jobs| jobs.contains(&id)) {
+                continue;
+            }
+            let retained = self.store.trusted_host().intent(&id)?;
+            let subject = s::EntityId::Intent(id.clone());
+            let slot = composite_id("host-command-result", &[&id]);
+            if !matches!(retained.state, s::IntentState::Admitted | s::IntentState::Canceled)
+                && self.store.trusted_host().read_terminal_evidence(&subject, &slot)?.is_none()
+            {
+                continue;
+            }
+            self.advance_host_command(&id, now, tools::ExecutionPhase::Settle)?;
+            if self.store.trusted_host().intent(&id)?.state != s::IntentState::Admitted {
+                published += 1;
+            }
+        }
+        Ok(published)
+    }
+
     /// Settle retained execution records. A dispatched command is never rerun.
     pub fn recover_host_commands(&mut self, now: i64) -> Result<usize> {
         let _owner = self.store.acquire_execution_owner()?;
@@ -290,17 +350,17 @@ impl Runtime {
         let prepared = decode_prepared(&self.store.trusted_host().invocation(&job.invocation)?)?;
         let subject = s::EntityId::Intent(id.into());
         let slot_id = composite_id("host-command-result", &[id]);
-        if phase == tools::ExecutionPhase::Execute && retained.state == s::IntentState::Admitted {
+        if retained.state == s::IntentState::Admitted {
             if job.interface.runner_revision != h::revision() {
                 self.store
                     .cancel_intent(id, "host runner changed before dispatch")?;
             } else if input::require_current(&state, &job, now).is_err() {
-                self.store.cancel_intent(id, "native stdin input changed before dispatch; command never dispatched")?;
+                self.store.cancel_intent(id, "native input source changed before dispatch; command never dispatched")?;
             } else if decision_scope::require_intent_current(
                 &state, &prepared, job.dispatch_scope.as_ref(), &retained, &head,
             ).is_err() {
                 self.store.cancel_intent(id, "accepted action authority or prerequisites changed; command never dispatched")?;
-            } else {
+            } else if phase == tools::ExecutionPhase::Execute {
                 let mut monitor = self.store.runtime_control_monitor()?;
                 let mut event_cursor = state.operator_events.len();
                 let request = prepared.request.clone();
@@ -339,13 +399,11 @@ impl Runtime {
             }
             retained = self.store.trusted_host().intent(id)?;
         }
-        if phase == tools::ExecutionPhase::Execute {
+        // Settlement may cancel an invalidated admission, but cannot execute a
+        // still-valid command. Keep that command pending for explicit recovery.
+        if phase == tools::ExecutionPhase::Execute || retained.state == s::IntentState::Admitted {
             return Ok(());
         }
-        require(
-            retained.state != s::IntentState::Admitted,
-            "host command must dispatch or cancel before settlement",
-        )?;
         let evidence = if retained.state == s::IntentState::Canceled {
             None
         } else {
@@ -522,6 +580,7 @@ fn retain_result(state: &mut State, id: &str, job: &Job, payload: &Value) -> Res
         policy,
         qualifications: tools::qualifications(state, &job.qualification_sources),
         retired: false,
+        save_context: None,
     }
     .seal()?;
     let reference = wire_reference(&file.reference(f::Representation::Utf8));
@@ -679,7 +738,7 @@ pub(super) fn inspect(
             None
         } else {
             let bundle = f::assemble(
-                &corpus(state, audience)?,
+                corpus(state, audience)?.as_ref(),
                 &roots,
                 &[],
                 &[],

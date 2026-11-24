@@ -258,6 +258,7 @@ pub enum Continuation {
 pub struct Operation {
     pub id: String,
     pub tool: String,
+    #[schemars(with = "serde_json_raw::Value")]
     pub input: Value,
 }
 

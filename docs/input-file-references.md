@@ -61,12 +61,55 @@ The `input-file-choices-v2` interface supports these uses:
 | Field | Result |
 |---|---|
 | `next_assets` or `next_fragments`, with `kind: replace_from_input` and `handles` | Select the exact references for later context under the normal scope, lifetime and admission checks. |
+| `file_write`, `file_edit` or `file_import`, with `citation_handles` | Retain exact supporting-source references as metadata without loading or transitively supplying their bodies. |
 | `file_write.qualification_handles` | Add the chosen exact references to the write's literal `qualifications`. |
 | `file_edit.qualification_handles` | Add the chosen exact references to the edited revision's literal `qualifications`. |
 | `file_import.qualification_handles` | Add the chosen exact references to an imported asset's literal `qualifications`. |
 | Host-command `inputs.stdin_asset` with `kind: input_file` and `handle` | Pass the exact supporting-asset text as command stdin, including a decoded JSON string or measured UTF-8 byte range, without copying it into the response. This does not select model context. |
 | `communicate.reference_handles` | Attach canonical `file_references` to the deposited message; the message interface below also accepts history handles. |
 | An authored `reply.reference_handles` | Attach the same chosen references to each authorized local reply recipient. |
+
+Supporting citations differ from mandatory qualifications. Use citations for
+source provenance and bibliography; use qualifications for actual caveats or
+corrections that must accompany every use. Both refer to exact retained material,
+but only qualifications expand the supplied context transitively. Citation
+metadata neither proves that the persona read a source nor establishes accuracy.
+
+`CONTROL.context_accounting` reports actual serialized context sizes before
+lossless text and reference sharing, roots, and qualification edges. Selected/required context,
+current observation bundles, and historical observation bundles have separate
+counts. Clearing an optional selection does not remove required qualifications
+from tool observations. Counts include repeated occurrences; observation byte
+sizes already include their bundles. These are byte counts, not token estimates
+or quotas. They help the persona judge the cost of its choices; the runtime does
+not change a selection based on these counts.
+
+`selected_and_required_roots` breaks down the currently supplied characteristic
+and asset roots. Each row names its existing bundle and the zero-based root
+entry in `QUALIFIED_CONTEXT.entries`, where its path and exact reference remain
+available. It reports the root's text, its complete qualification text, and the
+metadata of those supplied entries before sharing. An entry reached through
+several qualification paths counts once for that root, including cycles.
+
+Rows can overlap: shared entries belong to multiple roots. Exclusive text means
+text attached to just one root within this qualified context; it may also occur
+in observations or selected provider history. Neither exclusive bytes nor row
+totals predict token savings from a later selection. The breakdown reads only
+the already assembled entries and roles. It adds no discovery, automatic
+pruning, selection rule or separate retained persona record.
+
+Repeated `roles[].required_by` references in actor-facing `decision_exact_ref`
+bundles can be represented once in
+`QUALIFIED_CONTEXT.shared_references.values`. A role then uses
+`{"shared_reference":"qN"}` to name that complete exact metadata in the same
+input. Every role and bundle remains present; source bodies, mandatory caveats,
+policies, entry references and input-file handles are unchanged. These aliases
+are prompt metadata, not valid native file references. The encoding is used only
+when the complete serialized input becomes smaller, with no context cutoff or
+semantic selection. Decoding restores the original metadata and rejects missing,
+duplicate, unused or conflicting entries. Existing retained prompts keep their
+original encodings and hashes. Historical bundles using another reference format
+remain literal; the encoder never converts their reference representation.
 
 The output fields are optional and default to empty. Prefer them when the
 desired references are listed, rather than retyping source identities and

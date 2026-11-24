@@ -182,6 +182,7 @@ pub fn configure_codex(
             return Err(p::Failure::CredentialExpired);
         }
         Ok(p::DirectSettings {
+            max_output_tokens: None,
             mode: p::AccessMode::ChatgptOAuth,
             model: model.into(),
             effort: effort.into(),

@@ -5,7 +5,7 @@ use super::*;
 
 const INTERFACE: &str = "input-file-choices-v2";
 const LEGACY_INTERFACE: &str = "input-file-choices-v1";
-const OUTPUT_RULE: &str = "Host-command inputs.stdin_asset may use {kind:input_file,handle:CURRENT_HANDLE} to pass exact supporting-asset bytes directly as command stdin without copying its body. A bytes_metadata reference supplies the complete original bytes to the command; utf8 and decoded JSON strings supply their exact text and measured ranges. In model context, bytes_metadata supplies only exact length and SHA-256, never the file body or pixels. This consumes the asset as execution input, not as model context. This v2 table also supports file_write.qualification_handles, file_edit.qualification_handles, file_import.qualification_handles, communicate.reference_handles and reference_handles on an authored reply. Choose the listed handles instead of copying source IDs or hashes. Qualifications join the exact literal qualifications. The canonical qualifications already identify a file's exact supporting sources; refer to those qualifications in file prose instead of retyping their IDs or hashes. These file handles attach canonical file_references beside the unchanged authored text; do not repeat their hashes in prose. CONTROL.message_references separately declares whether message citations can also use current history handles. For retained tool results, tool_result_origins identifies the actual tool family and producing invocation beside the handle. Match the requested invocation; table order does not identify the latest or required result. Provenance metadata supplies no body. A citation proves no reading and establishes no correctness or acceptance. Handles name only references offered in this admission, never a new same-response file. To cite a new local save in the same response, use communicate.reference_operations or authored reply.reference_operations with exact file_write/file_edit/file_import operation IDs. The host derives each source and attaches its exact accepted reference (bytes_metadata for format=bytes imports, otherwise full UTF-8) after the atomic save plan succeeds; do not invent a hash or add depends_on to communicate. These operation references can accompany current reference_handles and do not read or select bodies. Existing permissions and complete-response validation still apply. Selection lifetimes do not become citation or qualification lifetimes. Earlier v1 tables permit next-context selection only.";
+const OUTPUT_RULE: &str = "Host-command inputs.stdin_asset may use {kind:input_file,handle:CURRENT_HANDLE} to pass exact supporting-asset bytes directly as command stdin without copying its body. A bytes_metadata reference supplies the complete original bytes to the command; utf8 and decoded JSON strings supply their exact text and measured ranges. In model context, bytes_metadata supplies only exact length and SHA-256, never the file body or pixels. This consumes the asset as execution input, not as model context. This table supports citation_handles and qualification_handles on file_write, file_edit and file_import, communicate.reference_handles and reference_handles on an authored reply. Choose the listed handles instead of copying source IDs or hashes. Use citations/citation_handles for supporting sources, calculations and bibliography: their exact references are retained as metadata, without loading their bodies or propagating them through later tool results. Use qualifications/qualification_handles only for caveats or corrections that must be supplied with every use. These require full transitive context and can be expensive. Do not use mandatory qualifications as a citation list. Both lists describe the new revision; preserve useful citations and genuine caveats when revising a file. Accepted warnings keep their separate resolution rules. These file handles attach canonical file_references beside the unchanged authored text; do not repeat their hashes in prose. CONTROL.message_references separately declares whether message citations can also use current history handles. For retained tool results, tool_result_origins identifies the actual tool family and producing invocation beside the handle. Match the requested invocation; table order does not identify the latest or required result. Provenance metadata supplies no body. A citation proves no reading and establishes no correctness or acceptance. Handles name only references offered in this admission, never a new same-response file. To cite a new local save in the same response, use communicate.reference_operations or authored reply.reference_operations with exact file_write/file_edit/file_import operation IDs. The host derives each source and attaches its exact accepted reference (bytes_metadata for format=bytes imports, otherwise full UTF-8) after the atomic save plan succeeds; do not invent a hash or add depends_on to communicate. These operation references can accompany current reference_handles and do not read or select bodies. Existing permissions and complete-response validation still apply. Selection lifetimes do not become citation or qualification lifetimes. Earlier v1 tables permit next-context selection only.";
 const RULE: &str = "For next_fragments or next_assets, prefer {kind: replace_from_input, reason: your reason, handles: [exact listed handles]} when the desired references are listed here. Each handle names the exact reference beside it in this admission only. Match the choice's scope to the selection field: fragments belongs in next_fragments, assets belongs in next_assets. Own-voice fragments cannot be selected as assets, and tool results cannot be selected as fragments. A handle does not change a file's scope. Choose relevant entries yourself. context_state.exact_body_supplied identifies this exact representation and range in current qualified context, read results or an explicitly supplied host-result text field. A pending tool observation can contain output without supplying its separate retained result document. Selected tool output retains what was observed. It does not certify later host bytes, but a new call does not invalidate it; reassess applicability when a relevant change or concrete uncertainty warrants it. context_state.preserve_keeps_selection identifies an existing optional selection whose lifetime reaches the next admission. These are independent facts: reading a file or receiving tool output does not select it. Preserve retains only existing selections, so preserving an empty selection keeps it empty. To use a current body alongside a later result, select its handle now; replace_from_input replaces the whole optional set, so include other references still needed. For new same-response native files, use replace_from_saved_files with files containing exact save operation IDs and optional lifetimes. Its input_handles can keep useful current choices alongside those new files. The host derives source identity and binds only accepted file_write/file_edit/file_import revisions; a pending host-command result is not a file-save operation. Selection does not rerun a tool. This table loads no bodies or additional catalogue. A registered native-command guide is optional supporting material: its complete body supply selects the detailed current schema and instructions. A known current command remains callable without selecting its guide. If uncertain, select or read a useful guide; metadata alone supplies no definition. Use exact current inputs and work references. Reading a guide does not perform a command or establish successful execution. Older handles are invalid; use a known exact reference or file discovery for other resources. Omission does not establish absence.";
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -212,6 +212,16 @@ impl Candidates {
     fn bundle(&mut self, value: &Value) -> Result<()> {
         if value["profile"] == "qualified-exact-context-json-v1" {
             self.entries(&value["entries"], "reference")?;
+            for entry in value["entries"].as_array().into_iter().flatten() {
+                for restriction in entry["binding_restrictions"].as_array().into_iter().flatten() {
+                    let disposition = &restriction["binding"]["disposition"];
+                    if disposition["kind"] == "cite" {
+                        for reference in disposition["references"].as_array().into_iter().flatten() {
+                            self.add(reference)?;
+                        }
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -246,6 +256,10 @@ fn candidates(control: &Value, qualified: &Value) -> Result<Candidates> {
         "reference",
     )?;
     candidates.bundle(qualified)?;
+    if control["provider_continuation"]["current_required_qualifications"]["profile"]
+        == "qualified-exact-context-json-v1" {
+        candidates.bundle(&control["provider_continuation"]["current_required_qualifications"])?;
+    }
     candidates.entries(
         &control["history_retrieval"]["recent_other_work"]["native_asset_saves"],
         "file_reference",
@@ -338,7 +352,7 @@ pub(super) fn offer(
     qualified: &Value,
     supplied_bodies: &BTreeSet<f::Reference>,
     invocation: &str,
-    audience: &f::Admission,
+    _audience: &f::Admission,
     _historical_available_bytes: usize,
 ) -> Result<Option<(Value, BTreeMap<String, p::ExactRef>, Exposure)>> {
     let candidates = candidates(control, qualified)?;
@@ -351,9 +365,15 @@ pub(super) fn offer(
         rule: format!("{RULE} {OUTPUT_RULE}"),
     };
     let mut exposure = Exposure::default();
+    // Choices commonly share extensive ancestry. Reuse successful validation
+    // only within this offer's immutable state; failed walks add nothing. This
+    // does not reuse collected provenance or change which bodies are supplied.
+    let mut validated = BTreeSet::new();
     for reference in candidates.exact.into_values() {
         let exact = file_reference(&reference)?;
-        if !lineage_permitted(state, std::slice::from_ref(&exact), audience) {
+        if trace_exposure_with_validated::<false>(
+            state, std::slice::from_ref(&exact), &[], Some(&mut validated),
+        ).is_err() {
             continue;
         }
         let stored = record(state, &exact)?;

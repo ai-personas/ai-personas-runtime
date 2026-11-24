@@ -14,15 +14,18 @@ use rusqlite::{params, Connection, OpenFlags, OptionalExtension, TransactionBeha
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 
 mod archive_history;
 mod capacity;
 mod head_compaction;
+mod invocation_guard;
 mod object_encoding;
 mod observed_object;
 mod operator_inspection;
@@ -735,8 +738,20 @@ struct Cell {
     slots: u64,
 }
 
+#[derive(Clone, Copy)]
+struct CellMetadata {
+    capacity: u64,
+    class: BudgetClass,
+    slots: u64,
+}
+
 impl Cell {
+    fn metadata(&self) -> CellMetadata {
+        CellMetadata { capacity: self.capacity, class: self.class, slots: self.slots }
+    }
+
     fn from_storage(
+        db: &Connection,
         namespace: &str,
         data: Option<Vec<u8>>,
         capacity: i64,
@@ -751,7 +766,7 @@ impl Cell {
         if data.len() as u64 > capacity {
             return Err(StoreError::Corrupt("cell capacity".into()));
         }
-        let data = revision_storage::decode(namespace, data, capacity)?;
+        let data = revision_storage::decode(db, namespace, data, capacity)?;
         if data.len() as u64 > capacity {
             return Err(StoreError::Corrupt("decoded cell capacity".into()));
         }
@@ -1132,6 +1147,67 @@ impl TrustedHost<'_> {
             }];
             work.validate_changes(&changes)?;
             work.mark_usage_unknown_if_open(&record.reservation)?;
+            work.bump_epoch()?;
+            let objects = work.apply_changes(&changes, BudgetClass::Ordinary)?;
+            Ok(BatchReceipt { epoch: work.meta.epoch, objects })
+        })
+    }
+
+    /// Retire a proven response-only orphan's local lease without changing the
+    /// uncertain invocation, empty terminal slot or its retained accounting.
+    pub(crate) fn commit_runtime_orphaned_continuation(
+        &mut self,
+        expected: &ObjectRef,
+        object: StoredObject,
+        invocation: &InvocationRecord,
+        reservation: &ReservationRecord,
+        terminal: &str,
+        actor: &str,
+        owner: &ExecutionOwner,
+        expected_launch: Option<&ObjectRef>,
+    ) -> Result<BatchReceipt> {
+        if owner.acquiring_pid != std::process::id() || owner.database != self.store.path {
+            return Err(StoreError::InvalidState("wrong execution owner for local recovery".into()));
+        }
+        self.store.transaction(|work| {
+            work.admission()?;
+            work.require_quiescent_invocations()?;
+            let current: StoredObject = work.required("object", RUNTIME_CONTROL_STATE_ID)?;
+            let record: InvocationRecord = work.required("invocation", &invocation.id)?;
+            let held: ReservationRecord = work.required("reservation", &record.reservation.key())?;
+            let slot: TerminalEvidenceSlot = work.required("terminal_evidence", terminal)?;
+            if current.exact_ref()? != *expected || record != *invocation || held != *reservation
+                || record.state != InvocationState::Uncertain || record.response_hash.is_some()
+                || record.reconciliation.is_some() || record.runtime_failure_context.is_some()
+                || held.state == ReservationState::Reserved
+                || slot.subject != EntityId::Invocation(record.id.clone()) || slot.object.is_some()
+                || object.id != current.id || object.kind != current.kind
+                || current.body["personas"][actor]["active_invocation"] != record.id
+                || !current.body["personas"][actor]["failed_attempt_hold"].is_null()
+                || !object.body["personas"][actor]["active_invocation"].is_null()
+                || !object.body["personas"][actor]["failed_attempt_hold"].is_null()
+                || !current.body["personas"][actor]["owner_epoch"].as_u64()
+                    .and_then(|epoch| epoch.checked_add(1))
+                    .is_some_and(|epoch| object.body["personas"][actor]["owner_epoch"].as_u64() == Some(epoch))
+            {
+                return Err(StoreError::Conflict(invocation.id.clone()));
+            }
+            live_invocation(&record)?;
+            let has_intent: bool = work.db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM store_cells WHERE ns='intent' AND json_extract(data,'$.invocation_id')=?1)",
+                [&record.id], |row| row.get(0))?;
+            let archive = format!("adoption:{}", sha256_bytes(record.id.as_bytes()));
+            if has_intent || work.cell("decision", &record.id)?.is_some()
+                || work.cell("object", &archive)?.is_some()
+            {
+                return Err(StoreError::Invalid("orphaned call has a decision or action history".into()));
+            }
+            let changes = vec![Change {
+                expected_revision: Some(current.revision), object,
+                depends_on: expected_launch.into_iter().cloned().collect(),
+            }];
+            let candidates = work.validate_changes(&changes)?;
+            work.dependencies(&changes[0].depends_on, &candidates)?;
             work.bump_epoch()?;
             let objects = work.apply_changes(&changes, BudgetClass::Ordinary)?;
             Ok(BatchReceipt { epoch: work.meta.epoch, objects })
@@ -1641,27 +1717,37 @@ impl TrustedHost<'_> {
     /// A launcher stop applies to the current work atomically, even while its
     /// execution owner is active. The UI key is retained with the exact derived
     /// request. Replaying that key never stops a subsequently resumed work.
-    pub(crate) fn commit_keyed_runtime_control(
+    pub(crate) fn commit_keyed_runtime_control<E>(
         &mut self,
         id: &str,
         control: RuntimeControl,
-    ) -> Result<(Option<RuntimeControlRequest>, Option<BatchReceipt>, bool)> {
+        authorize: impl FnOnce(&StoredObject, &StoredObject) -> std::result::Result<(), E>,
+    ) -> Result<std::result::Result<(Option<RuntimeControlRequest>, Option<BatchReceipt>, bool), E>> {
         self.store.transaction(|work| {
             work.id(id)?;
             if !matches!(control.action, RuntimeControlAction::Pause | RuntimeControlAction::Canceled) {
                 return Err(StoreError::Invalid("launcher work stop action".into()));
             }
+            // Authorize against the same current heads that govern this stop,
+            // including historical replay and no-op outcomes. This connection
+            // never recovers or waits for the execution owner.
+            let current = work.required_object(RUNTIME_CONTROL_STATE_ID)?;
+            let launch = work.required_object("runtime-launch-v1")?;
+            work.returned(&current, work.limits.max_read_bytes, BudgetClass::Ordinary)?;
+            work.returned(&launch, work.limits.max_read_bytes, BudgetClass::Ordinary)?;
+            if let Err(error) = authorize(&current, &launch) {
+                return Ok(Err(error));
+            }
             if let Some(record) = work.runtime_control_record(id)? {
                 if record.request.control != control {
                     return Err(StoreError::Conflict(id.into()));
                 }
-                return Ok((Some(record.request), Some(record.receipt), true));
+                return Ok(Ok((Some(record.request), Some(record.receipt), true)));
             }
             if let Some(record) = work.get::<RuntimeControlNoop>("runtime_control_noop", id)? {
                 if record.control != control { return Err(StoreError::Conflict(id.into())); }
-                return Ok((None, None, true));
+                return Ok(Ok((None, None, true)));
             }
-            let current: StoredObject = work.required("object", RUNTIME_CONTROL_STATE_ID)?;
             let phase: crate::work::Phase = serde_json::from_value(
                 current.body["board"]["works"][&control.work]["phase"].clone(),
             )?;
@@ -1674,7 +1760,7 @@ impl TrustedHost<'_> {
                 work.insert("runtime_control_noop", id,
                     &RuntimeControlNoop { control, observed: current.exact_ref()? },
                     None, BudgetClass::Closeout, 1)?;
-                return Ok((None, None, false));
+                return Ok(Ok((None, None, false)));
             }
             let request = RuntimeControlRequest {
                 id: id.into(),
@@ -1683,7 +1769,7 @@ impl TrustedHost<'_> {
                 control,
             };
             let receipt = work.commit_runtime_control(request.clone(), false)?;
-            Ok((Some(request), Some(receipt), false))
+            Ok(Ok((Some(request), Some(receipt), false)))
         })
     }
 
@@ -1868,6 +1954,7 @@ impl TrustedHost<'_> {
 pub struct ExecutionOwner {
     _file: fs::File,
     acquiring_pid: u32,
+    database: PathBuf,
 }
 
 impl Drop for ExecutionOwner {
@@ -1951,6 +2038,7 @@ impl ExecutionOwner {
         let owner = Self {
             _file: file,
             acquiring_pid: unsafe { libc::getpid() } as u32,
+            database: database.to_path_buf(),
         };
         let linked = fs::metadata(&path)?;
         if linked.dev() != metadata.dev()
@@ -1980,6 +2068,7 @@ pub struct Store {
     connection: Connection,
     path: PathBuf,
     limits: Limits,
+    invocation_checks: RefCell<invocation_guard::Cache>,
 }
 
 /// A transport's host control observation. This connection cannot write, recover
@@ -2082,6 +2171,9 @@ impl Store {
                  ) WITHOUT ROWID;
                  CREATE INDEX IF NOT EXISTS store_cells_lane_slots
                  ON store_cells(lane,slots);
+                 CREATE INDEX IF NOT EXISTS store_runtime_control_request_id
+                 ON store_cells(json_extract(data,'$.commit.request.id'))
+                 WHERE ns='runtime_control';
                  CREATE TRIGGER IF NOT EXISTS immutable_store_cells
                  BEFORE UPDATE ON store_cells
                  WHEN OLD.ns IN ('revision','decision','runtime_control_plan')
@@ -2106,6 +2198,7 @@ impl Store {
                  BEFORE DELETE ON store_cells
                  BEGIN SELECT RAISE(ABORT,'permanent identity'); END;",
             )?;
+            revision_storage::initialize(&tx)?;
             let existing: Option<Vec<u8>> = tx.query_row(
                 "SELECT data FROM store_meta WHERE singleton=1",
                 [], |row| row.get(0),
@@ -2144,6 +2237,7 @@ impl Store {
             connection,
             path,
             limits,
+            invocation_checks: RefCell::default(),
         })
     }
 
@@ -2161,10 +2255,15 @@ impl Store {
     /// and subsequent dispatch share the same guard, so
     /// another owner cannot enter between them. Contention grants no dispatch.
     pub fn acquire_execution_owner(&mut self) -> Result<ExecutionOwner> {
-        let owner = ExecutionOwner::try_acquire(&self.path)?.ok_or_else(|| {
+        self.try_execution_owner_with_recovery()?.ok_or_else(|| {
             StoreError::InvalidState("an execution owner is already active".into())
-        })?;
-        self.recover_dispatched()?;
+        })
+    }
+
+    /// Explicit recovery/dispatch entry. A busy owner changes no lifecycle state.
+    pub(crate) fn try_execution_owner_with_recovery(&mut self) -> Result<Option<ExecutionOwner>> {
+        let owner = ExecutionOwner::try_acquire(&self.path)?;
+        if owner.is_some() { self.recover_dispatched()?; }
         Ok(owner)
     }
 
@@ -2179,7 +2278,7 @@ impl Store {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let mut work = Work::load(&tx, &self.limits)?;
+        let mut work = Work::load(&tx, &self.limits, &self.invocation_checks)?;
         let result = operation(&mut work)?;
         work.flush()?;
         drop(work);
@@ -2357,7 +2456,7 @@ impl Store {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let mut work = Work::load(&tx, &self.limits)?;
+        let mut work = Work::load(&tx, &self.limits, &self.invocation_checks)?;
         let result = work.intake_delegation_batch(&changes, minimum_available)?;
         drop(work);
         tx.rollback()?;
@@ -2383,7 +2482,7 @@ impl Store {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let mut work = Work::load(&tx, &self.limits)?;
+        let mut work = Work::load(&tx, &self.limits, &self.invocation_checks)?;
         let result = work.need_admission_batch(&changes, minimum_available, guard)?;
         drop(work);
         tx.rollback()?;
@@ -2764,7 +2863,7 @@ impl Store {
                 work.required("invocation", &decision.invocation_id)?;
             live_invocation(&invocation)?;
             if let Some(reference) = &scoped_state {
-                let state: StoredObject = work.required("object", RUNTIME_CONTROL_STATE_ID)?;
+                let state = work.required_object(RUNTIME_CONTROL_STATE_ID)?;
                 if runtime_navigation.is_none() || !scoped_runtime_invocation(&invocation)
                     || invocation.prepared_epoch > decision.expected_epoch
                     || state.exact_ref()? != *reference
@@ -3314,9 +3413,15 @@ impl Store {
     }
 }
 
+struct CachedObject {
+    object: Arc<StoredObject>,
+    metadata: CellMetadata,
+}
+
 struct Work<'a> {
     db: &'a Connection,
     limits: &'a Limits,
+    invocation_checks: &'a RefCell<invocation_guard::Cache>,
     meta: Meta,
     original_meta: Vec<u8>,
     // Reconstructed from durable cell lanes, including databases written before
@@ -3325,6 +3430,10 @@ struct Work<'a> {
     ordinary_identities: u64,
     ordinary_history_slots: u64,
     pending: BTreeMap<(String, String), Cell>,
+    // Only this transaction's current object heads. Immutable shared values
+    // avoid decoding the same large head for admission, dependency and control
+    // checks. Staging a replacement invalidates its entry, including misses.
+    objects: RefCell<BTreeMap<String, Option<CachedObject>>>,
 }
 
 impl<'a> Work<'a> {
@@ -3398,7 +3507,11 @@ impl<'a> Work<'a> {
         Ok(receipt)
     }
 
-    fn load(db: &'a Connection, limits: &'a Limits) -> Result<Self> {
+    fn load(
+        db: &'a Connection,
+        limits: &'a Limits,
+        invocation_checks: &'a RefCell<invocation_guard::Cache>,
+    ) -> Result<Self> {
         let meta = load_meta(db)?;
         if &meta.limits != limits {
             return Err(StoreError::LimitsMismatch);
@@ -3424,11 +3537,13 @@ impl<'a> Work<'a> {
         Ok(Self {
             db,
             limits,
+            invocation_checks,
             meta,
             original_meta,
             ordinary_identities,
             ordinary_history_slots,
             pending: BTreeMap::new(),
+            objects: RefCell::new(BTreeMap::new()),
         })
     }
 
@@ -3491,7 +3606,7 @@ impl<'a> Work<'a> {
             )
             .optional()?;
         row.map(|(data, capacity, lane, slots)| {
-            Cell::from_storage(namespace, data, capacity, lane, slots)
+            Cell::from_storage(self.db, namespace, data, capacity, lane, slots)
         })
         .transpose()
     }
@@ -3515,7 +3630,7 @@ impl<'a> Work<'a> {
             let cell = match self.pending.get(&(namespace.into(), id.clone())) {
                 Some(cell) => cell.clone(),
                 None => Cell::from_storage(
-                    namespace, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?,
+                    db, namespace, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?,
                 )?,
             };
             let record = decode_json(&cell.data)?;
@@ -3533,6 +3648,45 @@ impl<'a> Work<'a> {
     fn required<T: DeserializeOwned>(&self, namespace: &str, key: &str) -> Result<T> {
         self.get(namespace, key)?
             .ok_or_else(|| StoreError::Missing(key.into()))
+    }
+
+    fn object(&self, key: &str) -> Result<Option<Arc<StoredObject>>> {
+        if let Some(object) = self.objects.borrow().get(key) {
+            return Ok(object.as_ref().map(|cached| cached.object.clone()));
+        }
+        let cached = phase_timing::measure("store.decode_transaction_object", || {
+            self.cell("object", key)?.map(|cell| {
+                Ok::<_, StoreError>(CachedObject {
+                    object: Arc::new(decode_json(&cell.data)?),
+                    metadata: cell.metadata(),
+                })
+            }).transpose()
+        })?;
+        let object = cached.as_ref().map(|cached| cached.object.clone());
+        self.objects.borrow_mut().insert(key.into(), cached);
+        Ok(object)
+    }
+
+    fn update_metadata(&self, namespace: &str, key: &str) -> Result<Option<CellMetadata>> {
+        // Reuse only metadata obtained with a complete decoded object in this
+        // transaction. Staging a replacement invalidates the entire entry.
+        if namespace == "object" {
+            if let Some(cached) = self.objects.borrow().get(key) {
+                return Ok(cached.as_ref().map(|cached| cached.metadata));
+            }
+        }
+        Ok(self.cell(namespace, key)?.map(|cell| cell.metadata()))
+    }
+
+    fn required_object(&self, key: &str) -> Result<Arc<StoredObject>> {
+        self.object(key)?.ok_or_else(|| StoreError::Missing(key.into()))
+    }
+
+    fn stage_cell(&mut self, namespace: &str, key: &str, cell: Cell) {
+        if namespace == "object" {
+            self.objects.get_mut().remove(key);
+        }
+        self.pending.insert((namespace.into(), key.into()), cell);
     }
 
     fn insert<T: Serialize>(
@@ -3608,7 +3762,7 @@ impl<'a> Work<'a> {
         self.meta.history_slots = history_slots;
         self.ordinary_identities = ordinary_identities;
         self.ordinary_history_slots = ordinary_history_slots;
-        self.pending.insert((namespace.into(), key.into()), cell);
+        self.stage_cell(namespace, key, cell);
         Ok(())
     }
 
@@ -3652,15 +3806,17 @@ impl<'a> Work<'a> {
         ) {
             return Err(StoreError::Conflict(key.into()));
         }
-        let mut cell = self
-            .cell(ns, key)?
+        let metadata = self
+            .update_metadata(ns, key)?
             .ok_or_else(|| StoreError::Missing(key.into()))?;
-        let data = encode_record(cell.capacity)?;
-        if data.len() as u64 > cell.capacity {
+        let data = encode_record(metadata.capacity)?;
+        let mut cell = Cell { data, capacity: metadata.capacity,
+            class: metadata.class, slots: metadata.slots };
+        if cell.data.len() as u64 > cell.capacity {
             // Retain the complete result. Capacity is measured allocation, not
             // a ceiling; immutable namespaces and transition checks still hold.
             let before = cell.charge(ns, key)?;
-            cell.capacity = data.len() as u64;
+            cell.capacity = cell.data.len() as u64;
             let growth = cell.charge(ns, key)?.checked_sub(before)
                 .ok_or(StoreError::Overflow("cell growth"))?;
             let account = self.meta.account_mut(cell.class);
@@ -3668,8 +3824,7 @@ impl<'a> Work<'a> {
                 .checked_add(growth).ok_or(StoreError::Overflow("cell allocation"))?;
             self.meta.check_dimension(Resource::RetainedBytes, cell.class)?;
         }
-        cell.data = data;
-        self.pending.insert((ns.into(), key.into()), cell);
+        self.stage_cell(ns, key, cell);
         Ok(())
     }
 
@@ -3710,7 +3865,7 @@ impl<'a> Work<'a> {
                 .checked_sub(old.slots)
                 .ok_or_else(|| StoreError::Corrupt("ordinary history refund underflow".into()))?;
         }
-        self.pending.insert(("invocation".into(), key.into()), cell);
+        self.stage_cell("invocation", key, cell);
         Ok(refund)
     }
 
@@ -3720,7 +3875,7 @@ impl<'a> Work<'a> {
         for ((namespace, key), cell) in &self.pending {
             // Compression changes physical storage only. Pending cells, logical
             // allocation, fingerprints and returned-byte charges stay canonical.
-            let stored = revision_storage::encode(namespace, &cell.data)?;
+            let stored = revision_storage::encode(self.db, namespace, &cell.data)?;
             self.db.execute(
                 "INSERT INTO store_cells(ns,k,data,capacity,lane,slots) VALUES(?1,?2,?3,?4,?5,?6)
                  ON CONFLICT(ns,k) DO UPDATE SET data=excluded.data,capacity=excluded.capacity,
@@ -3817,27 +3972,6 @@ impl<'a> Work<'a> {
         self.require_owned_invocations(&BTreeSet::new())
     }
 
-    fn require_owned_invocations(&mut self, owned: &BTreeSet<String>) -> Result<()> {
-        for id in self.keys("invocation")? {
-            let record: InvocationRecord = self.required("invocation", &id)?;
-            self.returned(&record, self.limits.max_read_bytes, BudgetClass::Ordinary)?;
-            if record.id != id {
-                return Err(StoreError::Corrupt("invocation identity mismatch".into()));
-            }
-            let pending = owned.contains(&id)
-                && matches!(record.state, InvocationState::Dispatched | InvocationState::Responded);
-            if !pending && !matches!(
-                record.state,
-                InvocationState::Adopted | InvocationState::Failed | InvocationState::Uncertain
-            ) {
-                return Err(StoreError::InvalidState(
-                    "active transport or unfinished adoption requires its owner".into(),
-                ));
-            }
-        }
-        Ok(())
-    }
-
     fn keys(&self, namespace: &str) -> Result<Vec<String>> {
         let mut statement = self.db.prepare("SELECT k FROM store_cells WHERE ns=?1 ORDER BY k")?;
         let rows = statement.query_map([namespace], |row| row.get(0))?;
@@ -3903,7 +4037,7 @@ impl<'a> Work<'a> {
             {
                 return Err(StoreError::Conflict(object.id.clone()));
             }
-            let current: Option<StoredObject> = self.get("object", &object.id)?;
+            let current = self.object(&object.id)?;
             // Grants and session claims/receipts are permanent idempotency
             // evidence. Their current heads must remain create-only too.
             if current.as_ref().is_some_and(|current| {
@@ -3950,7 +4084,7 @@ impl<'a> Work<'a> {
             let actual = if let Some(object) = candidates.get(&reference.id) {
                 object.exact_ref()?
             } else {
-                self.required::<StoredObject>("object", &reference.id)?.exact_ref()?
+                self.required_object(&reference.id)?.exact_ref()?
             };
             if actual != *reference {
                 return Err(StoreError::RevisionConflict(reference.id.clone()));
@@ -4262,8 +4396,8 @@ impl<'a> Work<'a> {
             }
             return Ok(());
         };
-        let previous: Option<StoredObject> = self.get("object", RUNTIME_CONTROL_STATE_ID)?;
-        let previous_requirements = previous.as_ref()
+        let previous = self.object(RUNTIME_CONTROL_STATE_ID)?;
+        let previous_requirements = previous.as_deref()
             .map(crate::runtime::runtime_control_requirements).transpose()?.unwrap_or_default();
         for requirement in crate::runtime::runtime_control_requirements(object)? {
             let previous = previous_requirements.iter().find(|old| old.work == requirement.work);
@@ -4340,13 +4474,16 @@ impl<'a> Work<'a> {
     }
 
     fn runtime_control_record(&self, id: &str) -> Result<Option<RuntimeControlRecord>> {
-        let mut statement = self.db.prepare(
-            "SELECT k FROM store_cells WHERE ns='runtime_control'
-             AND json_extract(data,'$.commit.request.id')=?1 LIMIT 2",
-        )?;
-        let keys = statement
-            .query_map([id], |row| row.get::<_, String>(0))?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let keys = phase_timing::measure("store.find_runtime_control", || {
+            let mut statement = self.db.prepare(
+                "SELECT k FROM store_cells WHERE ns='runtime_control'
+                 AND json_extract(data,'$.commit.request.id')=?1 LIMIT 2",
+            )?;
+            let keys = statement
+                .query_map([id], |row| row.get::<_, String>(0))?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            Ok::<_, StoreError>(keys)
+        })?;
         if keys.len() > 1 {
             return Err(StoreError::Corrupt(
                 "duplicate runtime control identity".into(),
@@ -4475,7 +4612,7 @@ impl<'a> Work<'a> {
                     Ok::<_, StoreError>(sha256_bytes(&encoded))
                 })?,
             };
-            if self.cell("object", &object.id)?.is_some() {
+            if self.update_metadata("object", &object.id)?.is_some() {
                 self.update_with("object", &object.id, |_| Ok(encoded))?;
             } else {
                 self.insert_with(

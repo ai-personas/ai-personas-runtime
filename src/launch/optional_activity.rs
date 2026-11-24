@@ -190,7 +190,7 @@ fn grant_owned(
         // configured binding, including its model and effort overrides.
         require(
             persona.created_by == request.operator
-                && persona.seed.destination == request.destination
+                && persona.seed.destination == seed_for(&saved, &provider, id).destination
                 && exposure_permitted(&state, &exposure, &admission(persona, now)),
             "optional participant identity or source binding unavailable",
         )?;

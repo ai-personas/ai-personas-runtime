@@ -4,6 +4,7 @@ mod document;
 mod html_view;
 mod data_view;
 mod backend;
+mod providers;
 mod helpers;
 mod journal;
 mod mesh;

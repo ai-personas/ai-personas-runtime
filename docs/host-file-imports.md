@@ -21,11 +21,15 @@ because the host records their results. Native file mutations still require
 exact-once accounting, and host effects cannot adopt character fragments.
 Earlier responses retain the maintenance scope described by their actual input.
 
-`format: "utf8"` validates the original text; explicitly supplying it and
-omitting the default format are both valid. Use
-`format: "bytes"` for archives, CAD, images or other binary files. This retains
+Every new import explicitly chooses its `format`. `format: "utf8"` validates
+the original text. Use `format: "bytes"` for PDFs, archives, CAD, images or other
+binary files. This retains
 the original bytes, without converting them to text or passing them through a
 model response. A binary artifact needs no encoded script or text wrapper.
+The model-facing schema and carrier grammar require the choice, and the live
+response parser rejects an omitted format before reading a host file. Older
+recorded decisions remain readable with their original implicit UTF-8 meaning;
+reading that history does not authorize a new import.
 
 This follows the design's [supporting-resource requirements UR-011–014](https://github.com/ai-personas/ai-personas-design/blob/main/USER-REQUIREMENTS.md#supporting-assets-and-historical-context):
 keep assets separate from character, retain useful material, provide locations
@@ -42,6 +46,7 @@ An ordinary input offers `CONTROL.file_import` with `maximum_bytes: null`. For e
   "path": "skills/inventory/guide.md",
   "base_revision": null,
   "host_path": "/workspace/inventory/SKILL.md",
+  "format": "utf8",
   "expected_sha256": null,
   "qualifications": [],
   "qualification_handles": [],

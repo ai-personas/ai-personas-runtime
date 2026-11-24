@@ -1,4 +1,4 @@
-//! Project one bounded operator view from a coherent, read-only set of records.
+//! Project an operator view without holding the runtime's writer lock.
 use super::*;
 
 pub(crate) struct RuntimeInspection<'a, 'db> {
@@ -61,12 +61,12 @@ impl RuntimeInspection<'_, '_> {
 
 impl TrustedHost<'_> {
     /// The trusted projection validates operator authority and disclosure before
-    /// returning its bounded output. Internal heads and supporting records never
+    /// returning its output. Internal heads and supporting records never
     /// cross this view boundary. Only the returned projection spends Ordinary
     /// navigation. The callback has no Store mutation or execution capability.
     pub(crate) fn runtime_projection<T: Serialize, E, F>(
         &mut self,
-        maximum: u64,
+        _maximum: u64,
         project: F,
     ) -> Result<std::result::Result<T, E>>
     where
@@ -76,18 +76,44 @@ impl TrustedHost<'_> {
             &RuntimeInspection<'_, '_>,
         ) -> std::result::Result<T, E>,
     {
-        self.store.transaction(|work| {
-            let runtime = work.required("object", RUNTIME_CONTROL_STATE_ID)?;
-            let launch = work.required("object", "runtime-launch-v1")?;
-            let view = project(runtime, launch, &RuntimeInspection { work });
-            if let Ok(view) = &view {
-                work.returned(
-                    view,
-                    maximum.min(work.limits.max_read_bytes),
-                    BudgetClass::Ordinary,
-                )?;
-            }
-            Ok(view)
+        self.runtime_projection_since(None, |heads, records| {
+            let (runtime, launch) = heads.expect("an uncached projection loads both heads");
+            project(runtime, launch, records)
         })
+    }
+
+    /// Reuse decoded heads only at the exact epoch of this fresh transaction.
+    /// The projection still reads current auxiliary records and checks authority.
+    pub(crate) fn runtime_projection_since<T: Serialize, E>(
+        &mut self,
+        cached_epoch: Option<u64>,
+        project: impl FnOnce(Option<(StoredObject, StoredObject)>, &RuntimeInspection<'_, '_>)
+            -> std::result::Result<T, E>,
+    ) -> Result<std::result::Result<T, E>> {
+        // Inspection can decode substantial retained history. BEGIN IMMEDIATE
+        // here used to block model admission, adoption and tool settlement for
+        // that entire read, repeatedly when a desktop was open. WAL readers can
+        // instead retain one coherent snapshot while the foreground progresses.
+        let (view, bytes) = {
+            let tx = self.store.connection.transaction_with_behavior(TransactionBehavior::Deferred)?;
+            let work = Work::load(&tx, &self.store.limits, &self.store.invocation_checks)?;
+            let heads = if cached_epoch == Some(work.meta.epoch) { None } else {
+                Some((work.required("object", RUNTIME_CONTROL_STATE_ID)?,
+                    work.required("object", "runtime-launch-v1")?))
+            };
+            let view = project(heads, &RuntimeInspection { work: &work });
+            let bytes = view.as_ref().ok().map(serialized_size).transpose()?;
+            drop(work);
+            tx.commit()?;
+            (view, bytes)
+        };
+        // Charge the exact returned bytes against the latest ledger in a short
+        // write transaction; never flush metadata from the older read snapshot.
+        // No output is returned if accounting fails. This read grants no action:
+        // mutation callers still validate their own current exact references.
+        if let Some(bytes) = bytes {
+            self.store.transaction(|work| work.charge_returned_bytes(bytes, BudgetClass::Ordinary))?;
+        }
+        Ok(view)
     }
 }

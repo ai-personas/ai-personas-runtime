@@ -32,6 +32,9 @@ does not replace the operation's result.
 | `store.commit_preparation` | Complete atomic invocation-admission transaction, including validation, writes and SQLite commit |
 | `store.fingerprint_atomic_admission` | Stream the complete canonical admission arguments into their digest |
 | `store.fingerprint_invocation` | Stream the complete canonical invocation specification into its digest |
+| `store.check_invocation_ownership` | Read and fingerprint current invocation cells, reuse matching validated metadata, and check the caller's current ownership set |
+| `store.find_runtime_control` | Find retained control keys for one request ID, before complete matching-record validation |
+| `launch.authorize_work_stop` | Validate current configuration, saved operator and cohort ownership inside the pause/cancel transaction |
 | `store.commit_decision` | Complete decision-adoption transaction, including validation, writes, accounting and SQLite commit |
 | `store.fingerprint_decision` | Stream all canonical decision changes, intents and identity fields into their digest |
 | `store.validate_capacity_chain` | Read and validate the exact historical settings receipt chain |
@@ -45,10 +48,11 @@ does not replace the operation's result.
 | `runtime.decode_current_state` | Decode and validate a new or changed ordinary state record |
 | `runtime.reuse_decoded_state` | Reuse decoded state after a fresh read verifies identical complete bytes |
 | `runtime.clone_loaded_state` | Share the immutable head and clone the caller's working state |
+| `desktop.decode_current_state` | Decode a fresh inspection head, reusing byte-verified retained records from the reader's previous snapshot |
 | `state.validate_exposure_pool` | Validate pooled manifests and index their exact typed-field uses |
 | `state.deserialize_borrowed` | Decode typed state from the borrowed stored body and validated references |
 | `runtime.validate_intake_state` | Validate retained intake episodes and bindings |
-| `runtime.build_corpus` | Construct and validate a complete corpus view from one current state and admission |
+| `runtime.build_corpus` | Construct and validate a complete corpus view from one current state |
 | `runtime.render_preparation` | Assemble the prospective request from current state and pending history material |
 | `runtime.plan_response` | Stage response operations and context against current state, before later staging and adoption commit |
 | `state.serialize_records` | Serialize state fields, packing inventoried exposures in each record before assembling the complete body |
@@ -76,6 +80,16 @@ either acquisition or contention, so only subsequent scan events establish that
 recovery ran. Scan events do not themselves establish that a record needed or
 received a transition. They retain the existing recovery behavior and accounting.
 The Store and runtime share one process-local timing switch and sequence.
+
+Invocation ownership checks stream current cells in key order and fingerprint
+their complete bytes. A Store connection remembers only the verified digest,
+lifecycle state and canonical returned-byte count from each successful decode;
+it does not retain request bodies. Matching bytes can reuse that metadata on a
+later pass. Changed bytes receive full typed decoding again, and cell metadata,
+the current ownership set and the original navigation charge are checked every
+time. A rolled-back transaction can leave verified decoding in memory, but the
+next transaction must match its own current bytes before reuse. The first pass
+still decodes all invocation records, and every pass still reads their bytes.
 
 Recovery streams each existing namespace in key order through one SQLite cursor,
 instead of listing its keys and issuing a separate point read for every record.
@@ -147,6 +161,15 @@ The index uses additional SQLite pages and has an initial construction cost. It
 does not add logical Store records or change object bytes, canonical navigation
 charges or accounting checks. Query plans and actual command timings can show
 the indexed path's use; the index alone does not establish a whole-session speedup.
+
+Control-request lookups also use a partial SQLite index on the retained request
+ID in `runtime_control` cells. This avoids parsing every saved control snapshot
+for each lookup. The query still detects duplicate matches, and every selected
+slot receives its complete existing cell and record checks. SQLite maintains
+the index with each control write and rollback. Initial creation reads the
+existing control records and adds index pages; it changes no logical record,
+reference or accounting value. Other namespaces, including opaque compressed
+revision cells, are outside this index.
 
 Computing a stored object's exact reference streams canonical JSON into SHA-256
 through a small buffer. It borrows the complete body instead of cloning another
@@ -246,6 +269,15 @@ transactions or omit current-head, revision, duplicate or exact-reference
 checks. This removes temporary copies without changing committed bytes, retained
 history or accounting. Actual latency and memory effects require observation.
 
+Within that transaction, a successfully decoded current object also retains its
+validated allocation, lane and event-slot metadata. Applying its replacement
+can reuse those fields without reading the same complete old body again just
+to check presence or calculate allocation growth. Uncached objects and other
+namespaces still read and validate their current cells. Staging any object
+replacement invalidates both its decoded body and metadata, including a cached
+absence. Every later transaction starts with an empty cache. Encoding, growth
+charges, immutable revisions and commit checks retain their complete inputs.
+
 Store admission, adoption and evidence persistence no longer serialize JSON
 bodies or complete objects merely to discard the bytes from historical size
 checks. These inputs already contain typed JSON values. Required fingerprints
@@ -274,8 +306,8 @@ latency effects still require measurement.
 
 Applying a Store object change encodes its complete canonical JSON once, borrowing
 the body through the same serializer used by standalone object fingerprinting.
-The immutable revision and current head retain separate copies of those bytes;
-the returned exact reference hashes that encoding directly. The revision
+The immutable revision and current head retain separate logical records of those
+bytes; the returned exact reference hashes that encoding directly. The revision
 conflict check still precedes encoding, and the head write still checks its
 namespace, existence and allocation metadata. Each logical record retains its
 own accounting and physical storage treatment within the same atomic commit.
@@ -285,6 +317,16 @@ byte-buffer copy, cell accounting, physical encoding and database commit. Their
 successful completion does not prove a commit. General record encoding and
 other state processing remain separate; eliminating these repeated JSON-tree
 copies and serializations alone establishes no whole-session performance gain.
+
+Physical revision encoding reuses unchanged content-defined chunks across large
+immutable snapshots. Each manifest reconstructs its complete canonical revision
+directly from independently verified chunks. New chunks and their manifests
+share the cell transaction, including rollback on a later write failure. The
+current head is still written as complete JSON. This changes future archive
+growth, not existing history, canonical accounting, current-head serialization
+or persona context. Encoding, chunk verification, SQLite lookups and writes remain
+part of the enclosing commit timing; compare their actual costs and database
+growth before attributing a whole-session speedup to storage reuse.
 
 Atomic admission, invocation-specification and decision fingerprints also stream
 complete canonical JSON directly into SHA-256. Their serializers borrow request
@@ -307,12 +349,61 @@ selected-file metadata and final context assembly reuse that render's validated
 corpus. The complete selected assembly already used for metadata also supplies
 the final selected context, with the same mandatory roots, optional selections,
 order and qualifications. The separate mandatory-only assembly still measures
-mandatory context. Reuse ends with the render; a later render constructs and
-validates its own corpus against its actual state. It does not reuse a result
-across changed state, suppress a selected body or create a persistent cache.
+mandatory context. Reuse remains within one immutable validation phase; a render
+after candidate mutations constructs and validates its own corpus against its
+actual state. It does not reuse a result across changed state, suppress a selected
+body or create a persistent cache.
+
+The immutable render scope also shares its catalogue with helper projections
+that independently request one, and memoizes successful ancestry checks for exact
+references throughout that render. Each read or assembly still uses its own
+admission, selection and navigation accounting. Nested projections of the same
+state can share the scope; a different state receives a separate scope and then
+restores the caller's cache. The scope ends on return or error, before candidate
+state can be changed. Response planning therefore starts fresh scopes for its
+separate validation phases rather than carrying validation across staged mutations.
+Only complete successful ancestry checks enter the memo; full provenance
+expansion continues to collect every source and policy. Operator projections use
+the same immutable scope. Cache hits omit a `runtime.build_corpus` event because
+no new corpus was constructed; unchanged output alone does not establish a
+whole-session speedup.
+
+Response planning groups adjacent read-only checks against the same candidate
+state: fragment and asset replacement validation; message validation, the
+pre-navigation render and its catalogue; and final image, context and aggregate
+selection validation. Each group shares one catalogue and successful ancestry
+checks. Its scope ends before the next candidate mutation. Navigation retains
+its own admission and accounting, and later validation starts from the changed
+state. Error order, disclosure tracking and complete response validation remain
+unchanged; no cached result crosses a state change or adoption transaction.
+
+Preparing one host command also borrows one immutable candidate state. Its
+context-source receipts, native stdin materialization and lineage checks share
+that scope's catalogue and successful ancestry checks. The scope ends before
+inserting the command's job marker; each later command starts from its actual
+state. Commands, exact input bytes, qualification bindings and full provenance
+still receive their existing validation and serialization.
+
+Predispatch input validation uses a separate immutable scope for that current
+check. Every context-source and stdin receipt still verifies its representation,
+bytes, digest, bindings and lineage. No catalogue or validation crosses the
+return into dispatch, another check, or a state mutation. Missing or changed
+inputs retain their failure behavior. These scopes reduce repeated local reads;
+they do not cache command authority, execute a command, or establish a result.
+
+Pending observation projection retains the complete provenance expansion already
+checked for that observation in the current immutable state. If host-result
+projection introduces no new exact source references, it returns that checked
+manifest directly. Added references still require expansion of the combined
+sources. Payloads, required qualifications, policies and exact source lists stay
+complete; no manifest is reused across states or later calls.
 
 Lineage expansion collects its final source list from the completed traversal's
-visited set. Ordinary expansion and the warning ancestry projection accumulate
+visited set. The ordinary walker checks duplicate visits using full-reference
+hash membership, then sorts its complete source result once. Equality includes
+the source, revision, representation and byte range; hash collisions still
+compare every field. The traversal stack and first-seen policy order are
+unchanged. Ordinary expansion and the warning ancestry projection accumulate
 policy records in their existing order without repeatedly merging and sorting
 an intermediate source list that would be discarded. Exact lookups, inherited
 sources, qualification edges, warning-specific traversal and missing-lineage
@@ -321,6 +412,15 @@ warning markers still obtain their freshly computed projection. Full expansion
 retains no validation result beyond its call. Corpus, rendering and planning
 timings include this work; they do not isolate its contribution or establish a
 whole-session gain.
+
+Policy merging uses a temporary membership index keyed by source and revision
+to avoid scanning the complete accumulated policy list for every inherited
+record. Records sharing those keys still receive complete equality checks;
+different policy contents remain distinct. Existing entries, including any
+duplicates, and first-seen appended order are preserved. The index is discarded
+after each merge or ancestry walk and is never serialized or used to skip a
+source, warning or binding check. This reduces bookkeeping within provenance
+collection; it does not change supplied context or establish task completion.
 
 Lineage checks that discard the expanded result use the same traversal without
 collecting policy records or a final source vector. This includes per-revision
@@ -341,3 +441,44 @@ the corpus construction; changed state, warnings and bindings receive fresh chec
 in the next construction. File identities, digests, paths, qualifications and
 binding validation remain unchanged. `runtime.build_corpus` includes this work;
 its timing does not establish the effect on an entire session.
+
+Corpus construction reuses successful serialized-byte counts and computed
+revision hashes for the same immutable file-record allocation. A weak reference
+must upgrade to that exact allocation before reuse; a pointer value alone is
+insufficient. Editing through copy-on-write gives the changed record a different
+allocation or dissociates its old weak references. Failed measurements are not
+cached. The cache keeps only small measurement values and weak references, and
+periodically removes dead entries without retaining file bodies or limiting live
+records. Current policy consistency, identifiers, paths, qualifications, duplicate
+records, stored-digest comparisons, bindings, lineage and logical accounting
+still receive their existing checks. These measurements are facts about complete
+immutable values, not remembered permission or corpus eligibility.
+
+Decoded exact file references and scoped policy records share immutable storage
+when their complete values are equal. Hashes locate candidates; full equality
+decides whether they can share. Every occurrence remains present in its original
+collection and order, and serialization retains the same fields and values.
+Changing a shared value first copies it, so an edit cannot change another record
+or an earlier state. Weak pool entries do not keep discarded values alive, and
+periodic cleanup removes only dead entries. This reduces repeated allocations
+when opening or retaining a long history. It does not omit history, cache
+authorization or validation results, or change fresh lineage and policy checks.
+
+The borrowed state decoder distinguishes pooled exposure manifests from their
+complete source-reference and policy entries. Pool validation decodes every
+entry completely and retains its immutable typed value for this decode. A
+resolved entry at an indexed location can then share that exact value without
+repeating its field parsing, allocation, hashing and interning at every use.
+Manifests still traverse every source and policy index. Pool digests, index
+bounds, required fields, unknown fields and unused-entry checks retain their
+existing validation and error order.
+
+The typed handoff lasts for one synchronous deserializer visitor call. Its
+thread-local slot restores any enclosing slot on return, error or unwinding,
+and retains no value afterward. It adds no serialized handles: ordinary JSON
+still takes complete field decoding, including null, numbers and objects that
+resemble an internal type name. Other value types use native JSON decoding of
+the complete entry. Values, collection order, duplicates and serialized form
+remain unchanged, and edits still copy shared values. This changes decoding
+work, not current permission, lineage or policy checks. Its effect is included
+in `state.deserialize_borrowed`, not a separate whole-session latency measurement.

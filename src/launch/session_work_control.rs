@@ -26,7 +26,7 @@ pub fn stop_work(root: &Path, operator: &str, request: &WorkStopRequest) -> Boun
     }
     check(request.operator == operator, BoundaryError::Unauthorized)?;
     text(&request.reason, usize::MAX).map_err(|_| BoundaryError::InvalidRequest)?;
-    let mut app = open(root, operator)?;
+    let mut store = Runtime::inspection_store(root)?;
     let id = record_id("launch-work-stop-v1", &request.id);
     let control = s::RuntimeControl {
         operator: operator.into(),
@@ -37,14 +37,21 @@ pub fn stop_work(root: &Path, operator: &str, request: &WorkStopRequest) -> Boun
             StopAction::Cancel => s::RuntimeControlAction::Canceled,
         },
     };
-    let (recorded, receipt, replayed) = app
-        .store
+    let (recorded, receipt, replayed) = store
         .trusted_host()
-        .commit_keyed_runtime_control(&id, control)
+        .commit_keyed_runtime_control(&id, control, |runtime, launch| {
+            crate::phase_timing::measure("launch.authorize_work_stop", || {
+                let config = crate::runtime::runtime_control_configuration(runtime)?;
+                let saved = decode_saved(launch)?;
+                authorize_cohort(&saved, operator, config.local_recipients.contains(operator), |actor| {
+                    runtime.body["personas"][actor]["created_by"].as_str() == Some(operator)
+                })
+            })
+        })
         .map_err(|error| match error {
             s::StoreError::Conflict(_) => BoundaryError::KeyConflict,
             other => other.into(),
-        })?;
+        })??;
     Ok(
         json!({"id":request.id,"work":request.work,"request":request,
         "control_recorded":recorded.is_some(),"replayed":replayed,"runtime_request":recorded,"receipt":receipt,

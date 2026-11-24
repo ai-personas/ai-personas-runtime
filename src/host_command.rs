@@ -3,6 +3,7 @@
 use crate::store::sha256_bytes;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::ffi::OsString;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
@@ -209,10 +210,22 @@ impl Drop for RunningCommand {
     }
 }
 
-pub(crate) fn environment_sha256() -> String {
-    use std::os::unix::ffi::OsStrExt;
-    let mut environment: Vec<_> = std::env::vars_os().collect();
+/// Snapshot the environment once so the receipt describes the exact command input.
+pub(crate) fn command_environment() -> Vec<(OsString, OsString)> {
+    let mut environment: Vec<_> = std::env::vars_os().filter(|(name, _)| {
+        !matches!(name.to_str(), Some(
+            "PERSONAS_OPENAI_API_KEY" | "PERSONAS_OPENAI_BINDING"
+            | "PERSONAS_OPENROUTER_API_KEY" | "PERSONAS_OPENROUTER_BINDING"
+            | "PERSONAS_ANTHROPIC_API_KEY" | "PERSONAS_ANTHROPIC_BINDING"
+            | "PERSONAS_OPENCODE_API_KEY" | "PERSONAS_OPENCODE_BINDING"
+        ))
+    }).collect();
     environment.sort();
+    environment
+}
+
+pub(crate) fn environment_sha256(environment: &[(OsString, OsString)]) -> String {
+    use std::os::unix::ffi::OsStrExt;
     let mut environment_bytes = Vec::new();
     for (key, value) in environment {
         for part in [key, value] {
@@ -233,6 +246,7 @@ pub fn execute(
     mut observe_stop: impl FnMut() -> Option<serde_json::Value>,
 ) -> Outcome {
     let started = Instant::now();
+    let environment = command_environment();
     let mut outcome = Outcome {
         succeeded: false,
         process_started: false,
@@ -251,7 +265,7 @@ pub fn execute(
             .and_then(|path| file_hash(&path)),
         // SAFETY: geteuid has no arguments or memory access requirements.
         effective_uid: unsafe { libc::geteuid() },
-        inherited_environment_sha256: environment_sha256(),
+        inherited_environment_sha256: environment_sha256(&environment),
         elapsed_milliseconds: 0,
     };
     let run = (|| -> std::io::Result<()> {
@@ -277,6 +291,8 @@ pub fn execute(
             return Ok(());
         }
         let child = Command::new(SHELL)
+            .env_clear()
+            .envs(environment.iter().cloned())
             .arg("-c")
             .arg(&input.command)
             .current_dir(directory)

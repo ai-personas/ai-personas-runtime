@@ -94,6 +94,14 @@ actual accounting class in the same transaction. Exact identities, immutable
 revisions, complete-response validation and execution ownership still preserve
 record consistency.
 
+Within one SQLite transaction, admission, dependency and runtime-control checks
+can share the same fully decoded current object. Staging an object replacement
+invalidates that entry, including an earlier missing-object lookup. The cache
+ends with the transaction; it cannot carry an old head into a later transaction
+or survive a rollback. Complete canonical persistence, exact fingerprints,
+revision checks and accounting remain unchanged. This avoids repeated decoding
+of large state without reducing the evidence checked or the context supplied.
+
 Invocation, intent and reservation histories append every valid lifecycle
 receipt without a fixed event-count cap. Their initial slot counts remain
 accounting estimates. Store reads complete controlling metadata without a fixed
@@ -197,6 +205,14 @@ JSON escapes instead of replacing them with an unknown-character marker;
 native records and the journal retain the original content. Filesystem paths,
 protocol identifiers and authentication fields keep their actual format rules.
 
+For host commands, both `stdin_asset` and `context_sources` require an explicit
+dependency on each same-response supporting save they reference. The save's
+operation ID belongs in the effect's `depends_on`, beside `inputs`, including
+when it supplies context without stdin bytes. The supplied input descriptions
+state this contract. Rejections identify the effect and input field and distinguish
+an absent proposal, a mismatched source, a non-asset save and a missing dependency.
+The runtime does not infer dependencies or repair the authored response.
+
 New host commands retain their complete observed stdout/stderr. The persona's
 required `result_context` choice supplies complete text or execution metadata
 and exact readable text references in the next decision. Either choice preserves
@@ -209,6 +225,15 @@ results, and does not require another work's command to settle before admission.
 Native host-file import reads the complete
 regular UTF-8 file without its former import byte cap. File-corpus byte and
 count quotas are also removed. Historical incomplete captures are not rewritten.
+
+Canceled and uncertain commands can retain a status observation with no recorded
+execution outcome. When both the result and terminal evidence are explicitly
+null, pending and historical recovery projections preserve that status and its
+exact source while honoring the chosen command-input context. They report that
+no outcome was recorded, without inventing output, an exit status or a terminal
+receipt. Consuming the observation does not retry the command. Missing outcomes
+for other states and malformed output captures return a projection error rather
+than being treated as empty captures or allowed to panic.
 
 Store archive reads have no fixed inventory count, exact-ID count or aggregate
 body-byte ceiling. Accounting records the inspected proof/archive bytes and keys
@@ -384,6 +409,113 @@ The capacity view reports null maxima and quota enforcement off. These legacy
 allocation operations are not prerequisites for ordinary execution, and they
 preserve existing consumption and immutable data.
 
+Runtime state shares identical source references and scoped policies within its
+retained provenance manifests. Version 3 stores each distinct typed entry once
+and uses indexes inside those manifests. Decoding validates the tables, manifest
+digests and every index before resolving them. Source identities, reference order,
+policy contents and native file bytes are unchanged. Authored JSON is never
+interpreted as a storage index. Earlier immutable snapshots retain their recorded
+encoding. This reduces repeated storage and processing; it removes no history,
+selects no persona context and establishes no improvement in work quality.
+
+During one state save, the encoder captures typed exposure manifests and reuses
+the complete canonical JSON of their shared source references and policies.
+Only the existing versioned field inventory selects storage references. If a
+captured value falls outside that inventory, its entire field is serialized
+normally before packing. Manifest identities, table order and complete saved
+bytes retain the existing encoding. Strong ownership prevents allocation reuse
+within the save, and copying on edit preserves earlier captured values. The
+temporary cache ends with the save; it performs no current-authority lookup.
+Nested state encoding, errors and unwinding restore the enclosing serialization
+scope. Ordinary exposure serialization and independently retained record bytes
+remain expanded.
+
+Sources, observations and messages use independently encoded retained records
+inside the runtime head. Each encoding identifies the complete typed JSON by
+kind, original byte length and SHA-256, with ordered indexes into shared byte
+chunks. Content-based boundaries allow identical historical material in different
+records to share bytes. The chunks use base64; immutable revision compression
+can still exploit repetition across their contents. Block sizes control this
+encoding only and impose no record, file, history or work limit. Decoding checks
+every index, actual reconstructed length, digest and typed content. A declared
+length is never used as an allocation request. Duplicate, missing, malformed or
+unused chunks fail the read. These encodings are storage details; native reads
+and persona contexts still receive the original contents.
+Inline typed records remain readable, including the public record-map form and
+existing snapshots. Older immutable revisions are not rewritten.
+
+During one retained-record load, identical complete reference and scoped-policy
+JSON can reuse a value already decoded in that load. The lookup compares the
+entire encoded value, and only the corresponding typed visitor can receive it.
+The enclosing record's chunk, length and digest checks still happen first.
+Ordering, duplicates and arbitrary authored JSON keep their original meaning.
+An unsuccessful accelerated decode is repeated through the ordinary decoder to
+retain its complete result and original error location. The temporary lookup
+table drops when the load ends; it supplies no current-state or authority cache.
+
+The application JSON parser uses an immutable upstream `serde_json` revision,
+separate from the equally version-pinned registry parser used for raw values.
+This keeps raw-value support required by the storage reader and optional 3D
+viewer from changing how application `Value` interprets an authored object
+with the reserved raw-value marker. Provider inputs, native JSON values and
+ordinary serialization use the application parser without that feature in both
+core and desktop builds. Schema-only annotations retain the original arbitrary
+JSON input schema; they do not select the runtime parser.
+
+Snapshots share these records until mutable access copies the affected record
+and invalidates its saved encoding. A running Runtime or persistent desktop
+reader can reuse a verified decode only when the next freshly read head contains
+exactly the same ordered encoded
+bytes and header. Chunk indexes can change between snapshots; matching an index,
+record ID or digest alone is insufficient. Changed records
+are decoded again; missing, malformed or mismatched records fail the read.
+The cache retains only records in its latest successfully decoded state, and
+provides neither mutation authority nor an alternative current-head lookup.
+
+Final result views produced by a running Runtime use its existing retained-record
+cache. Each view still reads complete current runtime and launch heads in a fresh
+transaction, decodes changing fields, and validates the current configuration,
+format, intake state, operator binding and result evidence. This avoids decoding
+unchanged history from scratch again during shutdown. Returned result content
+and navigation accounting remain complete; an earlier view grants no authority
+for a later action.
+
+Invocation ownership guards similarly reuse decoded lifecycle metadata only
+after a fresh read fingerprints the complete current record bytes. Each Store
+connection keeps the verified SHA-256, state and canonical returned-byte count,
+without retaining the request body. Changed records receive full typed decoding
+again. Current cell integrity, ownership and navigation accounting remain checked
+on every pass; caching does not authorize a previously owned invocation or reuse
+a rolled-back state without matching the next transaction's actual bytes.
+
+Every remaining typed provenance manifest uses the shared reference tables,
+including manifests that appear only once: different manifests can contain the
+same large sets of source references. A cold process still loads the retained
+record collection, and current-state rendering still performs its normal checks.
+This storage optimization does not select context, summarize history, revise an
+artifact, reset usage, or establish useful autonomous work.
+
+Large immutable Store revisions retain a complete ordered manifest of shared
+physical chunks. Content-based boundaries let adjacent snapshots reuse unchanged
+bytes, and each chunk is independently compressed only when that saves space.
+A manifest identifies the full canonical revision by byte length and SHA-256;
+each descriptor separately binds a chunk's bytes and length. Reading a revision
+checks every chunk and the fully reconstructed bytes before decoding the object.
+It never follows a chain of earlier revisions. Small revisions keep independent
+compression, and current heads and control records remain ordinary JSON.
+
+Chunks, revision manifests, heads and accounting commit in the same SQLite
+transaction. Stored chunks cannot be updated or deleted; a missing, damaged or
+conflicting chunk fails the read or write. A failed transaction retains none of
+its new chunks. Logical retained-byte and navigation accounting still measure
+complete canonical records, while physical footprint inspection includes the
+shared chunk table and its SQLite pages. Chunk sizes and encoding thresholds
+choose a storage representation; they impose no work or history limit.
+Existing plain and independently compressed revisions remain their original
+immutable bytes. They are not rewritten or reclaimed. The first chunked snapshot
+can cost more than an independently compressed snapshot; savings depend on reuse
+across subsequent revisions and require measurement.
+
 The selected Codex authentication route has no application startup, I/O or
 acquisition timer; JSON-RPC frame, notification and stderr quotas are removed.
 Credential parsing has no token, decoded-payload or account-ID byte limit. The
@@ -552,7 +684,8 @@ its work scan. Participant checks and the chosen call's exclusivity requirement
 reuse that snapshot. The accumulated cursor update binds its exact runtime head;
 an intervening state change rejects the update, and provider preparation still
 validates current state independently. Retained history is neither omitted nor
-truncated to reduce processing. No snapshot cache survives the pass.
+truncated to reduce processing. This scan snapshot does not survive the pass;
+the Runtime's retained-record cache still validates against each newly read head.
 `last_foreground_scan` retains the exact basis and chosen candidate, while the
 scheduler's `last` entries cover the complete committed pass. Selection itself
 does not establish admission, model execution or responsibility acceptance.

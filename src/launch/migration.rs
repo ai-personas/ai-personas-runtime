@@ -32,6 +32,19 @@ pub struct ProviderMigrationRequest {
     pub expected_launch: s::ObjectRef,
     pub expected_persona_bindings: BTreeMap<String, PersonaBinding>,
     pub provider: DirectProviderSettings,
+    /// Change the credential route while retaining each persona's current model
+    /// and reasoning effort, for example an authorized API-key to OAuth switch.
+    #[serde(default)]
+    pub preserve_persona_models: bool,
+    /// When retaining models, optionally choose one reasoning effort for the
+    /// cohort without replacing its individual model assignments.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persona_effort_override: Option<String>,
+    /// Explicit recovery of an earlier migration that left episode bindings on
+    /// its prior launch. Both current heads must still equal that receipt's
+    /// exact targets; no intervening work or unrelated stale grant is repaired.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repair_episode_bindings_from: Option<String>,
     #[serde(default)]
     pub allow_direct_provider: bool,
     #[serde(default)]
@@ -73,6 +86,14 @@ pub struct ProviderMigrationReceipt {
     pub target_profile: String,
     pub target_model: String,
     pub target_effort: String,
+    #[serde(default)]
+    pub preserve_persona_models: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persona_effort_override: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repair_episode_bindings_from: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub carried_intake_episodes: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -110,10 +131,7 @@ fn reference(reference: &s::ObjectRef, id: &str) -> Result<()> {
 }
 
 fn binding_bounds(bindings: &BTreeMap<String, PersonaBinding>) -> Result<()> {
-    require(
-        !bindings.is_empty(),
-        "migration requires persona bindings",
-    )?;
+    require(!bindings.is_empty(), "migration requires persona bindings")?;
     for (id, binding) in bindings {
         identity(id)?;
         identity(&binding.requested_model)?;
@@ -122,16 +140,29 @@ fn binding_bounds(bindings: &BTreeMap<String, PersonaBinding>) -> Result<()> {
     Ok(())
 }
 
+fn effort_override(preserve_models: bool, effort: &Option<String>) -> Result<()> {
+    if let Some(effort) = effort {
+        require(preserve_models, "a persona effort override requires retaining persona models")?;
+        identity(effort)?;
+    }
+    Ok(())
+}
+
 // Run before any Store read, including an idempotency lookup. Typed maps and sets have
 // deterministic order; incoming JSON formatting is not part of request identity.
 fn validate_request(request: &ProviderMigrationRequest, now: i64) -> Result<String> {
     migration_id(&request.id)?;
+    if let Some(id) = &request.repair_episode_bindings_from {
+        migration_id(id)?;
+        require(id != &request.id, "a migration cannot repair itself")?;
+    }
     identity(&request.operator)?;
     text(&request.reason, 4096)?;
     identity(&request.authorized_destination)?;
     reference(&request.expected_runtime, STATE_ID)?;
     reference(&request.expected_launch, ID)?;
     binding_bounds(&request.expected_persona_bindings)?;
+    effort_override(request.preserve_persona_models, &request.persona_effort_override)?;
     require(now >= 0, "negative migration time")?;
 
     request.provider.validate()?;
@@ -142,8 +173,7 @@ fn cohort(saved: &Saved) -> Result<Vec<String>> {
     identity(&saved.operator)?;
     identity(&saved.setup.destination)?;
     require(
-        saved.setup.cohort > 0
-            && (1..=saved.setup.cohort).contains(&saved.setup.owner),
+        saved.setup.cohort > 0 && (1..=saved.setup.cohort).contains(&saved.setup.owner),
         "invalid saved cohort or sharing authorization",
     )?;
     let ids = people(saved.setup.cohort);
@@ -201,12 +231,53 @@ pub fn migration_snapshot(app: &mut Runtime) -> Result<MigrationSnapshot> {
     })
 }
 
+/// Explicit local cleanup before taking migration heads. Only failed calls with
+/// an observed stop are candidates; exact terminal evidence and absence of any
+/// adopted action are checked by the ordinary retirement path. This does not
+/// resume work, start inference, replay effects, or settle unknown remote usage.
+pub fn retire_stopped_invocations(app: &mut Runtime, operator: &str, now: i64) -> Result<Vec<String>> {
+    let (_, saved) = load(app)?;
+    require(saved.operator == operator, "saved operator mismatch")?;
+    require(now >= 0, "negative retirement time")?;
+    let _owner = app.store.acquire_execution_owner()?;
+    let (head, state) = app.load()?;
+    let mut retired = Vec::new();
+    for id in active_invocations(&state).into_values() {
+        let invocation = app.invocation(&id)?;
+        if invocation.state != s::InvocationState::Failed { continue; }
+        let prepared = decode_prepared(&invocation)?;
+        if provider_calls::state_stop(&state, head.revision,
+            prepared.runtime_control_event_cursor.unwrap_or(state.operator_events.len()),
+            &prepared.request)?.is_some()
+            && app.retire_rejected_continuation(&id, now)?
+        {
+            retired.push(id);
+        }
+    }
+    Ok(retired)
+}
+
 fn validate_receipt(receipt: &ProviderMigrationReceipt) -> Result<()> {
     require(
         receipt.version == RECEIPT_VERSION,
         "unsupported migration receipt version",
     )?;
     migration_id(&receipt.id)?;
+    if let Some(id) = &receipt.repair_episode_bindings_from {
+        migration_id(id)?;
+    }
+    for id in &receipt.carried_intake_episodes {
+        identity(id)?;
+    }
+    require(
+        receipt
+            .carried_intake_episodes
+            .iter()
+            .collect::<BTreeSet<_>>()
+            .len()
+            == receipt.carried_intake_episodes.len(),
+        "duplicate carried episode",
+    )?;
     identity(&receipt.operator)?;
     text(&receipt.reason, 4096)?;
     identity(&receipt.authorized_destination)?;
@@ -234,6 +305,7 @@ fn validate_receipt(receipt: &ProviderMigrationReceipt) -> Result<()> {
     )?;
     binding_bounds(&receipt.before_bindings)?;
     binding_bounds(&receipt.after_bindings)?;
+    effort_override(receipt.preserve_persona_models, &receipt.persona_effort_override)?;
     require(
         receipt
             .before_bindings
@@ -243,11 +315,16 @@ fn validate_receipt(receipt: &ProviderMigrationReceipt) -> Result<()> {
     )?;
     for (id, before) in &receipt.before_bindings {
         let after = &receipt.after_bindings[id];
+        let (model, effort) = if receipt.preserve_persona_models {
+            (&before.requested_model, receipt.persona_effort_override.as_ref().unwrap_or(&before.requested_effort))
+        } else {
+            (&receipt.target_model, &receipt.target_effort)
+        };
         require(
             after.owner_epoch == increment(before.owner_epoch)?
                 && after.model_confirmed
-                && after.requested_model == receipt.target_model
-                && after.requested_effort == receipt.target_effort,
+                && &after.requested_model == model
+                && &after.requested_effort == effort,
             "invalid migration receipt binding transition",
         )?;
     }
@@ -289,7 +366,10 @@ fn replay(
             && receipt.new_provider_sha256 == digest(&serde_json::to_value(&request.provider)?)?
             && receipt.target_mode == request.provider.mode
             && receipt.target_model == request.provider.model
-            && receipt.target_effort == request.provider.effort,
+            && receipt.target_effort == request.provider.effort
+            && receipt.preserve_persona_models == request.preserve_persona_models
+            && receipt.persona_effort_override == request.persona_effort_override
+            && receipt.repair_episode_bindings_from == request.repair_episode_bindings_from,
         "migration receipt request binding is inconsistent",
     )?;
     Ok(Some(receipt))
@@ -333,8 +413,41 @@ fn plan(
         "complete saved cohort bindings changed",
     )?;
 
-
     let old_provider_sha256 = digest(&saved.setup.provider)?;
+    let previous_episode_binding = intake_delegation::episode_launch_binding(&saved)?;
+    let repair = if let Some(id) = &request.repair_episode_bindings_from {
+        let object = app
+            .store
+            .read(&receipt_id(id))?
+            .ok_or_else(|| held("provider migration repair receipt absent"))?;
+        require(
+            object.id == receipt_id(id) && object.kind == RECEIPT_KIND && object.revision == 1,
+            "provider migration repair receipt record changed",
+        )?;
+        let receipt: ProviderMigrationReceipt = serde_json::from_value(object.body)?;
+        validate_receipt(&receipt)?;
+        require(
+            receipt.id == *id
+                && receipt.operator == request.operator
+                && receipt.target_runtime == runtime_head.exact_ref()?
+                && receipt.target_launch == launch_head.exact_ref()?,
+            "provider migration repair requires the unchanged exact target heads",
+        )?;
+        let prior_launch = app.store.read_exact(&receipt.prior_launch)?;
+        let prior_runtime = app.store.read_exact(&receipt.prior_runtime)?;
+        let prior_saved = decode_saved(&prior_launch)?;
+        require(
+            prior_saved.operator == saved.operator
+                && prior_saved.setup.destination == saved.setup.destination,
+            "provider migration repair authority changed",
+        )?;
+        Some((
+            intake_delegation::episode_launch_binding(&prior_saved)?,
+            prior_runtime,
+        ))
+    } else {
+        None
+    };
     let provider_value = serde_json::to_value(&request.provider)?;
     let new_provider_sha256 = digest(&provider_value)?;
 
@@ -358,14 +471,22 @@ fn plan(
             "saved cohort static seed metadata changed",
         )?;
         persona.owner_epoch = increment(persona.owner_epoch)?;
-        persona.seed.requested_model = request.provider.model.clone();
-        persona.seed.requested_effort = request.provider.effort.clone();
+        if !request.preserve_persona_models {
+            persona.seed.requested_model = request.provider.model.clone();
+            persona.seed.requested_effort = request.provider.effort.clone();
+        } else if let Some(effort) = &request.persona_effort_override {
+            persona.seed.requested_effort = effort.clone();
+        }
         persona.seed.model_confirmed = true;
+        // Attribute later calls to the explicitly selected provider. Retained
+        // source revisions keep their original destination attribution.
+        persona.seed.destination = request.provider.mode.destination().into();
         let body = &mut runtime.body["personas"][id.as_str()];
         body["owner_epoch"] = json!(persona.owner_epoch);
         body["seed"]["requested_model"] = json!(persona.seed.requested_model);
         body["seed"]["requested_effort"] = json!(persona.seed.requested_effort);
         body["seed"]["model_confirmed"] = json!(true);
+        body["seed"]["destination"] = json!(persona.seed.destination);
     }
     runtime.body["config"]["allow_direct_provider"] = json!(true);
     runtime.body["operator_events"]
@@ -380,11 +501,48 @@ fn plan(
     saved.direct_provider_opt_in = Some(true);
     saved.research_opt_in = None;
     saved.setup.provider = provider_value.clone();
-    // This explicit migration selects one target for the entire cohort.
-    // Remove per-persona overrides so later dispatch matches those new bindings.
-    for seed in saved.setup.persona_seeds.values_mut() {
-        seed.model = None;
-        seed.effort = None;
+    saved.setup.destination = request.provider.mode.destination().into();
+    // Every later dispatch must use the selected credential route, including
+    // personas that previously had their own provider override. Model choices
+    // remain explicit when the operator requests a route-only switch.
+    require(saved.setup.persona_seeds.keys().all(|id| before.contains_key(id)),
+        "saved persona seed is outside the migration cohort")?;
+    for id in &ids {
+        let current = &state.personas[id].seed;
+        let seed = saved.setup.persona_seeds.entry(id.clone()).or_insert_with(|| PersonaSeed {
+            label: current.label.clone(), text: current.text.clone(), provenance: current.provenance.clone(),
+            model: None, effort: None, provider: None,
+        });
+        seed.model = request.preserve_persona_models.then(|| current.requested_model.clone());
+        seed.effort = request.preserve_persona_models.then(|| current.requested_effort.clone());
+        seed.provider = None;
+    }
+    // The exact current delegation source and admitted children remain intact.
+    // Carry their launch fingerprint through this authorized configuration
+    // change, as other launch changes do. Unknown stale episodes stay stale.
+    let next_episode_binding = intake_delegation::episode_launch_binding(&saved)?;
+    let mut carried_intake_episodes = Vec::new();
+    for (id, episode) in &state.intake_episodes {
+        let current = episode.launch_binding_sha256 == previous_episode_binding;
+        let repairable = repair.as_ref().is_some_and(|(binding, prior)| {
+            &episode.launch_binding_sha256 == binding
+                && prior.body["intake_episodes"].get(id).is_some()
+                && prior.body["intake_episodes"][id] == runtime_head.body["intake_episodes"][id]
+        });
+        if (current || repairable) && episode.launch_binding_sha256 != next_episode_binding {
+            runtime.body["intake_episodes"][id]["launch_binding_sha256"] =
+                json!(next_episode_binding);
+            carried_intake_episodes.push(id.clone());
+        }
+    }
+    let event = runtime.body["operator_events"]
+        .as_array_mut()
+        .unwrap()
+        .last_mut()
+        .unwrap();
+    event["carried_intake_episodes"] = json!(carried_intake_episodes);
+    if let Some(id) = &request.repair_episode_bindings_from {
+        event["repair_episode_bindings_from"] = json!(id);
     }
     let mut launch = launch_head.clone();
     launch.revision = increment(launch.revision)?;
@@ -396,6 +554,7 @@ fn plan(
         .ok_or_else(|| held("invalid launch body"))?
         .remove("research_opt_in");
     launch.body["setup"]["provider"] = provider_value;
+    launch.body["setup"]["destination"] = json!(saved.setup.destination);
     launch.body["setup"]["persona_seeds"] = serde_json::to_value(&saved.setup.persona_seeds)?;
 
     // Exact, nonmutating equivalent of ensure_cohort's existing-persona branch.
@@ -427,6 +586,10 @@ fn plan(
         target_profile: request.provider.mode.profile().into(),
         target_model: request.provider.model.clone(),
         target_effort: request.provider.effort.clone(),
+        preserve_persona_models: request.preserve_persona_models,
+        persona_effort_override: request.persona_effort_override.clone(),
+        repair_episode_bindings_from: request.repair_episode_bindings_from.clone(),
+        carried_intake_episodes,
     };
     validate_receipt(&receipt)?;
     let changes = vec![

@@ -115,22 +115,33 @@ fn project_result(
         )?);
     }
     let mut supplied_text = if supply_inputs { fields.clone() } else { Vec::new() };
-    for stream in ["stdout", "stderr"] {
-        let segments = payload["result"][stream]["segments"]
-            .as_array_mut()
-            .ok_or_else(|| invalid("pending host capture segments missing"))?;
-        for (index, segment) in segments.iter_mut().enumerate() {
-            let reference = reference_text(
-                segment,
-                "text",
-                &reference,
-                format!("/result/{stream}/segments/{index}/text"),
-                supply_outputs,
-            )?;
-            if supply_outputs {
-                supplied_text.push(reference.clone());
+    // Cancellation before dispatch and uncertain execution both retain a
+    // status observation without an execution outcome. Such observations have
+    // no output segments to project. Missing or malformed completed outcomes
+    // still fail below; null is not a substitute for a captured result.
+    let without_outcome = payload.get("result") == Some(&Value::Null)
+        && payload.get("terminal_evidence") == Some(&Value::Null)
+        && matches!(payload["state"].as_str(), Some("Canceled" | "Uncertain"));
+    if !without_outcome {
+        for stream in ["stdout", "stderr"] {
+            let segments = payload.get_mut("result")
+                .and_then(|result| result.get_mut(stream))
+                .and_then(|capture| capture.get_mut("segments"))
+                .and_then(Value::as_array_mut)
+                .ok_or_else(|| invalid("pending host capture segments missing"))?;
+            for (index, segment) in segments.iter_mut().enumerate() {
+                let reference = reference_text(
+                    segment,
+                    "text",
+                    &reference,
+                    format!("/result/{stream}/segments/{index}/text"),
+                    supply_outputs,
+                )?;
+                if supply_outputs {
+                    supplied_text.push(reference.clone());
+                }
+                fields.push(reference);
             }
-            fields.push(reference);
         }
     }
     references.extend(fields.iter().cloned());
@@ -145,7 +156,7 @@ fn project_result(
         ),
         (ResultContext::Output, false) => (
             "host-command-pending-output-v1",
-            "The primary chose captured stdout and stderr text with execution metadata, without repeating command or literal stdin bodies. Output segments have exact decoded-string references, byte counts, hashes and supplied=true; command and literal stdin have the same metadata with supplied=false. All captured text remains retained and readable through exact references. Asset stdin remains an exact input receipt. Raw offsets, digests, lossy_utf8 and capture completeness describe the original observation. This choice supplies no omitted command body, selects no later context and repeats no command. The whole result reference names a separate retained document, not a body supplied by this projection.",
+            "The primary chose captured stdout and stderr text with execution metadata. The producing command and literal stdin script are NOT supplied by this projection, and the preceding response is not automatically conversation history. If the output does not identify a path, argument or code fragment needed now, read its exact input reference or select that field; do not reconstruct it from a guess. Output segments have exact decoded-string references, byte counts, hashes and supplied=true; command and literal stdin have the same metadata with supplied=false. All captured text remains retained and readable through exact references. Asset stdin remains an exact input receipt. Raw offsets, digests, lossy_utf8 and capture completeness describe the original observation. This choice supplies no omitted command body, selects no later context and repeats no command. The whole result reference names a separate retained document, not a body supplied by this projection.",
         ),
         (ResultContext::Reference, false) => (
                 "host-command-pending-reference-v2",
@@ -161,6 +172,12 @@ fn project_result(
             "automatically_selected_for_later":false,"retain_with":"next_assets"},
         "meaning":meaning
     });
+    if without_outcome {
+        payload["context_projection"]["execution_outcome"] = json!({
+            "recorded":false,
+            "meaning":"No command outcome, exit status or stdout/stderr capture was recorded. The original canceled or uncertain state and null terminal evidence are preserved. Reading or consuming this observation does not retry the command."
+        });
+    }
     if let Some(pending) = recovery {
         payload["context_projection"]["provider_rejection"] = json!({
             "invocation":pending.invocation,"terminal":pending.terminal,

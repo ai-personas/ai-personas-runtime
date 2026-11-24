@@ -78,6 +78,7 @@ pub(crate) fn specimen(id: &str) -> Result<String, Failure> {
     use crate::protocol as p;
     let reason = "Isolated host transport fixture; no persona work or maintenance.".to_owned();
     let decision = p::Decision {
+        retired_working_state: None,
         version: p::PROTOCOL_VERSION,
         invocation_id: format!("siwc-probe-{id}"),
         epoch: 0,
@@ -132,6 +133,7 @@ pub(crate) fn request(
         &[],
         None,
         &schema,
+        None,
     )?)
 }
 

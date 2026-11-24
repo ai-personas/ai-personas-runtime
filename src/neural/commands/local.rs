@@ -266,9 +266,10 @@ pub(crate) fn run(
     let stdout = tempfile::tempfile()?;
     let stderr = tempfile::tempfile()?;
     let started = now();
+    let environment = crate::host_command::command_environment();
     let mut host = json!({"os":std::env::consts::OS,"arch":std::env::consts::ARCH,
         "effective_uid":unsafe { libc::geteuid() },"working_directory":project,"directory_mode":input.directory,
-        "inherited_environment_sha256":crate::host_command::environment_sha256()});
+        "inherited_environment_sha256":crate::host_command::environment_sha256(&environment)});
     let launcher = std::env::var_os("AI_PERSONAS_LOCAL_LAUNCHER").map(PathBuf::from);
     if let Some(path) = &launcher {
         host["launcher"] = json!({"path":path.to_string_lossy()});
@@ -307,6 +308,8 @@ pub(crate) fn run(
             return Err(failure("Stopped before launch"));
         }
         let mut child = launch_command(&path, launcher.as_deref(), &mut host)?
+            .env_clear()
+            .envs(environment.iter().cloned())
             .args(&input.arguments)
             .current_dir(project)
             .stdin(stdin)

@@ -32,6 +32,7 @@ pub struct Render {
     pub companions: Vec<String>,
     /// Overrides for named OpenSCAD variables. Values may be strings, finite numbers, booleans or vectors of these literals.
     #[serde(default)]
+    #[schemars(with = "BTreeMap<String, serde_json_raw::Value>")]
     pub parameters: BTreeMap<String, Value>,
 }
 
