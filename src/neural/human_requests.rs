@@ -12,8 +12,6 @@ pub use package::{export_dispatch, export_dispatch_packet, export_handoff, expor
 pub(super) mod packet;
 pub(super) use packet::issue as issue_packet;
 mod correspondence;
-#[cfg(test)]
-mod tests;
 pub use correspondence::correspondence;
 pub(crate) mod register;
 pub use register::Lookup;

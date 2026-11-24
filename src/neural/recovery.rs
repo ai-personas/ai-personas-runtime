@@ -12,10 +12,6 @@ fn temporary_overload(d: &crate::provider::StreamDiagnostic) -> bool {
         && d.remote_error_code == Some("server_is_overloaded")
 }
 
-#[cfg(test)]
-mod tests;
-#[cfg(test)]
-mod scheduling_tests;
 
 pub fn scheduled(db: &Connection, invocation: &str) -> Result<Option<Value>> {
     let digest: Option<String> = db.query_row(

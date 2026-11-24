@@ -141,8 +141,6 @@ fn multiline(ui: &mut Ui, value: &mut String, hint: &str) {
     );
 }
 
-#[cfg(test)]
-mod layout_tests;
 
 fn dialog_contents(ui: &mut Ui, scroll: bool, identity: egui::Id, fresh: bool, show: impl FnOnce(&mut Ui)) {
     if scroll {

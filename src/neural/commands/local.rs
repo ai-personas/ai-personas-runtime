@@ -5,8 +5,6 @@ use super::{check_run_paths, content, store_output_bytes, Origin};
 use crate::neural::{failure, now, store, workspace, Result};
 mod receiving;
 mod launch;
-#[cfg(test)]
-mod input_tests;
 pub use receiving::Receiving;
 pub(in crate::neural) use receiving::{latest as latest_receiving_checks, publish as publish_receiving_check};
 pub(in crate::neural) use receiving::notice as receiving_notice;

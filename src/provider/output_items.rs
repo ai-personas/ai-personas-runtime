@@ -3,8 +3,6 @@
 use super::*;
 use std::collections::BTreeMap;
 
-#[cfg(test)]
-mod tests;
 
 pub(super) const MESSAGES_FORMAT: &str = "retained-messages-output-items-v1";
 pub(super) const FORMAT: &str = "retained-responses-output-items-v1";

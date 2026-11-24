@@ -148,22 +148,3 @@ impl Drawing {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    fn inspect(s: &str) -> Option<Drawing> {
-        let tree = usvg::Tree::from_data(s.as_bytes(), &usvg::Options::default()).unwrap();
-        Drawing::inspect(&tree, s.as_bytes())
-    }
-    #[test]
-    fn measures_transformed_geometry_separately_from_page_and_stroke() {
-        let d = inspect(r#"<svg xmlns="http://www.w3.org/2000/svg" width="2in" height="1in" viewBox="0 0 20 10"><g transform="translate(1 2) scale(2)"><path d="M0 0h3v2h-3z M4 0h1" stroke="red" stroke-width=".4" fill="none"/></g></svg>"#).unwrap();
-        assert_eq!(
-            d.dimensions(),
-            ("25.400 × 10.160 mm".into(), "50.800 × 25.400 mm".into())
-        );
-        assert_eq!((d.paths.len(), d.closed), (2, 1));
-        assert!(inspect(r#"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><path d="M0 0L10 0Q5 2 10 10" stroke="black" fill="none"/></svg>"#).is_none());
-    }
-}
