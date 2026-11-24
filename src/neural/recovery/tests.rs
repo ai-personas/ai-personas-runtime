@@ -1,6 +1,6 @@
 use super::*;
 
-fn observed_overload() -> crate::provider::StreamDiagnostic {
+pub(super) fn observed_overload() -> crate::provider::StreamDiagnostic {
     crate::provider::StreamDiagnostic {
         stage:"event",event_index:Some(4),event_type:Some("error"),event_type_sha256:None,
         remote_error_type:Some("service_unavailable_error"),

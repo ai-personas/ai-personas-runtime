@@ -14,6 +14,8 @@ fn temporary_overload(d: &crate::provider::StreamDiagnostic) -> bool {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod scheduling_tests;
 
 pub fn scheduled(db: &Connection, invocation: &str) -> Result<Option<Value>> {
     let digest: Option<String> = db.query_row(
