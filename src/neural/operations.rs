@@ -379,6 +379,7 @@ fn internal(
             }
             Ok(json!({"total":matches.len(),"items":matches.into_iter().skip(query.offset).take(query.page_size).collect::<Vec<_>>()}))
         }
+        "work.briefs" => Ok(serde_json::to_value(super::briefs::search(db, actor, &decode(input)?)?)?),
         "experience.search" => super::experience::search(db, actor, &decode(input)?),
         "history.search" => {
             let query: tools::Search = decode(input)?;
@@ -1057,7 +1058,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
             resolve_operation(&mut op,&aliases)?;
             if part.departure.is_some(){return Err(failure("work.leave ends your operations in this activity; issue it last and stop"));}
             if persona.model.is_none()&&!matches!(op.tool.as_str(),"persona.initialize"|"persona.read"|"tools.search"|"tools.describe"|"asset.read") {return Err(failure("initialize and activate your character before accepting or doing work"));}
-            if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"human.requests"|"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.list"|"asset.search"|"asset.history"|"asset.deliveries"|"asset.find"|"history.search"|"experience.search"|"relationship.contacts"|"relationship.history"|"persona.revision_uses"|"persona.paths"|"persona.replay_input"|"peer.message"|"work.requests"|"work.sources"|"work.agreements"|"result.prior_checks") {return Err(failure("accept your invitation before ordinary work"));}
+            if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"human.requests"|"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.list"|"asset.search"|"asset.history"|"asset.deliveries"|"asset.find"|"history.search"|"experience.search"|"relationship.contacts"|"relationship.history"|"persona.revision_uses"|"persona.paths"|"persona.replay_input"|"peer.message"|"work.briefs"|"work.requests"|"work.sources"|"work.agreements"|"result.prior_checks") {return Err(failure("accept your invitation before ordinary work"));}
             if part.declined{return Err(failure("declined participation cannot perform operations"));}
             if tools::is_external(&op.tool) {
                 validate_external(db,&persona,&op)?;

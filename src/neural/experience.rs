@@ -265,7 +265,7 @@ pub(super) fn availability(db: &Connection, actor: &str, work: &str) -> Result<V
         .optional()?;
     let mut available = json!({"other_invited_tasks":tasks,"other_social_invitations":conversations,
         "latest_feedback_elsewhere":feedback.map(|r|r.metadata()),
-        "discovery":"experience.search finds your earlier choices and exchanges. Select an exact experience to inspect it. Other activities have their own briefs."});
+        "discovery":"experience.search finds your earlier choices and exchanges; work.briefs searches the wording of requests and amendments you received. Select exact records to read them. Other briefs are not current instructions."});
     if let Some(report) = super::asset_feedback::latest_received(db, actor, work)? {
         available["latest_resource_feedback_elsewhere"] = report;
     }

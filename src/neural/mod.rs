@@ -30,6 +30,7 @@ mod experience;
 mod handoff;
 pub mod human_requests;
 pub mod input_files;
+pub mod briefs;
 pub mod intake;
 pub mod membership;
 pub mod agreements;

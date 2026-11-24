@@ -1,5 +1,7 @@
 use super::*;
+mod briefs;
 mod files;
+pub(super) use briefs::ReceivedBriefs;
 mod work;
 pub(super) use files::AuthoredFiles;
 
@@ -8,6 +10,7 @@ pub(super) enum ProfileView {
     #[default]
     Overview,
     Packages,
+    Briefs,
     Files,
     Connections,
     Requests,
@@ -137,6 +140,7 @@ impl App {
         ui.add_space(8.);
         let tabs = [
             (ProfileView::Overview, "Overview".to_owned()),
+            (ProfileView::Briefs, "Received briefs".to_owned()),
             (
                 ProfileView::Packages,
                 format!("Delivered packages  {packages}"),
@@ -190,6 +194,12 @@ impl App {
                     for delivery in self.delivered_packages(|body| body["owner"] == id) {
                         self.delivery_card(ui, &delivery);
                         ui.add_space(8.);
+                    }
+                }
+                ProfileView::Briefs => {
+                    let name = self.label(id).to_owned();
+                    if let Some(decision) = self.profile_briefs.show(ui, &self.root, id, &name) {
+                        self.open_choice_or_record(ui.ctx(), decision);
                     }
                 }
                 ProfileView::Connections => self.show_relationships(ui),

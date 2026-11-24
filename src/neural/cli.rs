@@ -330,6 +330,8 @@ pub enum Command {
     RequestHistory { work:String, #[command(flatten)] #[serde(flatten)] query:super::activity_requests::Query },
     /// Trace full-file receiving checks on exact revisions before they were reissued.
     PriorFileChecks { #[arg(long)] persona:Option<String>, #[command(flatten)] #[serde(flatten)] query:super::activity_sources::PriorChecks },
+    /// Search the requests and amendments actually supplied to this persona in accepted decisions.
+    ReceivedBriefs { persona:String, #[command(flatten)] #[serde(flatten)] query:super::briefs::Query },
     /// Find exact lifetime records visible to a persona, optionally filtering by work, author and kind.
     ExperienceSearch {
         persona: String,
@@ -554,6 +556,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
         Command::QuestionHistory{reference}=>super::question_history::inspect(&store::open_inspection(root)?,&reference),
         Command::MessageReceipt{event}=>super::live::message_receipt(&store::open_inspection(root)?,event),
         Command::Find(query)=>super::discovery::find(&store::open_inspection(root)?,None,&query),
+        Command::ReceivedBriefs{persona,query}=>Ok(serde_json::to_value(super::briefs::search(&store::open_inspection(root)?,&persona,&query)?)?),
         Command::ExperienceSearch{persona,search}=>super::experience::search(&store::open_inspection(root)?,&persona,&search),
         Command::RecallChoice{persona,decision,event}=>super::experience::recall::read(&store::open_inspection(root)?,&persona,&decision,&event),
         Command::IntakeHistory{work,page}=>super::intake::inspect(&store::open_inspection(root)?,&work,&page),
