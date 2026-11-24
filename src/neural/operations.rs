@@ -434,7 +434,7 @@ fn internal(
             super::asset_history::deliveries(db, &query.reference, query.offset, query.page_size)
         }
         "asset.search" => super::discovery::catalog(db,&decode(input)?),
-        "asset.find" => super::discovery::find(db,&decode(input)?),
+        "asset.find" => super::discovery::find(db,Some(actor),&decode(input)?),
         "asset.read" | "persona.read" => {
             let x: tools::Read = decode(input)?;
             if persona.model.is_none() {
@@ -463,13 +463,15 @@ fn internal(
         }
         "asset.register" => {
             let x: tools::Register = decode(input)?;
-            let digest = x.reference.strip_prefix("object:").ok_or_else(||failure("Register the exact object reference returned with the retained bytes"))?;
+            if !x.reference.starts_with("object:") {
+                return Err(failure("Register the exact object reference returned with the retained bytes"));
+            }
             if !snapshot.supplied_references.contains(&x.reference) {
                 return Err(failure("Read or select the receipt containing this object before registering its bytes. For an earlier command output, command.history with its exact object reference finds the retained capture; select the matching command_run receipt in next_context.references. You need not rerun the command or recapture the current file."));
             }
-            let size = super::provider_evidence::resource_bytes(db,digest)?.len();
-            let asset = save_asset(db,actor,call,&operation.id,&x.path,x.base.as_deref(),digest,&x.cues,&x.qualifications,x.resource.as_ref())?;
-            Ok(json!({"reference":asset.handle(),"blob":digest,"bytes":size,"registered_from":x.reference}))
+            let source = context::byte_resource_for(db, Some(actor), &x.reference)?;
+            let asset = save_asset(db,actor,call,&operation.id,&x.path,x.base.as_deref(),&source.digest,&x.cues,&x.qualifications,x.resource.as_ref())?;
+            Ok(json!({"reference":asset.handle(),"blob":source.digest,"bytes":source.bytes.len(),"registered_from":x.reference}))
         }
         "asset.feedback" => super::asset_feedback::publish(db, work, actor, Some(call), &decode(input)?),
         "asset.feedback_history" => super::asset_feedback::history(db, &decode(input)?),

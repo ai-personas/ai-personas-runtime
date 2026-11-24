@@ -222,7 +222,8 @@ pub(super) fn other_registrations(db: &Connection, blob: &str, id: &str) -> Resu
         "meaning":"The bytes match. Each registration retains its own name, history and qualifications."})))
 }
 
-pub fn find(db: &Connection, search: &FindText) -> Result<Value> {
+/// Search within the same byte-read scope as an exact read. `None` is operator inspection.
+pub fn find(db: &Connection, actor: Option<&str>, search: &FindText) -> Result<Value> {
     if search.query.is_empty() || search.page_size == 0 {
         return Err(failure("Provide search text and a positive page size"));
     }
@@ -233,24 +234,9 @@ pub fn find(db: &Connection, search: &FindText) -> Result<Value> {
             .case_insensitive(!search.case_sensitive)
             .build()?
     };
-    let (blob, metadata) = if let Some(digest) = search.reference.strip_prefix("object:") {
-        (digest.to_owned(), Value::Null)
-    } else {
-        let record = store::exact(db, &search.reference)?;
-        if record.reference.kind != "asset" || record.reference.handle() != search.reference {
-            return Err(failure(
-                "Choose an exact asset revision or object containing text",
-            ));
-        }
-        (
-            record.body["blob"]
-                .as_str()
-                .ok_or_else(|| failure("Missing asset content"))?
-                .to_owned(),
-            json!({"path":record.body["path"],"qualifications":record.body["qualifications"],"retired":record.body["retired"]}),
-        )
-    };
-    let bytes = super::provider_evidence::resource_bytes(db, &blob)?;
+    let super::context::ByteResource { digest: blob, asset, bytes } =
+        super::context::byte_resource_for(db, actor, &search.reference)?;
+    let metadata = asset.map(|a| json!({"path":a["path"],"qualifications":a["qualifications"],"retired":a["retired"]}));
     let mut report = json!({"reference":search.reference,"blob":format!("object:{blob}"),"source_bytes":bytes.len(),
         "metadata":metadata,"body_supplied":false,"offset":search.offset,"page_size":search.page_size});
     let text = match std::str::from_utf8(&bytes) {

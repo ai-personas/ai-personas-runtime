@@ -97,7 +97,7 @@ impl Window {
                 after: self.nearby,
             };
             self.worker(ctx, root, move |db| {
-                Ok(Reply::Page(discovery::find(db, &find)?))
+                Ok(Reply::Page(discovery::find(db, None, &find)?))
             });
         } else {
             let catalog = Catalog {

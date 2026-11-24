@@ -541,6 +541,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
         Command::ConnectPlatform { platform_key_file } =>
             super::connection::change(root, operator, super::connection::Route::PlatformKeyFile(platform_key_file)).await,
         Command::CommandHistory(query)=>super::commands::history(&store::open_inspection(root)?,&query),
+        Command::Find(query)=>super::discovery::find(&store::open_inspection(root)?,None,&query),
         Command::ExperienceSearch{persona,search}=>super::experience::search(&store::open_inspection(root)?,&persona,&search),
         Command::RecallChoice{persona,decision,event}=>super::experience::recall::read(&store::open_inspection(root)?,&persona,&decision,&event),
         Command::IntakeHistory{work,page}=>super::intake::inspect(&store::open_inspection(root)?,&work,&page),
@@ -684,7 +685,6 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
                 Command::RelationshipUse{reference}=>store.snapshot(|db|super::relationships::trace(db,&reference)),
                 Command::AssetFeedbackHistory(query)=>store.snapshot(|db|super::asset_feedback::history(db,&query)),
                 Command::Catalog(query)=>store.snapshot(|db|super::discovery::catalog(db,&query)),
-                Command::Find(query)=>store.snapshot(|db|super::discovery::find(db,&query)),
                 Command::Read{reference,start,end}=>context::read(&store.db,&reference,start,end),
                 Command::QuestionHistory{reference}=>store.snapshot(|db|super::question_history::inspect(db,&reference)),
                 Command::RequestHistory{work,query}=>store.snapshot(|db|super::activity_requests::history(db,&work,None,&query)),

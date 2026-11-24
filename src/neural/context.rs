@@ -479,6 +479,35 @@ pub(super) fn read_for(
     Ok(result)
 }
 
+pub(super) struct ByteResource {
+    pub digest: String,
+    pub asset: Option<Value>,
+    pub bytes: Vec<u8>,
+}
+
+/// Search and publication consume actual bytes. Resolve the digest here so
+/// the permission check and the byte read cannot refer to different editions.
+/// An inspectable historical provider receipt is not a raw resource.
+pub(super) fn byte_resource_for(
+    db: &rusqlite::Connection, actor: Option<&str>, reference: &str,
+) -> Result<ByteResource> {
+    let (digest, asset) = if let Some(digest) = reference.strip_prefix("object:") {
+        (digest.to_owned(), None)
+    } else if reference.starts_with("asset:") {
+        let record = store::exact(db, reference)?;
+        if record.reference.handle() != reference {
+            return Err(failure("Choose a canonical exact asset revision"));
+        }
+        let digest = record.body["blob"].as_str().ok_or_else(|| failure("Missing asset content"))?;
+        (digest.to_owned(), Some(record.body))
+    } else {
+        return Err(failure("Choose an exact asset revision or byte object"));
+    };
+    read_scope::object(db, actor, &digest, reference)?;
+    let bytes = super::provider_evidence::resource_bytes(db, &digest)?;
+    Ok(ByteResource { digest, asset, bytes })
+}
+
 fn read_resource(
     db: &rusqlite::Connection, actor: Option<&str>, reference: &str,
     start: Option<usize>, end: Option<usize>,
