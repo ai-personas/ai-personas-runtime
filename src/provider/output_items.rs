@@ -3,6 +3,7 @@
 use super::*;
 use std::collections::BTreeMap;
 
+pub(super) const MESSAGES_FORMAT: &str = "retained-messages-output-items-v1";
 pub(super) const FORMAT: &str = "retained-responses-output-items-v1";
 
 #[derive(Clone, Serialize)]
@@ -11,6 +12,8 @@ pub struct RetainedOutputItems {
     terminal_reasoning: Option<Value>,
     terminal_output: Vec<Value>,
     completed_item_events: BTreeMap<usize, Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    decision_input_sha256: Option<String>,
 }
 
 impl fmt::Debug for RetainedOutputItems {
@@ -20,9 +23,14 @@ impl fmt::Debug for RetainedOutputItems {
 }
 
 impl RetainedOutputItems {
-    pub(super) fn capture_messages(output: Vec<Value>) -> Self {
-        Self { format:"retained-messages-output-items-v1", terminal_reasoning:None,
-            terminal_output:output, completed_item_events:BTreeMap::new() }
+    pub(super) fn capture_messages(output: Vec<Value>, raw_decision: Option<&str>) -> Self {
+        Self {
+            format: MESSAGES_FORMAT,
+            terminal_reasoning: None,
+            terminal_output: output,
+            completed_item_events: BTreeMap::new(),
+            decision_input_sha256: raw_decision.map(|text| digest(text.as_bytes())),
+        }
     }
     pub(super) fn capture(
         response: &Value,
@@ -34,6 +42,7 @@ impl RetainedOutputItems {
             terminal_reasoning: response.get("reasoning").cloned(),
             terminal_output: output.to_vec(),
             completed_item_events,
+            decision_input_sha256: None,
         }
     }
 }
@@ -41,7 +50,7 @@ impl RetainedOutputItems {
 /// Metadata only. Never project assistant text, reasoning summaries, encrypted
 /// content, or item identifiers into diagnostics or the next persona input.
 pub(crate) fn metadata(value: &Value) -> Option<Value> {
-    if value["format"] != FORMAT && value["format"] != "retained-messages-output-items-v1" {
+    if value["format"] != FORMAT && value["format"] != MESSAGES_FORMAT {
         return None;
     }
     let output = value["terminal_output"].as_array()?;

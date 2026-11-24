@@ -32,6 +32,24 @@ pub(super) fn body(profile: &WireProfile, model: &str, effort: &str, prompt: &st
     Ok(body)
 }
 
+/// Older receipts keep the parsed tool input but cannot establish its original byte encoding.
+pub(super) fn retained_decision_matches(items: &Value, expected: &[u8]) -> Option<bool> {
+    let Some(output) = items["terminal_output"].as_array() else { return Some(false) };
+    let mut calls = output.iter().filter(|block| block["type"] == "tool_use");
+    let Some(call) = calls.next() else { return Some(false) };
+    if items["format"] != output_items::MESSAGES_FORMAT || calls.next().is_some()
+        || !items["completed_item_events"].as_object().is_some_and(serde_json::Map::is_empty)
+        || !output.iter().all(|block| matches!(block["type"].as_str(),
+            Some("tool_use" | "text" | "thinking" | "redacted_thinking")))
+        || call["name"] != TOOL || !call["id"].as_str().is_some_and(identifier)
+        || !call["input"].is_object()
+        || crate::files::parse_json_unique(expected).ok().as_ref() != Some(&call["input"])
+    {
+        return Some(false);
+    }
+    items.get("decision_input_sha256").map(|hash| *hash == digest(expected))
+}
+
 pub(super) enum Stream {
     Responses { collector: sse::Collector, model: String },
     Messages(Messages),
@@ -97,7 +115,10 @@ impl Stream {
                 r.usage = c.usage.clone();
                 r.stream_progress = failed.then(|| c.progress_receipt());
                 if r.response_completed && c.closed.len() == c.blocks.len() {
-                    r.private_output_items = Some(RetainedOutputItems::capture_messages(c.blocks.values().cloned().collect()));
+                    let raw = c.raw_inputs.values().next().filter(|_| c.raw_inputs.len() == 1);
+                    r.private_output_items = Some(RetainedOutputItems::capture_messages(
+                        c.blocks.values().cloned().collect(), raw.map(String::as_str),
+                    ));
                 }
             }
         }

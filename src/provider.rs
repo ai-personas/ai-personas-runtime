@@ -9,7 +9,6 @@ pub(crate) mod onboarding;
 mod sse;
 mod public_reply;
 mod reply_progress;
-pub(crate) use sse::retained_decision_matches;
 mod http_error;
 mod network_error;
 mod output_items;
@@ -1785,6 +1784,14 @@ fn digest_string(s: &str) -> bool {
         && s.bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
+pub(crate) fn retained_decision_matches(items: &Value, expected: &[u8], profile: &str) -> Option<bool> {
+    if profile == AccessMode::AnthropicApiKey.profile() {
+        messages::retained_decision_matches(items, expected)
+    } else {
+        sse::retained_decision_matches(items, expected, profile)
+    }
+}
+
 fn digest(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }

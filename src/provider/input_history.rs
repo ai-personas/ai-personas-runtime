@@ -41,7 +41,7 @@ impl InputHistory {
             return Err(Failure::Configuration);
         }
         if !identifier(invocation) || !identifier(model)
-            || retained["format"] != if native_messages { "retained-messages-output-items-v1" } else { "retained-responses-output-items-v1" } {
+            || retained["format"] != if native_messages { super::output_items::MESSAGES_FORMAT } else { super::output_items::FORMAT } {
             return Err(Failure::Configuration);
         }
         // A full terminal output is an unambiguous ordered output sequence.
