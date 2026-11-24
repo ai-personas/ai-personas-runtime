@@ -1,7 +1,8 @@
 //! The ZIP is itself an issued file. Read its directory without unpacking or
 //! silently rebuilding the upload a recipient will save.
 use super::*;
-use std::io::{self, Cursor, Read, Write};
+use ai_personas::neural::issued_zip::directory;
+use std::io::{self, Read, Write};
 
 #[derive(Clone)]
 pub(in crate::desktop::neural) struct Member {
@@ -34,7 +35,7 @@ impl Member {
         bytes: &[u8],
         output: &mut impl Write,
     ) -> ai_personas::neural::Result<()> {
-        let mut zip = zip::ZipArchive::new(Cursor::new(bytes))?;
+        let mut zip = directory(bytes)?;
         let mut entry = zip.by_index(self.index)?;
         if entry.name() != self.path
             || entry.size() != self.bytes
@@ -65,7 +66,7 @@ pub(super) struct Listing {
 
 impl Listing {
     pub(super) fn read(bytes: &[u8]) -> ai_personas::neural::Result<Self> {
-        let mut zip = zip::ZipArchive::new(Cursor::new(bytes))?;
+        let mut zip = directory(bytes)?;
         let mut entries = Vec::new();
         for index in 0..zip.len() {
             let member = zip.by_index_raw(index)?;

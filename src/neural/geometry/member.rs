@@ -3,7 +3,7 @@
 use super::{byte_digest, failure, store, Result};
 use rusqlite::Connection;
 use serde_json::{json, Value};
-use std::io::{Cursor, Read};
+use std::io::Read;
 
 pub(super) struct MeshInput {
     pub digest: String,
@@ -54,31 +54,10 @@ impl MeshInput {
 }
 
 fn extract(bytes: &[u8], path: &str, blob_limit: u64) -> Result<(Vec<u8>, usize, u32)> {
-    let mut zip = zip::ZipArchive::new(Cursor::new(bytes))?;
+    let mut zip = crate::neural::issued_zip::directory(bytes)?;
     let index = zip
         .index_for_name(path)
         .ok_or_else(|| failure(format!("No such file in this ZIP: {path}")))?;
-    // zip 4 collapses duplicate decoded names. A path alone cannot identify
-    // which copy a shop would unpack. Count actual central-directory records.
-    let mut tail = bytes
-        .get(usize::try_from(zip.central_directory_start())?..)
-        .ok_or_else(|| failure("Invalid ZIP directory offset"))?;
-    let mut entries = 0;
-    while tail.starts_with(b"PK\x01\x02") {
-        let header = tail
-            .get(..46)
-            .ok_or_else(|| failure("Incomplete ZIP directory"))?;
-        let field = |i: usize| usize::from(u16::from_le_bytes([header[i], header[i + 1]]));
-        tail = tail
-            .get(46 + field(28) + field(30) + field(32)..)
-            .ok_or_else(|| failure("Incomplete ZIP directory entry"))?;
-        entries += 1;
-    }
-    if entries != zip.len() {
-        return Err(failure(
-            "Cannot select an unambiguous path from this ZIP directory",
-        ));
-    }
     let mut file = zip.by_index(index)?;
     if !file.is_file() || file.is_symlink() {
         return Err(failure("Select a regular mesh file in the ZIP"));

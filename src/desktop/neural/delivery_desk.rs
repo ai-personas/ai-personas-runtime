@@ -1,6 +1,7 @@
 //! The issued package, its exact file revisions and the operator's review.
 use super::*;
 
+mod compare;
 mod dispatch;
 mod origins;
 mod preview;
@@ -26,6 +27,7 @@ pub(super) struct Desk {
     brief_page: usize,
     check_page: usize,
     origins: Option<origins::Window>,
+    compare: Option<compare::Window>,
     file_search: String,
     origin: Option<(String, ReturnTo)>,
 }
@@ -241,6 +243,7 @@ impl App {
                 desk.slip = 0;
                 desk.slip_page = 0;
                 desk.origins = None;
+                desk.compare = None;
                 desk.file_search.clear();
                 desk.file_folders.directory.clear();
                 desk.focus_preview = false;
@@ -355,6 +358,7 @@ impl App {
                 ui.add_space(12.);
             });
         self.delivery_origins_window(ui.ctx(), &p);
+        self.zip_comparison_window(ui.ctx(), &p);
     }
 
     fn package_heading(&mut self, ui: &mut Ui, p: &Package) -> bool {
@@ -423,6 +427,10 @@ impl App {
                             .clicked()
                     {
                         self.delivery_desk.origins = Some(origins::Window::default());
+                    }
+                    if p.files.iter().any(|f| f.format.archive()) && ui.link("Compare ZIPs…")
+                        .on_hover_text("Compare the file bytes inside two ZIPs from issued editions").clicked() {
+                        self.delivery_desk.compare = Some(compare::Window::new(self, p));
                     }
                 });
                 ui.add_space(5.);

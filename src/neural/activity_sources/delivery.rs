@@ -44,6 +44,28 @@ pub(in crate::neural) fn edition(db: &Connection, reference: &str) -> Result<Edi
     Ok(Edition { issue, issuer_label, operation: op.id, members })
 }
 
+impl Edition {
+    /// A comparison needs the byte-producing write, not just a plausible file
+    /// at the named revision. This also follows verified metadata-only moves.
+    pub(in crate::neural) fn verified_member(&self, db: &Connection, reference: &str) -> Result<resources::Asset> {
+        let record = &self.issue.record;
+        if !self.members.iter().any(|m| m == reference) {
+            return Err(failure(format!("{reference} is not an issued file of {}", record.reference.handle())));
+        }
+        let file = store::exact(db, reference)?;
+        let source = resources::origin(db, &file.reference.id, file.reference.revision)?
+            .ok_or_else(|| failure(format!("Cannot verify the source of issued file {reference}")))?;
+        let writer = Choice::recorded(db, &source.author, &source.call)?;
+        let size: i64 = db.query_row("SELECT length(bytes) FROM objects WHERE digest=?1", [&source.blob], |r| r.get(0))?;
+        if source.write_tool.is_none() || source.written_event.is_some_and(|seq| seq >= self.issue.sequence)
+            || version_order(db, &file)? >= version_order(db, record)?
+            || !proof::verified_source(db, &writer, &source, size.try_into()?)? {
+            return Err(failure(format!("The file {reference} differs from its recorded write before issue")));
+        }
+        Ok(source)
+    }
+}
+
 fn version_order(db: &Connection, record: &store::Record) -> Result<i64> {
     let r = &record.reference;
     Ok(db.query_row(
