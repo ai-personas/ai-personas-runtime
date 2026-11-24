@@ -1,7 +1,10 @@
 //! Compare the actual member bytes of two chosen, issued ZIPs. Opening this
 //! window does not run a check on behalf of a persona or record a package review.
 use super::*;
-use ai_personas::neural::issued_zip::{self, Comparison, Difference, Fingerprint};
+use ai_personas::neural::{
+    issued_zip::{self, Comparison, Difference, Fingerprint, Source},
+    tools::DeliveryScope,
+};
 use std::sync::OnceLock;
 
 const PAGE: usize = 5;
@@ -230,7 +233,56 @@ impl Window {
                 }
             });
     }
-    fn result(&mut self, ui: &mut Ui, r: &Comparison) {
+    fn terms(app: &App, ui: &mut Ui, source: &Source) {
+        let issue = &source.at_issue;
+        let scope = match issue.scope {
+            DeliveryScope::Partial => "Partial edition",
+            DeliveryScope::ClaimedComplete => "Author claims complete",
+        };
+        ui.collapsing(format!("{scope} · Use & limits"), |ui| {
+            ui.strong(format!("Issued by {}", app.label(&issue.issuer)));
+            ui.add(
+                egui::Label::new(&issue.supported_use)
+                    .wrap()
+                    .selectable(true),
+            );
+            if !issue.remaining.is_empty() {
+                ui.small("Still open at issue");
+                for item in &issue.remaining {
+                    ui.add(
+                        egui::Label::new(format!("• {item}"))
+                            .wrap()
+                            .selectable(true),
+                    );
+                }
+            }
+            let file = &source.registration;
+            ui.separator();
+            ui.strong(format!("File notes · {}", app.label(&file.owner)));
+            ui.small("Recorded on this file revision, not a later review.");
+            if file.retired {
+                ui.label("Retired in this revision");
+            }
+            if let (Some(by), Some(reason)) = (&file.organized_by, &file.organization_reason) {
+                ui.add(
+                    egui::Label::new(format!("Organization note · {}: {reason}", app.label(by)))
+                        .wrap()
+                        .selectable(true),
+                );
+            }
+            if file.qualifications.is_empty() {
+                ui.weak("No qualifications recorded on this revision.");
+            }
+            for item in &file.qualifications {
+                ui.add(
+                    egui::Label::new(format!("• {item}"))
+                        .wrap()
+                        .selectable(true),
+                );
+            }
+        });
+    }
+    fn result(&mut self, app: &App, ui: &mut Ui, r: &Comparison) {
         for (label, source) in [("Baseline", &r.baseline), ("Selected", &r.selected)] {
             ui.push_id(label, |ui| {
                 eyebrow(ui, label);
@@ -238,6 +290,7 @@ impl Window {
                     .on_hover_text(&source.edition);
                 ui.add(egui::Label::new(&source.path).wrap())
                     .on_hover_text(&source.file);
+                Self::terms(app, ui, source);
             });
         }
         ui.weak(if r.baseline.sha256 == r.selected.sha256 {
@@ -380,13 +433,13 @@ impl Window {
         }
         home::pager(ui, &mut self.member_page, rows.len(), PAGE, "members");
     }
-    fn show(&mut self, ui: &mut Ui, p: &Package) {
+    fn show(&mut self, app: &App, ui: &mut Ui, p: &Package) {
         let Some(state) = self.compare.clone() else {
             self.choose(ui, p);
             return;
         };
         match state.get() {
-            Some(Ok(r)) => self.result(ui, r),
+            Some(Ok(r)) => self.result(app, ui, r),
             Some(Err(e)) => {
                 ui.colored_label(ui.visuals().error_fg_color, e);
             }
@@ -437,7 +490,7 @@ impl App {
             .vscroll(true)
             .show(ctx, |ui| {
                 ui.set_max_width(ui.available_width());
-                w.show(ui, p);
+                w.show(self, ui, p);
             });
         if open {
             self.delivery_desk.compare = Some(w);

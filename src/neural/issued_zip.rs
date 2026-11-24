@@ -3,12 +3,12 @@
 mod inspection;
 mod paths;
 mod retained;
+use super::{activity_sources::delivery, failure, store, tools, Result};
 pub use inspection::{MemberText, Members};
-use super::{activity_sources::delivery, failure, store, Result};
 pub use paths::Contents;
 pub use retained::{compare_registered, RegisteredQuery};
 use rusqlite::Connection;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
@@ -42,6 +42,32 @@ pub fn directory(bytes: &[u8]) -> Result<ZipArchive<Cursor<&[u8]>>> {
     Ok(zip)
 }
 
+/// Notes belong to this exact registration, not to the blob shared by other
+/// names. Linked sources are addresses, never implicitly read here.
+#[derive(Deserialize, Serialize)]
+pub struct RegistrationNotes {
+    pub owner: String,
+    pub qualifications: Vec<String>,
+    pub retired: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub organized_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub organization_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resource: Option<tools::Resource>,
+}
+
+/// The issuer's statement at publication, not later acceptance or a verdict
+/// about any individual ZIP member. Two issues may use identical files.
+#[derive(Deserialize, Serialize)]
+pub struct IssueTerms {
+    #[serde(rename(deserialize = "owner"))]
+    pub issuer: String,
+    pub scope: tools::DeliveryScope,
+    pub supported_use: String,
+    pub remaining: Vec<String>,
+}
+
 #[derive(Serialize)]
 pub struct Source {
     pub edition: String,
@@ -49,6 +75,8 @@ pub struct Source {
     pub file: String,
     pub content_revision: String,
     pub content_decision: String,
+    pub registration: RegistrationNotes,
+    pub at_issue: IssueTerms,
     pub path: String,
     pub sha256: String,
 }
@@ -63,6 +91,8 @@ impl Source {
                 .ok_or_else(|| failure("Missing issue title"))?
                 .into(),
             file: file.into(),
+            registration: RegistrationNotes::deserialize(&store::exact(db, file)?.body)?,
+            at_issue: IssueTerms::deserialize(&issued.issue.record.body)?,
             content_revision: asset.content_revision,
             content_decision: format!("experience:{}@1", asset.call),
             path: asset.path,

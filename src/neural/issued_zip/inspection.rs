@@ -1,6 +1,6 @@
 //! Read a registered archive as data. A directory entry is not a file read;
 //! selected text is from the member's byte range, not that range of the ZIP.
-use super::{directory, failure, Result};
+use super::{directory, failure, RegistrationNotes, Result};
 use crate::neural::context;
 use clap::Args;
 use rusqlite::Connection;
@@ -56,13 +56,15 @@ pub(super) fn registered(
         return Err(failure("Choose an exact registered ZIP asset revision"));
     }
     let res = context::byte_resource_for(db, actor, reference)?;
-    let path = res
+    let asset = res
         .asset
-        .as_ref()
-        .and_then(|a| a["path"].as_str())
+        .ok_or_else(|| failure("Missing ZIP registration"))?;
+    let path = asset["path"]
+        .as_str()
         .ok_or_else(|| failure("Missing registered file path"))?;
+    let registration = RegistrationNotes::deserialize(&asset)?;
     Ok((
-        json!({"reference":reference,"path":path,"sha256":res.digest,"bytes":res.bytes.len()}),
+        json!({"reference":reference,"path":path,"sha256":res.digest,"bytes":res.bytes.len(),"registration":registration}),
         res.bytes,
     ))
 }
