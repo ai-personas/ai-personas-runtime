@@ -91,7 +91,9 @@ impl Window {
             .resizable(true)
             .show(ctx, |ui| {
                 ui.horizontal_wrapped(|ui| {
-                    ui.heading(title(&self.owner));
+                    let name = self.result.as_ref().and_then(|r| r.as_ref().ok())
+                        .and_then(|r| r["owner_label"].as_str()).filter(|s| !s.trim().is_empty());
+                    ui.heading(name.unwrap_or(&self.owner)).on_hover_text(&self.owner);
                     ui.weak(&self.accepted);
                     if let Some(Ok(report)) = &self.result {
                         theme::badge(ui, &title(s(report, "basis")), TEAL);

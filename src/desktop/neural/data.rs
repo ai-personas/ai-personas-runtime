@@ -312,7 +312,17 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
         let operations: Vec<Value> = decision["operations"].as_array().into_iter().flatten()
             .filter(|op| matches!(op["tool"].as_str(), Some("development.update" | "development.close" | "persona.initialize" | "persona.evaluate" | "persona.paths" | "persona.replay_input" | "persona.patch" | "persona.assess")))
             .map(|op| json!({"id":op["id"],"tool":op["tool"]})).collect();
-        let character_use = store::head(&db,"character_use",&invocation)?.map(|r|r.reference.handle());
+        let usage = store::head(&db,"character_use",&invocation)?;
+        // Screen on the cheap, already-loaded receipt. Do not identify a
+        // follow-up from this pointer alone or assume it is the next row.
+        let pre_action = if usage.as_ref().is_some_and(|r| r.body["contextual"]["provenance"]["method"] == "before_action") {
+            match neural::character_paths::pre_action_source(&db, &actor, &work, &invocation) {
+                Ok(Some(source)) => json!({"source":source}),
+                Ok(None) => Value::Null,
+                Err(error) => json!({"error":error.to_string()}),
+            }
+        } else { Value::Null };
+        let character_use = usage.map(|r|r.reference.handle());
         let deferred_questions = if decision["persona_maintenance"]["kind"] == "defer" {
             neural::development::deferred_revisions(&db,&invocation)?
         } else { Vec::new() };
@@ -325,7 +335,7 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
             "response":format!("object:{response}"),"request":format!("object:{request}"),
             "judgment":decision["work"],"continuation":decision["continuation"],
             "maintenance":decision["persona_maintenance"],"behavior":decision["behavior"],"next_model":decision["next_model"],
-            "next_appraisal":decision["next_context"]["appraisal"],
+            "next_appraisal":decision["next_context"]["appraisal"],"pre_action":pre_action,
             "operations":operations,
         }));
     }

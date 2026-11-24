@@ -33,6 +33,85 @@ pub(super) fn package(db: &Connection, digest: &str, owner: &str) -> Result<Mode
     Ok(package)
 }
 
+/// Identify the earlier pause only when its alternatives and evidence actually
+/// reached this accepted decision. Later reuse of the same evaluation, or a
+/// neighboring decision by the same person, is not such a link.
+pub fn pre_action_source(
+    db: &Connection,
+    owner: &str,
+    work: &str,
+    call: &str,
+) -> Result<Option<String>> {
+    let accepted = super::provider_evidence::accepted(db, owner, call, true)?;
+    let s = &accepted.snapshot;
+    if s.work != work {
+        return Err(failure("The recorded decision belongs to another activity"));
+    }
+    let supplied = &s.data["decision_continuity"]["before_action"];
+    if supplied.is_null() {
+        return Ok(None);
+    }
+    let id = store::exact(db, &format!("persona:{owner}@{}", s.persona_revision))?;
+    let p: super::protocol::Persona = serde_json::from_value(id.body)?;
+    if s.model.is_none()
+        || s.model != p.model
+        || s.epoch != p.epoch
+        || p.id != owner
+        || !s.data["context_recovery"].is_null()
+        || s.data["last_contextual_evaluation"]["model"] != serde_json::to_value(&p.model)?
+        || super::development::deliberation::carry(db, &s.data, owner, work, &p)?.as_ref()
+            != Some(supplied)
+    {
+        return Err(failure(
+            "The supplied pre-action frame does not match the earlier pause",
+        ));
+    }
+    let e = &s.data["last_contextual_evaluation"];
+    let source = e["selection"]["decision"]
+        .as_str()
+        .ok_or_else(|| failure("Missing appraisal source"))?;
+    let seq = e["provenance"]["event"]
+        .as_i64()
+        .filter(|seq| *seq <= s.observation_through.unwrap_or(s.cursor))
+        .ok_or_else(|| failure("Missing pre-action observation boundary"))?;
+    let digest: String = db.query_row("SELECT digest FROM events WHERE seq=?1 AND invocation=?2 AND work=?3 AND actor=?4 AND target=actor AND kind='appraisal_selected'", rusqlite::params![seq,source,work,owner], |row|row.get(0))?;
+    let receipt: Value = store::object(db, &digest)?;
+    let result: Value = store::object(
+        db,
+        receipt["result"]
+            .as_str()
+            .and_then(|r| r.strip_prefix("object:"))
+            .ok_or_else(|| failure("Missing appraisal result"))?,
+    )?;
+    let model = package(
+        db,
+        p.model
+            .as_deref()
+            .ok_or_else(|| failure("Missing character package"))?,
+        owner,
+    )?;
+    let appraisal = serde_json::from_value(e["appraisal"].clone())?;
+    let computed = model
+        .evaluate(&FeatureContract::standard(), &appraisal)
+        .map_err(failure)?;
+    let computed_ref = format!(
+        "object:{}",
+        crate::store::sha256_bytes(&serde_json::to_vec(&computed)?)
+    );
+    if receipt["method"] != "before_action"
+        || e["provenance"]["record"] != format!("object:{digest}")
+        || result["evaluation"] != computed_ref
+        || e["reference"] != computed_ref
+        || result["result"] != serde_json::to_value(&computed)?
+        || e["outputs"] != serde_json::to_value(computed.inclinations())?
+    {
+        return Err(failure(
+            "The recorded pause and supplied numerical result disagree",
+        ));
+    }
+    Ok(Some(format!("experience:{source}@1")))
+}
+
 pub fn inspect(db: &Connection, actor: Option<&str>, query: &Query) -> Result<Value> {
     let decision = match query.decision.strip_prefix("character_use:") {
         Some(id) => {
@@ -115,9 +194,14 @@ pub fn inspect(db: &Connection, actor: Option<&str>, query: &Query) -> Result<Va
     if let Some(reference) = query.compare.as_deref() {
         let mut transition = None;
         let alternate_digest = if reference == "previous-epoch" {
-            let epoch = verified["epoch"].as_u64().ok_or_else(|| failure("Missing supplied epoch"))?;
-            let config = verified["configuration"].as_str().ok_or_else(|| failure("Missing identity edition"))?;
-            let (prior, change) = super::revision_uses::preceding_epoch(db, owner, config, epoch, digest)?;
+            let epoch = verified["epoch"]
+                .as_u64()
+                .ok_or_else(|| failure("Missing supplied epoch"))?;
+            let config = verified["configuration"]
+                .as_str()
+                .ok_or_else(|| failure("Missing identity edition"))?;
+            let (prior, change) =
+                super::revision_uses::preceding_epoch(db, owner, config, epoch, digest)?;
             transition = Some(json!({"epoch":epoch - 1,"change":change}));
             prior
         } else if let Some(digest) = reference.strip_prefix("object:") {
@@ -156,8 +240,13 @@ pub fn inspect(db: &Connection, actor: Option<&str>, query: &Query) -> Result<Va
         ));
     }
     let choice: Value = store::object(db, &response)?;
+    let identity = store::exact(db, verified["configuration"].as_str().ok_or_else(|| failure("Missing recorded identity"))?)?;
+    if identity.reference.kind != "persona" || identity.reference.id != owner || identity.body["id"] != owner
+        || identity.body["model"] != digest || identity.body["epoch"] != verified["epoch"] {
+        return Err(failure("The recorded identity differs from the character supplied at this choice"));
+    }
     Ok(
-        json!({"decision":decision,"character_use":usage.map(|u| u.reference.handle()),"owner":owner,
+        json!({"decision":decision,"character_use":usage.map(|u| u.reference.handle()),"owner":owner,"owner_label":identity.body["label"],
         "choice":{"response":verified["response"],"judgment":choice["work"],"reply":choice["reply"]},
         "work":meta["work"],"epoch":verified["epoch"],"provider_receipt":verified["provider_receipt"],
         "snapshot":verified["snapshot"],"prompt_sha256":verified["prompt_sha256"],"basis":basis,

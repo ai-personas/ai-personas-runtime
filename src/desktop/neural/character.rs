@@ -781,7 +781,7 @@ impl App {
         });
         ui.add_space(12.);
         ui.horizontal_wrapped(|ui| {
-            for (index, label) in ["All choices", "No change", "Declared change", "Deferred", "Personal trials", "Behavior after a result"].iter().enumerate() {
+            for (index, label) in ["All choices", "No change", "Declared change", "Deferred", "Personal trials", "Behavior after a result", "Before acting"].iter().enumerate() {
                 if ui.selectable_value(&mut self.development_filter, index, *label).changed() {
                     self.development_anchor.clear();
                 }
@@ -793,6 +793,7 @@ impl App {
             3 => d["maintenance"]["kind"] == "defer",
             4 => d["maintenance"]["kind"] == "trial",
             5 => d["behavior"].is_object(),
+            6 => d["next_appraisal"]["kind"] == "before_action" || d["pre_action"].is_object(),
             _ => true,
         }).collect();
         const PAGE: usize = 25;
@@ -872,6 +873,23 @@ impl App {
                                         self.open_resource(ui.ctx(), reference.into());
                                     }
                                 }
+                            }
+                            if let Some(source) = decision["pre_action"]["source"].as_str() {
+                                ui.strong("Received the pre-action appraisal");
+                                ui.label(s(&decision["judgment"], "reason"));
+                                if ui.small_button("Open earlier pause →").on_hover_text(source).clicked() {
+                                    self.open_resource(ui.ctx(), source.to_owned());
+                                }
+                                ui.weak("The alternatives and numerical result reached this choice. That does not show what the person would have chosen without them.");
+                            } else if let Some(error) = decision["pre_action"]["error"].as_str() {
+                                ui.label(format!("Pre-action link not verified: {error}"));
+                            }
+                            if decision["next_appraisal"]["kind"] == "before_action" {
+                                ui.strong("Paused before choosing");
+                                for (index, option) in decision["next_appraisal"]["alternatives"].as_array().into_iter().flatten().enumerate() {
+                                    if let Some(text) = option.as_str() { ui.label(format!("{}. {text}", index + 1)); }
+                                }
+                                ui.weak("These are the person's alternatives, not actions performed by the pause.");
                             }
                             if let Some(choice) = decision["next_appraisal"]["kind"].as_str() {
                                 ui.small(format!("Next appraisal · {}", title(choice)));
