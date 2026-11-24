@@ -3,6 +3,9 @@
 use super::*;
 use std::collections::BTreeMap;
 
+#[cfg(test)]
+mod tests;
+
 pub(super) const MESSAGES_FORMAT: &str = "retained-messages-output-items-v1";
 pub(super) const FORMAT: &str = "retained-responses-output-items-v1";
 
@@ -49,6 +52,19 @@ impl RetainedOutputItems {
 
 /// Metadata only. Never project assistant text, reasoning summaries, encrypted
 /// content, or item identifiers into diagnostics or the next persona input.
+/// Compare the exact current summary, or the historical Responses summary
+/// before web-search counts were recorded. No other field is optional.
+pub(crate) fn metadata_matches(value: &Value, recorded: &Value) -> bool {
+    let Some(mut actual) = metadata(value) else { return false; };
+    if actual == *recorded { return true; }
+    if value["format"] != FORMAT { return false; }
+    for section in ["terminal_output", "completed_item_events"] {
+        if recorded[section].get("web_search_items").is_some() { return false; }
+        actual[section].as_object_mut().unwrap().remove("web_search_items");
+    }
+    actual == *recorded
+}
+
 pub(crate) fn metadata(value: &Value) -> Option<Value> {
     if value["format"] != FORMAT && value["format"] != MESSAGES_FORMAT {
         return None;

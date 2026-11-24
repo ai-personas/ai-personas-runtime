@@ -108,7 +108,7 @@ fn verified(public: &Value, digest: &str, bytes: &[u8]) -> Result<Value> {
         return Err(failure("Retained provider output differs from its receipt"));
     }
     let items: Value = serde_json::from_slice(bytes)?;
-    if provider::retained_output_metadata(&items).as_ref() != public.get("output_items") {
+    if !provider::retained_output_metadata_matches(&items, &public["output_items"]) {
         return Err(failure(
             "Retained provider output summary differs from its receipt",
         ));

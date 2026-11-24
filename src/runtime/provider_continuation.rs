@@ -117,8 +117,8 @@ impl Material {
                     &prepared.images, prepared.input_history.as_ref(), &prepared.output_schema),
                 "selected provider input cannot be reconstructed exactly")?;
             let output = &terminal.body["provider_output_items"];
-            require(provider::retained_output_metadata(output).as_ref()
-                == Some(&receipt["attempt"]["output_items"]),
+            require(provider::retained_output_metadata_matches(output,
+                &receipt["attempt"]["output_items"]),
                 "selected provider output snapshots are unavailable")?;
             let previous = match selected.scope {
                 HistoryScope::SuppliedHistory => prepared.input_history.as_ref(),

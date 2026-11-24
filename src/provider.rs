@@ -24,6 +24,7 @@ pub use output_items::RetainedOutputItems;
 pub use input_history::InputHistory;
 pub(crate) use input_history::supports_output_continuation;
 pub(crate) use output_items::metadata as retained_output_metadata;
+pub(crate) use output_items::metadata_matches as retained_output_metadata_matches;
 
 use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
