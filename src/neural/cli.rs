@@ -336,7 +336,7 @@ pub enum Command {
     RevisionUses(super::revision_uses::Query),
     /// Trace persona-originated activities, returned answers, exact deliveries and requester feedback.
     RequestHistory { work:String, #[command(flatten)] #[serde(flatten)] query:super::activity_requests::Query },
-    /// Trace full-file receiving checks on exact revisions before they were reissued.
+    /// Trace earlier receiving runs on an identical file set or one staged file revision.
     PriorFileChecks { #[arg(long)] persona:Option<String>, #[command(flatten)] #[serde(flatten)] query:super::activity_sources::PriorChecks },
     /// Search the requests and amendments actually supplied to this persona in accepted decisions.
     ReceivedBriefs { persona:String, #[command(flatten)] #[serde(flatten)] query:super::briefs::Query },

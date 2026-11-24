@@ -12,6 +12,13 @@ pub(super) struct Link {
 }
 
 pub(super) fn link(db: &Connection, event: &Experience, body: &Value) -> Result<Link> {
+    check(db, event, body, None).map(|(link, _)| link)
+}
+
+/// File history uses the verified path in the original run. A one-file slip
+/// can be staged under a basename rather than its path in the full edition.
+/// This is evidence of staging, never proof the executable read that file.
+pub(super) fn check(db: &Connection, event: &Experience, body: &Value, wanted: Option<&str>) -> Result<(Link, Option<Value>)> {
     let text = |key: &str| body[key].as_str().ok_or_else(|| failure(format!("Receiving check lacks {key}")));
     let check_call = event.invocation.as_deref().ok_or_else(|| failure("Missing checking decision"))?;
     let edition = text("delivery")?;
@@ -69,6 +76,7 @@ pub(super) fn link(db: &Connection, event: &Experience, body: &Value) -> Result<
     if staged.len() > expected.len() || (run["process_started"] == true && staged.len() != expected.len()) {
         return Err(failure("Different number of files in the receiving run"));
     }
+    let mut matched = None;
     for (path, reference) in expected.into_iter().take(staged.len()) {
         let blob = workspace::byte_digest(db, &reference)?;
         let len: i64 = db.query_row("SELECT length(bytes) FROM objects WHERE digest=?1", [&blob], |r| r.get(0))?;
@@ -76,6 +84,12 @@ pub(super) fn link(db: &Connection, event: &Experience, body: &Value) -> Result<
             file["object"] != format!("object:{blob}") || file["bytes"].as_i64() != Some(len)) {
             return Err(failure("Staged file differs from the issued selection"));
         }
+        if wanted == Some(&reference) {
+            matched = Some(json!({"reference":reference,"path":path,"sha256":blob,"bytes":len}));
+        }
+    }
+    if wanted.is_some() && matched.is_none() {
+        return Err(failure("The receiving run did not stage the selected file revision"));
     }
     // The tool result in the checking activity precedes the notice to the issuer.
     let mut q = db.prepare_cached("SELECT e.seq,e.digest FROM events e JOIN objects b ON e.digest=b.digest
@@ -90,7 +104,7 @@ pub(super) fn link(db: &Connection, event: &Experience, body: &Value) -> Result<
     {
         return Err(failure("Checking result or event order is inconsistent"));
     }
-    Ok(Link { call: issued.issue.invocation, operation: issued.operation, edition: edition.into() })
+    Ok((Link { call: issued.issue.invocation, operation: issued.operation, edition: edition.into() }, matched))
 }
 
 /// An address for deliberate retrieval, not a replay of another activity's

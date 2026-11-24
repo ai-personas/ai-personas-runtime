@@ -90,17 +90,35 @@ fn observed(check: &Value) -> (String, Color32) {
 fn prior_file_checks(ui: &mut Ui, app: &App, package: &Package) -> Option<String> {
     use ai_personas::neural::activity_sources::{prior_checks, PriorChecks};
     let mut open = None;
-    egui::CollapsingHeader::new("Earlier runs on these exact files")
+    egui::CollapsingHeader::new("Earlier receiving runs")
         .id_salt(("prior-file-checks", &package.reference))
         .show(ui, |ui| {
-            let page_id = ui.make_persistent_id(("prior-file-page", &app.root, &package.reference));
+            let subject = ui.make_persistent_id(("prior-check-scope", &app.root, &package.reference));
+            let mut file = ui.data(|d| d.get_temp::<String>(subject)).unwrap_or_default();
+            let before = file.clone();
+            let selected = package.by_reference.get(&file).map(|&i| package.files[i].path.as_str());
+            ui.small("What traveled in an earlier handoff?");
+            egui::ComboBox::from_id_salt(subject)
+                .selected_text(selected.unwrap_or("Complete set of issued files"))
+                .width(ui.available_width()).truncate().show_ui(ui, |ui| {
+                    ui.set_max_width(ui.available_width());
+                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+                    ui.selectable_value(&mut file, String::new(), "Complete set of issued files");
+                    for f in &package.files {
+                        ui.selectable_value(&mut file, f.reference.clone(), &f.path).on_hover_text(&f.reference);
+                    }
+                }).response.on_hover_text(selected.unwrap_or("Use the complete set of exact issued revisions at their original paths"));
+            let page_id = subject.with(("page", &file));
+            if before != file {
+                ui.data_mut(|d| { d.insert_temp(subject, file.clone()); d.remove::<usize>(page_id); });
+            }
             let mut page = ui.data(|d| d.get_temp::<usize>(page_id)).unwrap_or_default();
             let id = page_id.with(page);
             let result: Linked = ui.data_mut(|d| d.get_temp_mut_or_insert_with(id, || {
                 let slot = Arc::new(OnceLock::new());
                 let reader = Arc::clone(&slot);
                 let root = app.root.clone();
-                let query = PriorChecks { delivery: package.reference.clone(), offset: page, page_size: 1 };
+                let query = PriorChecks { delivery: package.reference.clone(), file: (!file.is_empty()).then(|| file.clone()), offset: page, page_size: 1 };
                 let ctx = ui.ctx().clone();
                 std::thread::spawn(move || {
                     let r = data::open(&root).and_then(|db| prior_checks(&db, None, &query));
@@ -122,11 +140,22 @@ fn prior_file_checks(ui: &mut Ui, app: &App, package: &Package) -> Option<String
                 }
             };
             let count = report["total"].as_u64().unwrap_or_default() as usize;
-            if count == 0 { ui.weak("No earlier full-edition run on this file set."); return; }
-            ui.weak("These files were checked before this handoff. The earlier issue had its own instructions.");
+            if count == 0 {
+                ui.weak(if file.is_empty() { "No earlier full-edition run on this file set." } else { "No earlier receiving run staged this exact file revision." });
+                return;
+            }
+            ui.weak(if file.is_empty() { "These exact files were staged together. The earlier edition had its own instructions." }
+                else { "This file revision was staged. Other files and instructions may differ; staging does not prove the file was opened or tested." });
+            let previous = page;
             home::pager(ui, &mut page, count, 1, "earlier runs");
             ui.data_mut(|d| d.insert_temp(page_id, page));
+            if page != previous { return; }
             let row = &report["items"][0];
+            if let Some(path) = row["staged_file"]["path"].as_str() {
+                let slip = row["dispatch"].as_u64().map_or_else(|| "Full earlier edition".to_owned(), |n| format!("Earlier dispatch #{n}"));
+                ui.small(format!("{slip} · {} staged", counted(row["files_staged"].as_u64().unwrap_or_default(), "file", "files")));
+                ui.add(egui::Label::new(format!("Earlier staging path: {path}")).wrap().selectable(true));
+            }
             let who = s(row, "checker");
             ui.horizontal_wrapped(|ui| {
                 avatar(ui, app.label(who), persona_color(who), 20.);
@@ -161,7 +190,7 @@ impl App {
                 theme::glyph(ui, Icon::Activity, theme::palette(ui).ink(TEAL));
                 heading(ui, "Receiving checks");
                 if !events.is_empty() {
-                    ui.weak(counted(events.len() as u64, "run", "runs"));
+                    ui.weak(format!("{} on this edition", counted(events.len() as u64, "run", "runs")));
                 }
             });
             record = prior_file_checks(ui, self, package);
@@ -169,6 +198,7 @@ impl App {
                 ui.weak("No receiving run was addressed to this edition.");
                 return;
             }
+            ui.separator();
             home::pager(ui, &mut page, events.len(), 1, "checks");
             let seq = events[events.len() - 1 - page.min(events.len() - 1)];
             let Ok(index) = self
