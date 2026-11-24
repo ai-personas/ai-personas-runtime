@@ -5,6 +5,8 @@ use super::{check_run_paths, content, store_output_bytes, Origin};
 use crate::neural::{failure, now, store, workspace, Result};
 mod receiving;
 mod launch;
+#[cfg(test)]
+mod input_tests;
 pub use receiving::Receiving;
 pub(in crate::neural) use receiving::{latest as latest_receiving_checks, publish as publish_receiving_check};
 pub(in crate::neural) use receiving::notice as receiving_notice;
@@ -36,7 +38,10 @@ pub struct Run {
     /// outputs name real project files. The default scratch tree stages exact files.
     #[serde(default, skip_serializing_if = "Directory::is_scratch")]
     pub directory: Directory,
-    /// Run a receiving check in fresh scratch with the exact exported file selection.
+    /// Run a receiving check in fresh scratch with only the exact exported file selection.
+    /// Do not combine with files, stdin or directory:workspace. For additional retained
+    /// inputs, omit receiving and use an ordinary scratch run, or include the needed
+    /// files in the issued assembly. Receiving does not implicitly load dependencies.
     /// A configured receiving toolchain resolves the selected program there.
     /// Otherwise this uses the local toolchain. The issuer receives the check receipt.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -90,7 +95,11 @@ impl Run {
     pub(in crate::neural) fn project_inputs(&self, db: &Connection) -> Result<BTreeMap<String, String>> {
         if let Some(subject) = &self.receiving {
             if self.directory != Directory::Scratch || !self.files.is_empty() || self.stdin.is_some() {
-                return Err(failure("A receiving check starts in scratch with only the issued files. Omit files and stdin."));
+                let mut conflicts = Vec::new();
+                if self.directory != Directory::Scratch { conflicts.push("directory:workspace"); }
+                if !self.files.is_empty() { conflicts.push("files"); }
+                if self.stdin.is_some() { conflicts.push("stdin"); }
+                return Err(failure(format!("A receiving check starts in scratch with only the issued files. Conflicting inputs: {}. Omit files and stdin and use directory:scratch. For additional retained inputs, omit receiving and use an ordinary scratch run, or include the needed files in the issued assembly. Dependencies are not loaded implicitly.", conflicts.join(", "))));
             }
             subject.files(db)
         } else {
