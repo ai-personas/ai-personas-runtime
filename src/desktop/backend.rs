@@ -703,12 +703,16 @@ impl Controller {
             .ok_or("This task is unavailable in the selected workspace.")?.clone();
         Ok((current, snapshot))
     }
+    fn invalidate_snapshot(&mut self) {
+        invalidate_snapshot_binding(
+            &mut self.snapshot_generation, &mut self.snapshot_digest,
+            &mut self.snapshot_pending, self.snapshot_job.is_some(),
+        );
+    }
     fn handle(&mut self, action: Action) -> Result<()> {
         // A snapshot started before an action must not overwrite its newer view
         // or control result. The read worker never owns the action queue.
-        self.snapshot_generation += 1;
-        self.snapshot_digest = None;
-        if self.snapshot_job.is_some() { self.snapshot_pending = true; }
+        self.invalidate_snapshot();
         if self.j.read_only {
             journal::require(matches!(&action,
                 Action::Refresh | Action::Select(_) | Action::SelectSession(_)
@@ -1317,6 +1321,9 @@ impl Controller {
         self.j.data.session = Some(s.clone());
         self.j.save()?;
         self.j.write("session-launch.json", &s.expected_launch)?;
+        // Intake may already have queued a read with no session or an old one.
+        // Discard that reply instead of comparing it with the new binding.
+        self.invalidate_snapshot();
         let mut args = vec![
             "run".into(),
             "--id".into(),
@@ -1520,6 +1527,47 @@ impl Controller {
         ready
     }
 }
+fn invalidate_snapshot_binding(
+    generation: &mut u64,
+    digest: &mut Option<String>,
+    pending: &mut bool,
+    active: bool,
+) {
+    *generation += 1;
+    *digest = None;
+    *pending |= active;
+}
+
+#[cfg(test)]
+mod snapshot_binding_tests {
+    use super::invalidate_snapshot_binding;
+
+    #[test]
+    fn session_start_supersedes_snapshot_queued_by_new_task() {
+        let mut generation = 1;
+        let queued_generation = generation;
+        let mut digest = Some("pre-session panels".into());
+        let mut pending = false;
+        invalidate_snapshot_binding(&mut generation, &mut digest, &mut pending, true);
+        assert_ne!(queued_generation, generation);
+        assert!(pending, "discarded reads must schedule replacement");
+        assert_eq!(digest, None);
+    }
+
+    #[test]
+    fn invalidation_preserves_pending_refresh_without_active_reader() {
+        let mut generation = 0;
+        let mut digest = None;
+        let mut pending = true;
+        invalidate_snapshot_binding(&mut generation, &mut digest, &mut pending, false);
+        assert!(pending);
+        assert_eq!(generation, 1);
+        pending = false;
+        invalidate_snapshot_binding(&mut generation, &mut digest, &mut pending, false);
+        assert!(!pending);
+    }
+}
+
 impl Drop for Controller {
     fn drop(&mut self) {
         if let Some((_, token)) = &self.snapshot_job {
