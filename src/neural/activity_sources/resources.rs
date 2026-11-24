@@ -1,5 +1,5 @@
 use super::{Moment, Page};
-use crate::neural::{accepted_choice::Choice, context, operations, store, tools, Result};
+use crate::neural::{accepted_choice::Choice, context, store, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::{
@@ -165,7 +165,7 @@ pub(in crate::neural) fn revision_step(
     if let Some((tool, result, seq)) = &writer {
         if tool == "asset.organize" {
             if rev == 1
-                || !verified_move(db, &body, &previous, &written, &call, &author, &work, *seq)
+                || !verified_move(db, &written, &call, &author, &work, *seq)
                     .unwrap_or(false)
             {
                 return Ok(None);
@@ -213,8 +213,6 @@ pub(in crate::neural) fn revision_step(
 
 fn verified_move(
     db: &Connection,
-    body: &Value,
-    previous: &str,
     written: &str,
     call: &str,
     author: &str,
@@ -222,25 +220,8 @@ fn verified_move(
     receipt: i64,
 ) -> Result<bool> {
     let choice = Choice::load(db, author, work, call)?;
-    let (op, _, seq) = choice.operation(db, "asset.organize", "reference", &json!(written))?;
-    let change: tools::AssetMetadata = serde_json::from_value(op.input)?;
-    if seq != receipt || change.reference != previous {
-        return Ok(false);
-    }
-    let mut expected = store::exact(db, previous)?.body;
-    if !expected.is_object() {
-        return Ok(false);
-    }
-    operations::apply_organization(&mut expected, previous, author, work, &change);
-    // The oldest catalog entries predate explicit organizer attribution.
-    if choice.accepted.snapshot.development_version < 2 {
-        for key in ["organized_by", "organized_in_work", "previous_revision"] {
-            if body.get(key).is_none() {
-                expected.as_object_mut().unwrap().remove(key);
-            }
-        }
-    }
-    Ok(&expected == body)
+    let (op, result, seq) = choice.operation(db, "asset.organize", "reference", &json!(written))?;
+    Ok(seq == receipt && choice.issued_alias(db, &op, &store::exact(db, written)?, &result)?)
 }
 
 pub(super) fn supplied(

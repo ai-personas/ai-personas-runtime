@@ -316,8 +316,8 @@ pub struct RequestWork {
     pub materials: Vec<SourceFile>,
 }
 impl RequestWork {
-    pub(super) fn retained_materials(&self, db: &rusqlite::Connection) -> super::Result<Vec<super::input_files::Material>> {
-        self.materials.iter().map(|file| super::input_files::Material::selected(db, &file.name, &file.reference)).collect()
+    pub(super) fn retained_materials(&self, db: &rusqlite::Connection, actor: Option<&str>) -> super::Result<Vec<super::input_files::Material>> {
+        self.materials.iter().map(|file| super::input_files::Material::selected(db, actor, &file.name, &file.reference)).collect()
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -442,7 +442,7 @@ pub const NAMES: &[(&str,&str)] = &[
     ("work.leave","Formally leave your accepted participation and stop. Unfinished owned outcomes become unowned, unanswered offers close, and pending effects are withdrawn. State any additional remaining duties. An ordinary stop preserves membership."),
     ("work.assume","Accept an exact currently unowned unfinished outcome in this activity. Only a participating volunteer can do this for themself."),
     ("work.handoff","Offer an exact unfinished outcome to another participant, withdraw your offer or answer an offer addressed to you. Responsibility transfers only on the recipient's accepted response."),
-    ("work.outcome","Record/update your intended outcome, exact artifacts, remaining work and dependencies. Authored assessment does not prove correctness."),
+    ("work.outcome","Record/update your intended outcome, exact artifacts, remaining work and dependencies. Returns the exact outcome revision, reusable here as $operation_id. Authored assessment does not prove correctness."),
     ("work.request","Originate a separate task or optional social conversation. Invitees choose whether to participate. Their replies and deliveries return to you in this activity. Wait for request_return for results, declines or departures, or request_status for membership decisions. Use work.respond to correspond."),
     ("work.requests","Trace a separate activity you originated here or the origin of this activity. Returns exact request, delivery and reply addresses. Choose a founding request to see its paginated correspondence."),
     ("work.sources","Trace exact files from other activities in your own earlier choices here. Inspect catalog rows, supplied byte ranges and images, executed tool inputs and issued package members."),

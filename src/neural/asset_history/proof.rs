@@ -41,7 +41,7 @@ pub(in crate::neural) fn matches_base(
 // A content write creates a new library record, even if its bytes equal the
 // previous version. The previous resource classification is inherited unless
 // the accepted operation supplies one.
-fn metadata(
+pub(in crate::neural) fn metadata(
     db: &Connection,
     source: &store::Record,
     op: &Operation,
@@ -104,12 +104,7 @@ pub(in crate::neural) fn verified_source(
             choice.operation(db, tool, "reference", &json!(asset.content_revision))?;
         return Ok(Some(seq) == asset.write_receipt
             && result["bytes"] == size
-            && source
-                .body
-                .get("origin_operation")
-                .is_none_or(|id| id == &op.id)
-            && choice.issued_alias(&op, &source, &result)?
-            && metadata(db, &source, &op, snapshot.development_version)?);
+            && choice.issued_alias(db, &op, &source, &result)?);
     }
     // The host file read completes after adoption. Bind the actual outbox
     // operation and its returned reference to the authored import.
@@ -143,7 +138,7 @@ pub(in crate::neural) fn verified_source(
             return Ok(false);
         };
         let (op, receipt, _) = choice.operation(db, prior_tool, "reference", &json!(base))?;
-        if op.id != alias || !choice.issued_alias(&op, &store::exact(db, base)?, &receipt)? {
+        if op.id != alias || !choice.issued_alias(db, &op, &store::exact(db, base)?, &receipt)? {
             return Ok(false);
         }
         aliases.insert(alias.to_owned(), base.to_owned());

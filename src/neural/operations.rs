@@ -1,5 +1,6 @@
 //! Atomic adoption and internal effects. External effects are durable outbox
 //! entries; their results are never assumed while accepting a decision.
+pub(super) mod outcome;
 use super::{
     context::{self, Snapshot},
     failure, id, now,
@@ -183,7 +184,7 @@ pub(super) fn resolve_operation(op: &mut Operation, aliases: &BTreeMap<String, S
     Ok(())
 }
 pub(super) fn returns_alias(tool: &str) -> bool {
-    matches!(tool, "asset.save" | "asset.register" | "asset.organize" | "relationship.record" | "relationship.retire" | "result.review" | "result.deliver" | "human.request" | "human.issue_packet" | "human.withdraw" | "work.propose_agreement" | "work.agreement_position")
+    matches!(tool, "asset.save" | "asset.register" | "asset.organize" | "work.outcome" | "relationship.record" | "relationship.retire" | "result.review" | "result.deliver" | "human.request" | "human.issue_packet" | "human.withdraw" | "work.propose_agreement" | "work.agreement_position")
 }
 
 pub(super) fn apply_organization(body: &mut Value, previous: &str, actor: &str, work: &str, change: &tools::AssetMetadata) {
@@ -655,56 +656,7 @@ fn internal(
         "work.leave" => super::membership::leave(db,snapshot,part,decode(input)?),
         "work.assume" => super::membership::assume(db,snapshot,part,decode(input)?),
         "work.handoff" => super::handoff::execute(db,snapshot,decode(input)?),
-        "work.outcome" => {
-            let x: tools::Outcome = decode(input)?;
-            check_references(db, &x.evidence)?;
-            for r in &x.artifacts {
-                if !r.starts_with("asset:") {
-                    return Err(failure(format!(
-                        "work.outcome.artifacts requires exact asset:id@revision references; {r:?} is not an asset reference. Put object receipts in evidence. Use artifacts=[] when no asset was produced."
-                    )));
-                }
-                store::exact(db, r).map_err(|error| {
-                    failure(format!(
-                        "Invalid work.outcome.artifacts reference {r:?}: {error}"
-                    ))
-                })?;
-            }
-            let (key, revision, prior) = match (&x.id, x.expected_revision) {
-                (None, None) => (id("outcome")?, 0, None),
-                (Some(key), Some(revision)) => {
-                    let old = store::required(db, "outcome", key)?;
-                    if old.body["owner"] != *actor || old.body["work"] != *work {
-                        return Err(failure("cannot change another persona's outcome"));
-                    }
-                    (key.clone(), revision, Some(old.body))
-                }
-                _ => {
-                    return Err(failure(
-                        "outcome update needs both id and expected_revision",
-                    ))
-                }
-            };
-            let mut body = serde_json::to_value(x)?;
-            body["owner"] = json!(actor);
-            body["work"] = json!(work);
-            body["original_author"]=prior.as_ref().and_then(|b|b.get("original_author").or(b.get("owner"))).cloned().unwrap_or_else(||json!(actor));
-            for field in ["accepted_handoff","accepted_responsibility","released_by_departure","released_by_dissolution"] {
-                if let Some(value)=prior.as_ref().and_then(|b|b.get(field)){body[field]=value.clone();}
-            }
-            if prior.is_some() { body["prior_outcome"]=json!(format!("outcome:{key}@{revision}")); }
-            let r = store::write(db, "outcome", &key, revision, &body, Some(call))?;
-            store::event(
-                db,
-                work,
-                actor,
-                "*",
-                "outcome_changed",
-                &json!({"reference":r.handle(),"description":body["description"],"state":body["state"]}),
-                Some(call),
-            )?;
-            Ok(json!({"reference":r.handle()}))
-        }
+        "work.outcome" => outcome::record(db, snapshot, &operation.id, decode(input)?),
         "human.requests" => super::human_requests::register::list(db, &snapshot.work, decode(input)?),
         "human.request" => super::human_requests::create(db,snapshot,decode(input)?),
         "human.issue_packet" => super::human_requests::issue_packet(db,snapshot,decode(input)?),
@@ -779,7 +731,7 @@ fn internal(
         "work.respond" => super::activity_requests::respond(db,snapshot,decode(input)?),
         "work.request" => {
             let x: tools::RequestWork = decode(input)?;
-            let materials = x.retained_materials(db)?;
+            let materials = x.retained_materials(db, Some(actor))?;
             let mut result = create_activity(db, x.kind, x.need, &x.invitees, actor, Some(call), materials, x.from_edition)?;
             result["returns"] = json!({"activity":work,"recipient":actor,"on_events":["request_return"],
                 "correspond":"work.respond","history":"work.requests"});

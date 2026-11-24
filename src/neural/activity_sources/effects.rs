@@ -1,6 +1,6 @@
 use super::{resources::Catalog, Moment, Page};
 use crate::neural::{
-    commands, context, failure, geometry, html_print, operations, protocol::Operation,
+    accepted_choice::Choice, commands, context, failure, geometry, html_print, operations, protocol::Operation,
     provider_evidence::Accepted, store, workspace, Result,
 };
 use rusqlite::{params, Connection, OptionalExtension};
@@ -48,7 +48,8 @@ pub(super) fn receipts(
         ) else {
             continue;
         };
-        if !external(tool) && !operations::returns_alias(tool) {
+        if (!external(tool) && !operations::returns_alias(tool))
+            || (body["effect"].is_null() && body["context"] != "complete") {
             continue;
         }
         let entry = Receipt {
@@ -103,11 +104,11 @@ pub(super) fn observe(
             continue;
         };
         let result: Value = store::object(catalog.db, digest)?;
+        if operations::resolve_operation(&mut op, &aliases).is_err() {
+            page.unverified_receipts += 1;
+            continue;
+        }
         if external(&op.tool) || matches!(op.tool.as_str(), "result.deliver" | "human.request" | "human.issue_packet") {
-            if operations::resolve_operation(&mut op, &aliases).is_err() {
-                page.unverified_receipts += 1;
-                continue;
-            }
             let moment = Moment {
                 snapshot,
                 created: event.created,
@@ -162,6 +163,14 @@ pub(super) fn observe(
         }
         if operations::returns_alias(&op.tool) && event.effect.is_none() {
             if let Some(reference) = result["reference"].as_str() {
+                if matches!(op.tool.as_str(), "asset.save" | "asset.register" | "asset.organize" | "work.outcome") {
+                    let record = store::exact(catalog.db, reference)?;
+                    if !Choice::matches_edition(catalog.db, snapshot, &op, &record, &result)? {
+                        // Do not use the address for later operations. Absence
+                        // of an alias is not itself a failed external effect.
+                        continue;
+                    }
+                }
                 aliases.insert(op.id, reference.into());
             }
         }

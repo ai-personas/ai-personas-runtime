@@ -1,6 +1,6 @@
 //! A supplied filename and its immutable bytes travel together in operator
 //! requests. Only that manifest is recorded in the activity or shown in context.
-use super::{failure, store, workspace, Result};
+use super::{context, failure, store, Result};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -32,17 +32,16 @@ impl Material {
         }
     }
 
-    pub(super) fn selected(db: &Connection, name: &str, reference: &str) -> Result<Self> {
+    pub(super) fn selected(db: &Connection, actor: Option<&str>, name: &str, reference: &str) -> Result<Self> {
         if name.is_empty() || name.contains(['/', '\\', '\0']) || matches!(name, "." | "..") {
             return Err(failure("Supply a filename for this source"));
         }
-        let digest = workspace::byte_digest(db, reference)?;
-        let len = super::provider_evidence::resource_bytes(db, &digest)?.len();
+        let source = context::byte_resource_for(db, actor, reference)?;
         Ok(Self::new(
             name.into(),
-            len,
-            digest,
-            reference.starts_with("asset:").then(|| reference.into()),
+            source.bytes.len(),
+            source.digest,
+            source.asset.map(|_| reference.into()),
         ))
     }
 }

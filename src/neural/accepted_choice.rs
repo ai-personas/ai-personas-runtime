@@ -27,50 +27,51 @@ pub(super) fn matches_document_effect(
         return Ok(false);
     }
     let mut aliases = BTreeMap::new();
+    let mut issued = None;
     let files = op.input["resources"]
         .as_array()
         .into_iter()
         .flatten()
-        .map(|f| &f["reference"]);
-    let references = std::iter::once(&op.input["reference"]).chain(files);
-    for alias in references.filter_map(|r| r.as_str()?.strip_prefix('$')) {
+        .enumerate()
+        .map(|(n, f)| {
+            (
+                &f["reference"],
+                &queued["input"]["resources"][n]["reference"],
+            )
+        });
+    let references =
+        std::iter::once((&op.input["reference"], &queued["input"]["reference"])).chain(files);
+    for (source, actual) in references {
+        let Some(alias) = source.as_str().and_then(|s| s.strip_prefix('$')) else {
+            continue;
+        };
         if aliases.contains_key(alias) {
             continue;
         }
+        let Some(reference) = actual.as_str().filter(|r| r.starts_with("asset:")) else {
+            return Ok(false);
+        };
         let mut earlier = ops[..ordinal].iter().filter(|o| o["id"] == alias);
-        let Some(tool) = earlier
-            .next()
-            .and_then(|o| o["tool"].as_str())
-            .filter(|t| operations::returns_alias(t))
+        let Some(tool @ ("asset.save" | "asset.register" | "asset.organize")) =
+            earlier.next().and_then(|o| o["tool"].as_str())
         else {
             return Ok(false);
         };
         if earlier.next().is_some() {
             return Ok(false);
         }
-        let s = &accepted.snapshot;
-        let mut stmt = db.prepare_cached("SELECT e.digest FROM events e JOIN objects o ON o.digest=e.digest
-            WHERE e.invocation=?1 AND e.work=?2 AND e.actor=?3 AND e.target=e.actor AND e.kind='tool_result'
-              AND e.seq<?4 AND json_extract(CAST(o.bytes AS TEXT),'$.operation')=?5 AND json_extract(CAST(o.bytes AS TEXT),'$.tool')=?6
-              AND json_type(CAST(o.bytes AS TEXT),'$.effect') IS NULL")?;
-        let mut rows = stmt.query(params![s.invocation, s.work, s.actor, event, alias, tool])?;
-        let Some(row) = rows.next()? else {
-            return Ok(false);
-        };
-        let body: Value = store::object(db, &row.get::<_, String>(0)?)?;
-        if rows.next()?.is_some() {
+        if issued.is_none() {
+            let s = &accepted.snapshot;
+            issued = Some(Choice::recorded(db, &s.actor, &s.invocation)?);
+        }
+        let choice = issued.as_ref().unwrap();
+        let (writer, receipt, seq) = choice.operation(db, tool, "reference", actual)?;
+        if seq >= event
+            || writer.id != alias
+            || !choice.issued_alias(db, &writer, &store::exact(db, reference)?, &receipt)?
+        {
             return Ok(false);
         }
-        let Some(id) = body["result"]
-            .as_str()
-            .and_then(|r| r.strip_prefix("object:"))
-        else {
-            return Ok(false);
-        };
-        let result: Value = store::object(db, id)?;
-        let Some(reference) = result["reference"].as_str() else {
-            return Ok(false);
-        };
         aliases.insert(alias.to_owned(), reference.to_owned());
     }
     Ok(operations::resolve_operation(&mut op, &aliases).is_ok()
@@ -85,13 +86,22 @@ pub(super) struct Choice {
 
 impl Choice {
     pub(super) fn load(db: &Connection, owner: &str, work: &str, call: &str) -> Result<Self> {
-        let accepted = provider_evidence::accepted(db, owner, call, true)?;
-        let s = &accepted.snapshot;
+        let choice = Self::recorded(db, owner, call)?;
+        let s = &choice.accepted.snapshot;
         if s.work != work || s.model.is_none() || !s.data["context_recovery"].is_null() {
             return Err(failure(
                 "This action has no accepted ordinary decision in the request’s activity",
             ));
         }
+        Ok(choice)
+    }
+
+    /// An issued-edition check can also inspect actions taken during context
+    /// recovery; their materials come from operations, not inferred reads.
+    pub(super) fn recorded(db: &Connection, owner: &str, call: &str) -> Result<Self> {
+        let accepted = provider_evidence::accepted(db, owner, call, true)?;
+        let s = &accepted.snapshot;
+        let work = s.work.as_str();
         let mut first = s.observation_through.unwrap_or(s.cursor);
         let mut last = None;
         if s.development_version >= 2 || store::head(db, "decision_effects", call)?.is_some() {
@@ -213,14 +223,7 @@ impl Choice {
             if operations::returns_alias(&op.tool) {
                 if let Some(reference) = result["reference"].as_str() {
                     let record = store::exact(db, reference)?;
-                    if record.reference.handle() == reference
-                        && store::written_by(db, &record, &s.invocation)?
-                        && record
-                            .body
-                            .get("origin_operation")
-                            .is_none_or(|id| id == &op.id)
-                        && self.issued_alias(&op, &record, &result)?
-                    {
+                    if self.issued_alias(db, &op, &record, &result)? {
                         aliases.insert(op.id, reference.to_owned());
                     }
                 }
@@ -233,11 +236,26 @@ impl Choice {
 
     pub(super) fn issued_alias(
         &self,
+        db: &Connection,
         op: &Operation,
         record: &store::Record,
         result: &Value,
     ) -> Result<bool> {
-        let snapshot = &self.accepted.snapshot;
+        Self::matches_edition(db, &self.accepted.snapshot, op, record, result)
+    }
+
+    pub(super) fn matches_edition(
+        db: &Connection,
+        snapshot: &super::context::Snapshot,
+        op: &Operation,
+        record: &store::Record,
+        result: &Value,
+    ) -> Result<bool> {
+        if result["reference"] != record.reference.handle()
+            || !store::written_by(db, record, &snapshot.invocation)?
+        {
+            return Ok(false);
+        }
         let b = &record.body;
         Ok(match op.tool.as_str() {
             "asset.save" | "asset.register" => {
@@ -255,20 +273,58 @@ impl Choice {
                         .and_then(|r| r.strip_prefix("object:"))
                         .map(str::to_owned)
                 };
+                let Some(blob) = blob else { return Ok(false) };
                 record.reference.kind == "asset"
                     && b["owner"] == snapshot.actor
+                    && b["work"] == snapshot.work
+                    && b["origin_decision"] == snapshot.invocation
+                    && b["origin_operation"] == op.id
+                    && b["last_content_author"] == snapshot.actor
+                    && b["created_by"].is_string()
                     && b["path"] == op.input["path"]
-                    && super::asset_history::proof::matches_base(
-                        record,
-                        &op.input["base"],
-                        snapshot.development_version,
-                    )
                     && b["qualifications"] == op.input["qualifications"]
                     && b["cues"] == op.input["cues"]
-                    && blob
-                        .as_deref()
-                        .is_some_and(|digest| b["blob"] == digest && result["blob"] == digest)
+                    && b["blob"] == blob
+                    && result["blob"] == blob
+                    && result["bytes"].as_i64()
+                        == Some(db.query_row(
+                            "SELECT length(bytes) FROM objects WHERE digest=?1",
+                            [&blob],
+                            |r| r.get(0),
+                        )?)
+                    && super::asset_history::proof::metadata(
+                        db,
+                        record,
+                        op,
+                        snapshot.development_version,
+                    )?
             }
+            "asset.organize" => {
+                let r = &record.reference;
+                if r.kind != "asset" || r.revision <= 1 {
+                    return Ok(false);
+                }
+                let previous = format!("asset:{}@{}", r.id, r.revision - 1);
+                let change: tools::AssetMetadata = serde_json::from_value(op.input.clone())?;
+                if change.reference != previous {
+                    return Ok(false);
+                }
+                let mut expected = store::exact(db, &previous)?.body;
+                if !expected.is_object() {
+                    return Ok(false);
+                }
+                // origin_operation belongs to the last *content* write. The
+                // organizer must preserve it, even within that same call.
+                operations::apply_organization(
+                    &mut expected,
+                    &previous,
+                    &snapshot.actor,
+                    &snapshot.work,
+                    &change,
+                );
+                expected == *b
+            }
+            "work.outcome" => operations::outcome::matches(db, snapshot, op, record)?,
             "result.deliver" => {
                 let declared: tools::Deliver = serde_json::from_value(op.input.clone())?;
                 declared.validate_dispatches()?;
