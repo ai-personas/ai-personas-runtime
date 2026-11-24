@@ -81,6 +81,27 @@ pub(super) fn show(ui: &mut Ui, app: &App, event: i64, report: &Value) -> Option
             }
         });
     }
+    if let Some(arrivals) = report["sending_window"]["from_recipient_before_send"]
+        .as_array()
+        .filter(|a| !a.is_empty())
+    {
+        ui.separator();
+        ui.strong("Messages crossed");
+        ui.label(format!("{} wrote to {} after {}’s input was frozen, but before this message was posted. This send could not be a response to the following:", app.label(to), app.label(from), app.label(from)));
+        ui.horizontal_wrapped(|ui| {
+            for message in arrivals {
+                if let Some(n) = message["event"].as_i64() {
+                    if ui
+                        .link(format!("{} · #{n}", app.label(to)))
+                        .on_hover_text("Open this peer exchange")
+                        .clicked()
+                    {
+                        action = Some(Action::Follow(n));
+                    }
+                }
+            }
+        });
+    }
     ui.separator();
     ui.strong(format!("On {}’s desk", app.label(to)));
     let read = &report["received"];

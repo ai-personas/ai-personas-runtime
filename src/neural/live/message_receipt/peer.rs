@@ -2,7 +2,7 @@
 use super::{supplied, Event};
 use crate::neural::{
     accepted_choice::Choice, context::Snapshot, development::deliberation, experience::recall,
-    failure, operations, provider_evidence, tools, Result,
+    failure, operations, peer_timing, provider_evidence, tools, Result,
 };
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
@@ -185,7 +185,28 @@ fn direct(db: &Connection, event: &Event, parent: &Event, handle: &str) -> Resul
 }
 
 pub(super) fn exchange(db: &Connection, event: &Event) -> Result<Value> {
-    let (_, sent) = published(db, event)?;
+    let (choice, sent) = published(db, event)?;
+    let s = &choice.accepted.snapshot;
+    let timing = peer_timing::before_send(
+        db,
+        &s.work,
+        &s.actor,
+        &event.target,
+        s.observation_through,
+        s.cursor,
+        event.seq,
+    )?
+    .map(|window| -> Result<Value> {
+        let mut arrivals = Vec::new();
+        for seq in window.arrivals {
+            let earlier =
+                Event::get(db, seq)?.ok_or_else(|| failure("Missing reciprocal peer message"))?;
+            let (_, proof) = published(db, &earlier)?;
+            arrivals.push(json!({"event":seq,"message":earlier.reference(),"sent":proof}));
+        }
+        Ok(json!({"input_through":window.input_through,"from_recipient_before_send":arrivals}))
+    })
+    .transpose()?;
     let handle = event.reference();
     let (received, gaps) = first_receipt(db, event, &handle)?;
     // Only reciprocal, explicitly threaded peer.message operations in this
@@ -215,7 +236,7 @@ pub(super) fn exchange(db: &Connection, event: &Event) -> Result<Value> {
     Ok(
         json!({"kind":"peer_exchange","work":event.work,"message":handle,"sent_at":event.created,
         "sender":event.actor,"recipient":event.target,"text":event.body["text"],"references":event.body["references"],
-        "sent":sent,"received":received,"replies":replies,"unverified_inputs":gaps,"unverified_replies":unverified,
+        "sent":sent,"sending_window":timing,"received":received,"replies":replies,"unverified_inputs":gaps,"unverified_replies":unverified,
         "through_event":db.query_row("SELECT max(seq) FROM events",[],|r|r.get::<_,i64>(0))?}),
     )
 }

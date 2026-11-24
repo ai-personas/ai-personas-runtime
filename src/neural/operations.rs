@@ -650,7 +650,12 @@ fn internal(
             let notice = requester.map(|o| super::activity_requests::return_to_parent(
                 db, snapshot, o, event, "request_reply", &serde_json::to_value(&x)?,
             )).transpose()?;
-            Ok(json!({"event":event,"returned_to_requester":notice,"delivered_to_inbox":true,"read_or_accepted":false}))
+            let mut receipt = json!({"event":event,"returned_to_requester":notice,"delivered_to_inbox":true,"read_or_accepted":false});
+            if let Some(cue) = super::peer_timing::before_send(db, work, actor, &x.to,
+                snapshot.observation_through, snapshot.cursor, event)?.and_then(|w| w.cue()) {
+                receipt["from_recipient_after_your_input"] = cue;
+            }
+            Ok(receipt)
         }
         "work.agreements" => super::agreements::inspect(db, work, &super::relationships::Contact::persona(actor), &decode(input)?),
         "work.propose_agreement" => super::agreements::propose(db, work, super::agreements::Author::Participant(snapshot), &decode(input)?),
