@@ -171,7 +171,12 @@ fn human_report(
     let b = event.body(db)?;
     let actor = &event.author;
     let report = &current["last_report"];
+    let contribution = report.get("action").is_some() || b.get("action").is_some();
+    if contribution && (event.kind != "user_message" || !super::contribution_matches(prior, current, &b)) {
+        return Ok(None);
+    }
     let action = match (prior["state"].as_str(), current["state"].as_str()) {
+        _ if contribution => "contribute",
         (Some("open"), Some("in_progress")) => "take",
         (Some("in_progress"), Some("open")) => "release",
         (Some("in_progress"), Some("in_progress")) => "update",
@@ -179,16 +184,14 @@ fn human_report(
         (Some("open" | "in_progress"), Some("unable")) => "unable",
         _ => return Ok(None),
     };
-    if (prior["state"] == "in_progress" && prior["claimed_by"] != *actor)
+    if (!contribution && prior["state"] == "in_progress" && prior["claimed_by"] != *actor)
         || (action == "release" && !current["claimed_by"].is_null())
-        || (action != "release" && current["claimed_by"] != *actor)
+        || (!contribution && action != "release" && current["claimed_by"] != *actor)
         || b["human_request"] != reference
         || b["title"] != current["title"]
         || b["state"] != current["state"]
         || report["human"] != *actor
-        || !report["text"]
-            .as_str()
-            .is_some_and(|t| !t.trim().is_empty())
+        || (!contribution && !report["text"].as_str().is_some_and(|t| !t.trim().is_empty()))
         || b["text"] != report["text"]
         || b["attachments"] != report["attachments"]
         || b.get("field_report") != report.get("field_report")

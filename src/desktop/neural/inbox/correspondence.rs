@@ -256,6 +256,7 @@ impl App {
         let (label, color) = match (kind, s(row, "action")) {
             ("human_progress" | "human_report", "take") => ("Request taken", p.muted),
             ("human_progress" | "human_report", "release") => ("Request released", p.muted),
+            ("human_report", "contribute") => ("Contributor observation", TEAL),
             ("human_report", "complete") => ("Reported complete", theme::GREEN),
             ("human_report", "unable") => ("Reported unable", theme::ACCENT),
             ("human_report", _) => ("Progress report", PURPLE),

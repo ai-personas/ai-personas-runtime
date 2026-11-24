@@ -167,6 +167,13 @@ pub enum Command {
         #[serde(flatten)]
         page: super::intake::Page,
     },
+    /// List the outside steps already requested in one activity, without contacting anyone.
+    OutsideSteps {
+        work: String,
+        #[command(flatten)]
+        #[serde(flatten)]
+        query: super::human_requests::Lookup,
+    },
     /// Respond to an exact request for human action. Only a reported completion closes it as completed.
     HumanRespond {
         request: String,
@@ -638,6 +645,10 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
             match command {
                 Command::Status=>store.status(),
                 Command::RunnerStatus=>store.snapshot(|db|Ok(serde_json::to_value(super::live::observe_runner(root,db))?)),
+                Command::OutsideSteps{work,query}=>store.snapshot(|db| {
+                    store::required(db,"work",&work)?;
+                    super::human_requests::register::list(db,&work,query)
+                }),
                 Command::ActivityTree{work}=>store.snapshot(|db|super::activity_tree::describe(db,&work)),
                 Command::MessageReceipt{event}=>store.snapshot(|db|super::live::message_receipt(db,event)),
                 Command::FileHistory{reference,offset,page_size}=>store.snapshot(|db|super::asset_history::history(db,&reference,offset,page_size)),

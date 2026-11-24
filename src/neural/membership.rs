@@ -486,9 +486,12 @@ pub fn responsibilities(db: &Connection, work: &str) -> Result<Value> {
         members.push(json!({"actor":actor,"label":store::required(db,"persona",actor)?.body["label"],"state":state,"participation":p.reference.handle(),"continuation":p.body["continuation"],"pending_resume":p.body["pending_resume"],
             "current_commitment":context::commitment(db,work,actor)?,"departure":p.body["departure"],"closed_by_activity":p.body["closed_by_activity"]}));
     }
+    let outside_steps = store::in_work(db, "human_request", work)?.into_iter().map(|r| {
+        super::human_requests::register::summary(r.reference.handle(), &r.body)
+    }).collect::<Vec<_>>();
     Ok(
         json!({"work":work,"brief":activity.reference.handle(),"phase":activity.body["phase"],
-        "dissolutions":closures,"members":members,"outcomes":outcomes,"ownership":ownership,
+        "brief_requester":activity.body["requester"],"outside_steps":outside_steps,"dissolutions":closures,"members":members,"outcomes":outcomes,"ownership":ownership,
         "offers":handoff::offers(db,Some(work))?,"departures":store::in_work(db,"departure",work)?,
         "responsibility_acceptances":store::in_work(db,"responsibility_acceptance",work)?,
         "unsettled_effects":unsettled(db,work,None)?,"open_jobs":open_jobs(db,work)?,"unsettled_inference":unsettled_inference(db,work)?}),

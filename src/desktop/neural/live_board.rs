@@ -743,7 +743,7 @@ impl App {
                 .color(tint),
             |ui| {
                 if requests.is_empty() {
-                    ui.weak("No open requests in this activity.");
+                    ui.weak("No active outside steps in this activity.");
                 }
                 for request in &requests {
                     let body = &request["body"];

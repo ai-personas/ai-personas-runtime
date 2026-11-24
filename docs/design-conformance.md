@@ -88,6 +88,14 @@ Eleven disconnected checks exercised chosen times, addressed and broadcast event
 
 ## Autonomous work and human requests
 
+### Four personas, two deliveries, one outside step
+
+Aster, Bryn, Cleo and Devon were created in native Studio and invited to two jobs. Each job received one brief and no further operator task input. The exported service-tag PDF rendered as a black-and-white A4 sheet with four nonoverlapping 90 × 55 mm tags, the four requested names and blank date and initials lines. Aster issued the PDF; Devon separately requested a volunteer to print and cut it. Leaving that request unanswered did not prevent delivery.
+
+In a copy, **Bench volunteer** took the outside step. **Print verifier** sent a digital measurement and the preflight file from another Studio window. The request stayed in progress with Bench volunteer. On the next run Devon acknowledged the digital measurement without claiming that paper had been printed or cut. The correspondence verified one claim, one contributor report and one reply.
+
+For the second job the same four personas issued a laser-shop faceplate DXF. The unedited export opened in ezdxf without repairs and extruded in CadQuery as one valid 60 × 60 × 2 mm solid. Four Ø3.4 mm holes matched the 32 mm mounting pattern. Nineteen Ø5 mm vents gave 36.65% open area in the specified Ø36 mm circle; the minimum web was 2.10 mm. Across the two original jobs, 39 and 32 accepted decisions respectively matched their frozen prompt hashes and final `gpt-6.1-sol` outputs through Codex OAuth. One separate network failure was followed by fresh inference. The check establishes digital geometry and handoff, not shop acceptance, fabrication or beneficial character maturation.
+
 ### Following an older sheet to the next shop
 
 A volunteer asked Inez for space to record who answered a quote enquiry, the price and the decisions still open. Inez retrieved Rowan’s 6,842-byte quote handoff. She kept it intact, wrote a separate editable HTML response form and issued the two files together. The volunteer then asked Rowan which paperwork to take to the next shop. He independently retrieved both complete sheets, wrote a guide referencing those exact versions and issued all three files. Each persona received one human invitation and chose to stop. Inez used eight accepted decisions and Rowan used 22. Both kept their numerical models.

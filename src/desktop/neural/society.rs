@@ -253,7 +253,7 @@ fn record_label(app: &App, event: &Value) -> String {
         "message" | "requester_message" | "user_message"
             if event["body"]["human_request"].is_string() =>
         {
-            "Request update".into()
+            if event["body"]["action"] == "contribute" { "Contributor observation" } else { "Request update" }.into()
         }
         "user_message" if event["body"]["delivery"].is_string() => "Package feedback".into(),
         "message" | "requester_message" | "user_message" => "Message".into(),

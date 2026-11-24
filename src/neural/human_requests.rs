@@ -11,6 +11,8 @@ mod package;
 pub use package::{export_dispatch, export_handoff, export_package, HandoffFormat};
 mod correspondence;
 pub use correspondence::correspondence;
+pub(crate) mod register;
+pub use register::Lookup;
 mod field_report;
 pub use field_report::{FieldReport, ReturnForm};
 
@@ -208,6 +210,8 @@ pub(super) fn create(db: &Connection, snapshot: &Snapshot, request: Request) -> 
 #[derive(Clone, Copy, Debug, clap::ValueEnum, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Response {
+    /// Send evidence without taking, releasing or closing the outside step.
+    Contribute,
     Take,
     Release,
     Update,
@@ -262,6 +266,25 @@ pub(super) fn newer_report(trigger: &str, reported: &str) -> bool {
         && basis.parse::<i64>().ok().zip(revision.parse::<i64>().ok())
             .is_some_and(|(basis, next)| next > basis)
 }
+
+/// Bind a contributor's note to the unchanged responsibility on both editions.
+/// An ordinary owner update can also be in_progress → in_progress; the state
+/// transition alone cannot distinguish these two actions.
+pub(super) fn contribution_matches(prior: &Value, current: &Value, notice: &Value) -> bool {
+    let owner = prior.get("claimed_by");
+    let active = match prior["state"].as_str() {
+        Some("open") => owner == Some(&Value::Null),
+        Some("in_progress") => owner.and_then(Value::as_str).is_some_and(|s| !s.trim().is_empty()),
+        _ => false,
+    };
+    let evidence = notice["attachments"].as_array().is_some_and(|a| !a.is_empty());
+    active && same_issue(prior, current)
+        && notice["text"].as_str().is_some_and(|s| evidence || !s.trim().is_empty())
+        && prior["state"] == current["state"] && notice["state"] == current["state"]
+        && owner == current.get("claimed_by") && owner == notice.get("claimed_by")
+        && notice["action"] == "contribute" && current["last_report"]["action"] == "contribute"
+}
+
 fn same_issue(a: &Value, b: &Value) -> bool {
     [
         "work",
@@ -300,12 +323,13 @@ pub(super) fn respond(
     if !matches!(state, "open" | "in_progress") {
         return Err(failure("This request is closed"));
     }
-    if state == "in_progress" && record.body["claimed_by"] != operator {
-        return Err(failure(
-            "The human who took this request owns its next update",
-        ));
+    let contribution = matches!(response, Response::Contribute);
+    if state == "in_progress" && record.body["claimed_by"] != operator && !contribution {
+        return Err(failure("Only the human who took this request can change its status. Use contribute to send an observation without changing ownership."));
     }
     let (next, default_note) = match response {
+        Response::Contribute if !note.trim().is_empty() || !files.captured().is_empty() => (state, ""),
+        Response::Contribute => return Err(failure("Write an observation or attach evidence to contribute")),
         Response::Take if state == "open" => ("in_progress", "I took this request."),
         Response::Release if state == "in_progress" => {
             ("open", "I returned this request to the inbox.")
@@ -324,22 +348,24 @@ pub(super) fn respond(
             ))
         }
     };
+    let next = next.to_owned();
     let field_source = field_report.receipt(db, &record, files.captured())?;
     let mut body = record.body;
     let attachments = files.retain(db)?;
-    let text = if note.trim().is_empty() {
+    let text = if note.trim().is_empty() && !default_note.is_empty() {
         default_note
     } else {
         note
     };
-    body["claimed_by"] = if next == "open" {
-        Value::Null
-    } else {
-        json!(operator)
-    };
+    if !contribution {
+        body["claimed_by"] = if next == "open" { Value::Null } else { json!(operator) };
+    }
     body["state"] = json!(next);
     body["updated"] = json!(now());
     body["last_report"] = json!({"human":operator,"text":text,"attachments":attachments});
+    if contribution {
+        body["last_report"]["action"] = json!("contribute");
+    }
     if let Some(source) = field_source {
         body["last_report"]["field_report"] = source;
     }
@@ -365,6 +391,10 @@ pub(super) fn respond(
     )?;
     let mut notice = json!({"text":text,"human_request":updated.handle(),"reply_to":format!("experience:event-{source}@1"),
         "title":body["title"],"state":next,"attachments":attachments});
+    if contribution {
+        notice["action"] = json!("contribute");
+        notice["claimed_by"] = body["claimed_by"].clone();
+    }
     if let Some(report) = body["last_report"].get("field_report") {
         notice["field_report"] = report.clone();
     }

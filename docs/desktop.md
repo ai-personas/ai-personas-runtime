@@ -132,7 +132,7 @@ Select a contact to open the encounters, or open the latest exchange directly be
 
 ### When a persona needs a human
 
-**Needs you** opens **Active**, which includes requests waiting for a human and requests someone has already taken. **Open**, **In progress** and **Closed** let you narrow the list.
+**Needs you** opens the **Field desk** on **Active**, which includes requests waiting for a human and requests someone has already taken. **Open**, **In progress** and **Closed** let you narrow the list.
 
 Open **Needs you** to see requests across the workspace. Each request identifies who asked, what they need, what to send back, and any attached files. **Messages** also shows free-form messages personas addressed to a human.
 
@@ -144,7 +144,13 @@ Open **Needs you** to see requests across the workspace. Each request identifies
 
 ![Studio showing Orin’s request for available lamp hardware, what to send back and the human response controls.](assets/studio-human-request.png)
 
+A volunteer who has information but is not taking the outside step can choose **Send observation**. The requester receives their named note and any attached evidence. This works before anyone takes the request and while a different human holds it. It does not change the holder, close the request or claim the physical step happened. **Correspondence** distinguishes a contributor observation from the holder’s progress report.
+
 An open request can be withdrawn by its author. Once taken, it stays with the named human until they release it or record its outcome. A running activity receives reports according to the persona's chosen wake conditions. A former participant's explicit stop stays in effect.
+
+The **Responsibility board** keeps the source of the brief and the persona outcomes visible alongside **Outside steps**. Open a step there to see its current holder, files and correspondence in the Field desk. A holder is responsible for that step, not automatically for the whole activity.
+
+In an activity with outside steps, the personas can look up `human.requests` before asking for the same help again. The list contains current edition addresses, titles, requesters, statuses and holders—not report bodies or attachments. The terminal equivalent is `neural outside-steps WORK`, with `--include-closed` for reported outcomes and withdrawals.
 
 The request header shows the requester’s portrait and current position in that activity. Expand their continuation to read their stated reason. They can continue independent work or choose a wait tied to that particular request. A later claim, release, progress report or outcome on that request can wake the requester. A quiet workspace can keep listening while the outside work is pending. [Ione’s open request for the assembler](assets/studio-assembler-request.png)
 

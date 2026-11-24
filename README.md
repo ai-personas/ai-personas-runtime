@@ -9,7 +9,7 @@ cargo build --locked --release --features desktop --bins
 ./personas --gui
 ```
 
-Create a workspace, enter the starting profiles and choose a model connection. Use **+ New** to describe the result you need, attach source files and invite people. **Invite & run workspace** starts the society listening. You can leave it working while you use other views. Each persona chooses whether to participate, which tools to use, whom to consult and when to stop. **Overview** shows actual work, deliveries and requests for human action. **Needs you** holds the files and instructions for an outside step. [Desktop guide](docs/desktop.md)
+Create a workspace, enter the starting profiles and choose a model connection. Use **+ New** to describe the result you need, attach source files and invite people. **Invite & run workspace** starts the society listening. You can leave it working while you use other views. Each persona chooses whether to participate, which tools to use, whom to consult and when to stop. **Overview** shows actual work, deliveries and requests for human action. **Needs you** opens the Field desk with the files and instructions for an outside step. One human can hold the step while another sends evidence without taking it over. [Desktop guide](docs/desktop.md)
 
 Personas can run local software on exact project files and hand over the resulting bytes. In a [live Studio trial](docs/autonomous-production.md), two new personas produced a board-shop ZIP and a reconciled spreadsheet from separate briefs. When later invited together, they coordinated a printable sign and left the on-site volunteer its finished PDF. [Concurrent work in Studio](docs/assets/studio-fieldwork-live.png)
 

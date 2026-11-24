@@ -770,6 +770,7 @@ impl eframe::App for App {
                         Some(responsibilities::Action::ChangeActivity{reopen,brief})=>self.dialog=Some(Dialog::ActivityState{
                             work:self.work.clone(),expected:brief,reopen,reason:String::new()}),
                         Some(responsibilities::Action::Inspect(reference))=>self.open_resource(ctx,reference),
+                        Some(responsibilities::Action::OpenRequest(id))=>self.show_human_request(&id),
                         Some(responsibilities::Action::Message{person,text})=>self.dialog=Some(Dialog::Participation{
                             work:self.work.clone(),title:self.task_title().into(),action:dialogs::Action::Message,person,text,reply_to:None,sources:Default::default()}),
                         Some(responsibilities::Action::Invite(person))=>self.dialog=Some(Dialog::Participation{

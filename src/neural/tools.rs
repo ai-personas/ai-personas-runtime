@@ -443,6 +443,7 @@ pub const NAMES: &[(&str,&str)] = &[
     ("result.reviews","Compare published package reviews with subject.delivery or a proposed subject.artifacts set. See matching and changed files, actual brief, evidence and whether each review existed at delivery. Optionally select a particular review."),
     ("result.deliver","Issue exact artifacts with supported use, evidence and remaining gaps. Optional dispatches tell each recipient which issued files to take and what to do with them; nothing is sent or ordered. Claimed completion is separate from user acceptance."),
     ("human.request","Ask a human for an action or observation outside the workspace. Name the action and what you need back. You can attach exact files or issued deliveries with their files, supported use and remaining work. Human reports arrive as user_message. Taking or releasing the request without a report produces human_request_progress. Stay ready while independent work remains. When you need this particular return, wait.on_events accepts its exact edition or the $id of this request."),
+    ("human.requests","Look up outside steps already requested by any persona in this activity. Lists current request editions, titles, requesters, status and human holders; set include_closed to see reported outcomes and withdrawals as well. Select an exact revision for instructions, attachments or its latest report. Listing does not send a reminder or change anyone's wait."),
     ("human.withdraw","Withdraw your own open request for human action by its exact current revision. A request already taken by a human must be discussed with that person."),
 ];
 
@@ -520,6 +521,7 @@ pub fn describe(name: &str) -> Result<Value> {
         "result.review" => schema::<super::package_review::Review>()?,
         "result.reviews" => schema::<super::package_review::Lookup>()?,
         "result.deliver" => schema::<Deliver>()?,
+        "human.requests" => schema::<super::human_requests::register::Lookup>()?,
         "human.request" => schema::<super::human_requests::Request>()?,
         "human.withdraw" => schema::<super::human_requests::Withdraw>()?,
         _ => return Err(failure("missing tool schema")),
@@ -620,6 +622,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
         "result.review" => parse::<super::package_review::Review>(value),
         "result.reviews" => parse::<super::package_review::Lookup>(value),
         "result.deliver" => parse::<Deliver>(value),
+        "human.requests" => parse::<super::human_requests::register::Lookup>(value),
         "human.request" => parse::<super::human_requests::Request>(value),
         "human.withdraw" => parse::<super::human_requests::Withdraw>(value),
         _ => Err(failure(format!("unknown tool {name}"))),

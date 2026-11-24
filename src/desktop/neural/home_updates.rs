@@ -467,6 +467,7 @@ impl App {
             ),
             Return => {
                 let verb = match (s(event, "kind"), s(body, "state")) {
+                    ("user_message", _) if body["action"] == "contribute" => "contributed an observation to",
                     ("human_request_progress", "in_progress") => "took a request from",
                     ("human_request_progress", "open") => "released a request from",
                     (_, "unable") => "reported a difficulty to",
