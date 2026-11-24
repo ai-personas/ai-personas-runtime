@@ -791,16 +791,7 @@ impl eframe::App for App {
             });
         self.file_history_window(ctx);
         self.print_preview_window(ctx);
-        if self.inspector_window {
-            let mut open = true;
-            egui::Window::new("Inspector")
-                .open(&mut open)
-                .default_width(330.)
-                .show(ctx, |ui| {
-                    egui::ScrollArea::vertical().show(ui, |ui| self.inspector(ui));
-                });
-            self.inspector_window = open;
-        }
+        self.show_inspector_window(ctx);
         let mut bench = std::mem::take(&mut self.command_bench);
         bench.window(ctx,self);
         self.command_bench = bench;

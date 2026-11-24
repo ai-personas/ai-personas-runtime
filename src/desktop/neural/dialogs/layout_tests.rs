@@ -31,6 +31,55 @@ fn settings_fit_after_zoom_and_viewport_changes() {
 }
 
 #[test]
+fn selected_person_inspector_fits_scaled_viewport() {
+    let directory = tempfile::tempdir().unwrap();
+    let ctx = egui::Context::default();
+    let mut app = App::new(&ctx, directory.path().to_path_buf(), None, "Reviewer".into());
+    app.persona = "persona-example".into();
+    app.snapshot.status = serde_json::json!({"personas":[{"body":{
+        "id":"persona-example", "label":"Mira", "lifecycle":"active",
+        "provider":{"model":"gpt-6.1-sol","effort":"high"}
+    }}]});
+    app.inspector_window = true;
+    for (pixels,scale) in [(egui::vec2(1440.,900.),1.), (egui::vec2(780.,560.),3.), (egui::vec2(900.,650.),3.)] {
+        theme::apply(&ctx, app.layout.dark, scale);
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO,pixels/scale);
+        for _ in 0..5 {
+            let _ = ctx.run(egui::RawInput { screen_rect:Some(screen), ..Default::default() }, |ctx| app.show_inspector_window(ctx));
+        }
+        let rect = ctx.memory(|m| m.area_rect(egui::Id::new("Inspector"))).unwrap();
+        assert!(rect.left()>=-1. && rect.right()<=screen.right()+1. && rect.top()>=-1. && rect.bottom()<=screen.bottom()+1.,
+            "Selected-person inspector must fit {screen:?}, got {rect:?}");
+        // The same inspector retains its scroll offset across zoom changes.
+        // Return to the beginning before scanning down for the control.
+        for _ in 0..5 {
+            let _ = ctx.run(egui::RawInput { screen_rect:Some(screen), events:vec![
+                egui::Event::PointerMoved(rect.center()),
+                egui::Event::MouseWheel { unit:egui::MouseWheelUnit::Point, delta:egui::vec2(0.,10000.), modifiers:Default::default() },
+            ], ..Default::default() }, |ctx| app.show_inspector_window(ctx));
+        }
+        let mut reasoning_reachable = false;
+        for _ in 0..25 {
+            let output = ctx.run(egui::RawInput { screen_rect:Some(screen), events:vec![
+                egui::Event::PointerMoved(rect.center()),
+                egui::Event::MouseWheel { unit:egui::MouseWheelUnit::Point, delta:egui::vec2(0.,-25.), modifiers:Default::default() },
+            ], ..Default::default() }, |ctx| app.show_inspector_window(ctx));
+            reasoning_reachable |= output.shapes.iter().any(|shape| match &shape.shape {
+                egui::epaint::Shape::Text(text) if text.galley.text()=="Change reasoning settings…" => {
+                    let bounds=text.galley.rect.translate(text.pos.to_vec2());
+                    shape.clip_rect.contains_rect(bounds) && screen.contains_rect(bounds)
+                },
+                _ => false,
+            });
+        }
+        assert!(reasoning_reachable,"Reasoning controls must be scroll-reachable at {scale}x");
+        assert!(app.inspector_window);
+        assert_eq!(app.persona,"persona-example");
+        assert!(app.dialog.is_none(), "Layout must not open a configuration action");
+    }
+}
+
+#[test]
 fn action_dialogs_fit_and_scroll_to_submit_at_high_zoom() {
     let reason = "Keep this attributed draft intact. ".repeat(40);
     let drafts = [

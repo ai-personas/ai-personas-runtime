@@ -70,6 +70,27 @@ impl App {
         });
     }
 
+    pub(super) fn show_inspector_window(&mut self, ctx: &egui::Context) {
+        if !self.inspector_window { return; }
+        let mut open = true;
+        let bounds = ctx.content_rect();
+        // The compact workspace uses a floating inspector. Its previous size
+        // cannot be trusted after zoom or viewport changes.
+        let width = (bounds.width()-40.).max(1.);
+        egui::Window::new("Inspector")
+            .open(&mut open)
+            .min_width(1.)
+            .max_width(width)
+            .default_width(330.0_f32.min(width))
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height((bounds.height()-100.).max(80.))
+                    .auto_shrink([false,true])
+                    .show(ui, |ui| self.inspector(ui));
+            });
+        self.inspector_window = open;
+    }
+
     pub(super) fn inspector_panel(&mut self, ctx: &egui::Context) {
         let p = theme::Palette::new(self.layout.dark);
         let panel = egui::SidePanel::right("studio-inspector")
