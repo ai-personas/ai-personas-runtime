@@ -1013,11 +1013,13 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         let snapshot=&store::object::<Snapshot>(db,&source)?;
         if snapshot.invocation!=call || snapshot.work!=work || snapshot.actor!=actor {return Err(failure("retained snapshot does not own this invocation"));}
         let response=response.ok_or_else(|| failure("missing retained response"))?;
+        let bytes=store::bytes(db,&response)?;
         if snapshot.development_version>=3 {
             let receipt=receipt.ok_or_else(||failure("Missing completed provider receipt"))?;
             store::verify_completion(db,call,&actor,&work,&source,&response,&receipt,"responded")?;
+            super::provider_evidence::check_final(db,&receipt,&store::object(db,&receipt)?,&bytes)?;
         }
-        let retained=parse_decision(&store::bytes(db,&response)?)?;
+        let retained=parse_decision(&bytes)?;
         let decision=&retained;
         if decision.invocation!=call {return Err(failure("response must name the invocation that produced it"));}
         if state=="accepted" {return Ok(retained);}

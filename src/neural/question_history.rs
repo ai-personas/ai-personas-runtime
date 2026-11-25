@@ -1,11 +1,16 @@
 //! Read-only operator view of a question in actual accepted calls.
 mod trail;
-use super::{failure, store, Result};
+use super::{context::Snapshot, development, failure, provider_evidence, store, Result};
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
-fn supplies(data: &Value, versions: &BTreeSet<String>) -> Vec<Value> {
+fn supplies(
+    db: &Connection,
+    snapshot: &Snapshot,
+    versions: &BTreeSet<String>,
+) -> Result<Vec<Value>> {
+    let data = &snapshot.data;
     let mut seen = BTreeSet::new();
     let mut add = |handle: &Value, source: &'static str| {
         if let Some(reference) = handle.as_str().filter(|r| versions.contains(*r)) {
@@ -59,16 +64,41 @@ fn supplies(data: &Value, versions: &BTreeSet<String>) -> Vec<Value> {
             _ => {}
         }
     }
-    seen.into_iter()
+    // A personal_practice receipt can carry the full question independently
+    // of a revisit cue in the same input. Do not report just the cue.
+    for event in data["new_events"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|e| e["kind"] == "personal_practice")
+    {
+        let handle = &event["body"]["development"];
+        let Some(r) = handle.as_str().filter(|r| versions.contains(*r)) else {
+            continue;
+        };
+        if let Some(receipt) = development::practice::receipt(snapshot, r) {
+            let actual = store::exact(db, r)?;
+            if receipt["record"] != actual.body
+                || !store::written_by(db, &actual, event["invocation"].as_str().unwrap_or(""))?
+            {
+                return Err(failure(
+                    "Supplied practice differs from its issued question",
+                ));
+            }
+            add(handle, "practice_receipt");
+        }
+    }
+    Ok(seen
+        .into_iter()
         .map(|(reference, source)| json!({"reference":reference,"source":source}))
-        .collect()
+        .collect())
 }
 
 /// Follow one logical question across all of its immutable revisions. A supplied
 /// pointer, a full read, a recorded application and a revision have separate evidence.
 pub fn inspect(db: &Connection, reference: &str) -> Result<Value> {
     let question = store::exact(db, reference)?;
-    if question.reference.kind != "development" {
+    if question.reference.kind != "development" || question.reference.handle() != reference {
         return Err(failure("Select an exact development question"));
     }
     let id = &question.reference.id;
@@ -109,21 +139,28 @@ pub fn inspect(db: &Connection, reference: &str) -> Result<Value> {
         ))
     })? {
         let (call, work, input, response, time, receipt, utc) = row?;
-        let frozen: Value = store::object(db, &input)?;
-        let supplied = supplies(&frozen["data"], &versions);
+        let accepted = provider_evidence::accepted(db, owner, &call, true)?;
+        let supplied = supplies(db, &accepted.snapshot, &versions)?;
         let revised = writes.remove(&call).unwrap_or_default();
         let application = trail.at(id, &call);
-        let reads = trail.reads(db, owner, &call, &frozen["data"])?;
+        let reads = trail.reads(&accepted.snapshot)?;
         if supplied.is_empty() && revised.is_empty() && application.is_none() && reads.is_empty() {
             continue;
         }
-        let decision: Value = store::object(db, &response)?;
+        let mut findings = Vec::new();
+        for r in &revised {
+            if let Some(finding) = development::tested::verified(db, owner, &store::exact(db, r)?)?
+            {
+                findings.push(finding);
+            }
+        }
+        let decision = accepted.response;
         let usage = store::head(db, "character_use", &call)?;
         decisions.push(json!({"decision":format!("experience:{call}@1"),"work":work,"accepted_at":time,"accepted_utc":utc,
             "input":format!("object:{input}"),"response":format!("object:{response}"),"provider_receipt":receipt.map(|r|format!("object:{r}")),
             "supplied":supplied,"revisions_written":revised,"application":application.map(|u|&u.reference),
             "application_detail":application.map(|u|json!({"action":u.body["action"],"watch_for":u.body["watch_for"],"question_input":u.body["question_input"]})),
-            "application_reads":reads,
+            "application_reads":reads,"findings_recorded":findings,
             "character_use":usage.as_ref().map(|r|r.reference.handle()),"epoch":usage.as_ref().map(|r|&r.body["epoch"]),
             "maintenance":decision["persona_maintenance"]["kind"],"reason":decision["persona_maintenance"]["reason"],
             "considered_experience":decision["considered_experience"]}));

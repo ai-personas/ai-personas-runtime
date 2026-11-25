@@ -1,14 +1,14 @@
-//! Trace an owner's explicit use of a question separately from reminders and
-//! from subsequent inputs that actually contained the earlier application.
-use crate::neural::{context, development, experience, failure, provider_evidence, store, Result};
+//! Trace an owner's explicit use separately from reminders and from later
+//! inputs that contained both the application and a return on its action.
+use crate::neural::{context::Snapshot, development, experience, failure, store, Result};
 use rusqlite::Connection;
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 pub(super) struct Use {
     pub reference: String,
     pub body: Value,
-    replies: Vec<Value>,
+    returns: Vec<(String, Value)>,
 }
 
 pub(super) struct Trail(BTreeMap<String, Use>);
@@ -33,17 +33,21 @@ impl Trail {
                 ));
             }
             development::practice::verify_application(db, &record)?;
-            let mut replies = Vec::new();
-            // Without a named action, correspondence with this decision is
-            // not evidence of a reply to this particular practice.
+            let mut returns = Vec::new();
+            // Without a named action, later correspondence is not necessarily
+            // about this particular practice.
             if b["action"].is_object() {
                 for linked in development::application_responses(db, &reference, b)? {
-                    if linked["relation"] == "direct_reply" {
-                        let event = linked["experience"]
-                            .as_str()
-                            .ok_or_else(|| failure("Missing reply address"))?;
-                        replies.push(experience::read(db, Some(owner), event)?["record"].clone());
-                    }
+                    let event = linked["experience"]
+                        .as_str()
+                        .ok_or_else(|| failure("Missing return address"))?;
+                    let relation = linked["relation"]
+                        .as_str()
+                        .ok_or_else(|| failure("Missing return relation"))?;
+                    returns.push((
+                        relation.to_owned(),
+                        experience::read(db, Some(owner), event)?["record"].clone(),
+                    ));
                 }
             }
             uses.insert(
@@ -51,7 +55,7 @@ impl Trail {
                 Use {
                     reference,
                     body: record.body,
-                    replies,
+                    returns,
                 },
             );
         }
@@ -62,78 +66,26 @@ impl Trail {
         self.0.get(&format!("question_use:{question}/{call}@1"))
     }
 
-    pub fn reads(
-        &self,
-        db: &Connection,
-        owner: &str,
-        call: &str,
-        data: &Value,
-    ) -> Result<Vec<Value>> {
-        if self.0.is_empty() || !data["context_recovery"].is_null() {
-            return Ok(Vec::new());
-        }
-        let resources: Vec<_> = context::supplied_resources(data)
-            .into_iter()
-            .filter(|slot| {
-                matches!(slot.via, "selection" | "asset.read" | "persona.read")
-                    && slot.value["record"].is_object()
-            })
-            .map(|r| r.value)
-            .collect();
-        let mut found = BTreeSet::new();
-        for slot in &resources {
-            let Some(u) = slot["reference"].as_str().and_then(|r| self.0.get(r)) else {
+    pub fn reads(&self, s: &Snapshot) -> Result<Vec<Value>> {
+        let mut reads = Vec::new();
+        for (reference, u) in &self.0 {
+            let Some(record) = development::observed_record(s, reference) else {
                 continue;
             };
-            if slot["record"] != u.body || u.body["decision"] == call {
+            if *record != u.body || u.body["decision"] == s.invocation {
                 return Err(failure(
                     "Supplied application differs from its earlier issued record",
                 ));
             }
-            found.insert(u.reference.as_str());
-        }
-        if found.is_empty() {
-            return Ok(Vec::new());
-        }
-        let received = provider_evidence::accepted(db, owner, call, true)?;
-        if received.snapshot.data != *data {
-            return Err(failure(
-                "Application read differs from the recorded provider input",
-            ));
-        }
-        let mut reads = Vec::new();
-        for reference in found {
-            let u = &self.0[reference];
-            let mut replies = Vec::new();
-            for event in &u.replies {
-                // A pointer in linked_responses_now is not the reply body. It
-                // must independently be present as a full record or arrival.
-                let selected = resources
-                    .iter()
-                    .any(|r| r["reference"] == event["reference"] && r["record"] == *event);
-                let arrived = event["work"] == received.snapshot.work
-                    && data["new_events"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .any(|e| {
-                            e["experience"] == event["reference"]
-                                && e["event"].as_i64().is_some_and(|seq| {
-                                    event["reference"] == format!("experience:event-{seq}@1")
-                                })
-                                && e["created"] == event["time"]
-                                && e["digest"].as_str().is_some_and(|digest| {
-                                    event["source"] == format!("object:{digest}")
-                                })
-                                && ["kind", "actor", "target", "invocation", "body"]
-                                    .iter()
-                                    .all(|k| e[*k] == event[*k])
-                        });
-                if selected || arrived {
-                    replies.push(&event["reference"]);
-                }
-            }
-            reads.push(json!({"reference":reference,"replies_supplied":replies}));
+            // An address on the application is not the return envelope. A
+            // command receipt is also not the contents of every stream it names.
+            let returns: Vec<_> = u
+                .returns
+                .iter()
+                .filter(|(_, e)| experience::recall::contains_event(s, e))
+                .map(|(relation, e)| json!({"relation":relation,"experience":e["reference"]}))
+                .collect();
+            reads.push(json!({"reference":reference,"returns_supplied":returns}));
         }
         Ok(reads)
     }

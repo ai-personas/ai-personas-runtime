@@ -52,20 +52,22 @@ pub(super) fn accepted(
         )?;
         binding = "provider_completion";
     }
-    match final_matches(db, &receipt, &attempt, &bytes)? {
-        Some(true) => binding = "provider_output",
-        Some(false) => {
-            return Err(failure(
-                "The accepted decision differs from the provider’s retained final output",
-            ))
-        }
-        None => {}
-    }
+    if check_final(db, &receipt, &attempt, &bytes)? { binding = "provider_output"; }
     Ok(Accepted {
         snapshot,
         response,
         binding,
     })
+}
+
+/// A provider need not report a separately identifiable final. But if the
+/// receipt commits to stored output items, verify them before adopting any
+/// effects, using the same comparison as the historical decision reader.
+pub(super) fn check_final(db: &Connection, id: &str, receipt: &Value, response: &[u8]) -> Result<bool> {
+    match final_matches(db, id, receipt, response)? {
+        Some(false) => Err(failure("The decision differs from the provider’s retained final output")),
+        matched => Ok(matched == Some(true)),
+    }
 }
 
 fn take_items(receipt: &mut Value) -> Result<Option<(String, Vec<u8>)>> {

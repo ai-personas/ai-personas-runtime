@@ -279,6 +279,25 @@ pub(in crate::neural) fn previous_observation(input: &Snapshot, event: &str) -> 
         .or_else(|| crate::neural::development::deliberation::observed(input, event).cloned())
 }
 
+/// Did this input actually contain this particular event envelope? A reference
+/// on an application is not its outcome. Reading an envelope is not reading
+/// every file or command stream it names.
+pub(in crate::neural) fn contains_event(s: &Snapshot, record: &Value) -> bool {
+    let Some(reference) = record["reference"].as_str() else { return false };
+    if !s.data["context_recovery"].is_null() { return false; }
+    let Some(observed) = previous_observation(s, reference) else { return false };
+    if let Some(read) = observed.get("record") {
+        return read == record;
+    }
+    let e = &observed["event"];
+    observed["work"] == record["work"]
+        && e["experience"] == reference
+        && e["event"].as_i64().is_some_and(|n| reference == format!("experience:event-{n}@1"))
+        && e["created"] == record["time"]
+        && e["digest"].as_str().is_some_and(|d| record["source"] == format!("object:{d}"))
+        && ["kind", "actor", "target", "invocation", "body"].iter().all(|k| e[*k] == record[*k])
+}
+
 /// The record supplied to this input, not a discovery pointer, excerpt or
 /// working note. A full experience read can come from selection or a tool.
 pub(super) fn whole_read<'a>(input: &'a Snapshot, reference: &str) -> Option<&'a Value> {

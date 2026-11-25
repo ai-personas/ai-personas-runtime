@@ -2,7 +2,7 @@
 //! that considered it. Recover an earlier *acting* decision from an explicit link.
 use super::{metadata, responses_to_call};
 use crate::neural::{context::Snapshot, failure, provider_evidence, store, Result};
-use rusqlite::Connection;
+use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 
 /// Recover the owner's performed operation, reviewed issue or communication
@@ -160,6 +160,10 @@ pub(in crate::neural) fn origin(
         else {
             return Ok(None);
         };
+        let occurrences: i64 = db.query_row("SELECT count(*) FROM events e JOIN objects b ON e.digest=b.digest WHERE e.invocation=?1 AND e.kind='tool_result' AND json_extract(CAST(b.bytes AS TEXT),'$.operation')=?2", params![call, op["id"].as_str()], |r| r.get(0))?;
+        if occurrences != 1 || envelope["effect"].is_string() != crate::neural::tools::is_external(op["tool"].as_str().unwrap_or("")) {
+            return Ok(None);
+        }
         // A late external result must match the exact dispatched operation and
         // retained result. In-transaction tool receipts lie inside its effect boundary.
         if let Some(effect) = envelope["effect"].as_str() {
@@ -169,8 +173,11 @@ pub(in crate::neural) fn origin(
             {
                 return Ok(None);
             }
-            let ok:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM outbox o JOIN objects j ON j.digest=o.operation WHERE o.id=?1 AND o.invocation=?2 AND o.actor=?3 AND o.work=?4 AND o.state='completed' AND 'object:'||o.result=?5 AND json_extract(CAST(j.bytes AS TEXT),'$.id')=?6 AND json_extract(CAST(j.bytes AS TEXT),'$.tool')=?7)",rusqlite::params![effect,call,owner,work,envelope["result"].as_str(),op["id"].as_str(),op["tool"].as_str()],|row|row.get(0))?;
-            if !ok {
+            let queued: Option<(i64,String)> = db.query_row("SELECT ordinal,operation FROM outbox WHERE id=?1 AND invocation=?2 AND actor=?3 AND work=?4 AND state='completed' AND 'object:'||result=?5", params![effect,call,owner,work,envelope["result"].as_str()], |r| Ok((r.get(0)?,r.get(1)?))).optional()?;
+            let Some((ordinal,digest)) = queued else { return Ok(None); };
+            let command: Value = store::object(db, &digest)?;
+            if command["id"] != op["id"] || command["tool"] != op["tool"] ||
+                !crate::neural::accepted_choice::matches_effect(db, &accepted, usize::try_from(ordinal)?, &command)? {
                 return Ok(None);
             }
         } else if !(boundary.body["first_event_exclusive"]

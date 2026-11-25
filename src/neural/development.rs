@@ -13,6 +13,7 @@ use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
 pub(super) mod deliberation;
+mod observation;
 pub mod practice;
 pub(super) mod tested;
 pub mod trial;
@@ -69,6 +70,8 @@ pub enum Disposition {
     Assessed,
     Rejected,
     NoChange,
+    /// A consistent, contrary or inconclusive return on one named practice, not a claim about weights.
+    PracticeObserved,
     Supported,
     NoEffect,
     Regressed,
@@ -105,6 +108,7 @@ pub struct Update {
     pub prediction: String,
     /// Alternatives such as new knowledge, a different tool or transient affect.
     pub alternatives: String,
+    /// practice_observed records a question_observation on a named action. With no adoption, supported plus a consistent observation alone supports only that practice. A judgment about an adopted character needs follow_up; a matched no_effect needs candidate_review and its assessment.
     pub disposition: Disposition,
     pub revisit: Option<Revisit>,
     /// A scoped judgment after a real decision using the adopted character.
@@ -142,7 +146,7 @@ pub struct FollowUp {
 }
 
 /// A cue with a reference, forecast, or proposed set of reads is not the record.
-fn observed_record<'a>(snapshot: &'a Snapshot, reference: &str) -> Option<&'a Value> {
+pub(in crate::neural) fn observed_record<'a>(snapshot: &'a Snapshot, reference: &str) -> Option<&'a Value> {
     if !snapshot.data["context_recovery"].is_null() { return None; }
     let selected = snapshot.data["selected_resources"].as_array().into_iter().flatten();
     let returned = snapshot.data["new_events"].as_array().into_iter().flatten().filter(|e| {
@@ -309,7 +313,7 @@ pub(super) fn consider(db: &Connection, snapshot: &Snapshot, decision: &Decision
             "interpretation":{"question":question.as_deref().filter(|q|!q.trim().is_empty()).unwrap_or(reason),"evidence":evidence}}),
         ),
     };
-    if let Some(fields) = body.as_object_mut() { fields.remove("closure"); }
+    if let Some(fields) = body.as_object_mut() { fields.remove("closure"); fields.remove("disposition_subject"); }
     body["interpretation"]["disposition"] = json!("awaiting_evidence");
     body["interpretation"]["revisit"] = serde_json::to_value(revisit)?;
     body["deferral"] =
@@ -338,6 +342,7 @@ pub(super) fn close(db: &Connection, snapshot: &Snapshot, choice: Close) -> Resu
     let mut body = current.body;
     body["closure"] = json!({"previous":choice.base,"decision":snapshot.invocation,"work":snapshot.work,
         "reason":choice.reason,"evidence":choice.evidence});
+    if let Some(fields) = body.as_object_mut() { fields.remove("disposition_subject"); }
     body["interpretation"]["disposition"] = json!("closed");
     body["revisit_after_event"] = json!(snapshot.observation_through.unwrap_or(snapshot.cursor));
     let saved = store::write(db, "development", &current.reference.id, current.reference.revision, &body, Some(&snapshot.invocation))?;
@@ -371,7 +376,7 @@ fn write_update(db:&Connection, snapshot:&Snapshot, update:Update, plan:Option<&
     }
     let (key, revision, mut body) = if let Some(base) = &update.base {
         let prior = owned(db, &snapshot.actor, base)?;
-        if !observed(snapshot, base) {
+        if observed_record(snapshot, base) != Some(&prior.body) {
             return Err(failure(
                 "Read your current development question before revising it",
             ));
@@ -395,40 +400,9 @@ fn write_update(db:&Connection, snapshot:&Snapshot, update:Update, plan:Option<&
             observed_experience(db, snapshot, reference)?;
         }
     }
-    if let Some(note) = &update.question_observation {
-        let application = store::exact(db,&note.application)?;
-        if application.reference.kind!="question_use" || application.body["owner"]!=snapshot.actor
-            || application.body["question_id"]!=key || !observed(snapshot,&note.application)
-            || note.interpretation.trim().is_empty() {
-            return Err(failure("Read your exact application of this question and describe what the outcome showed"));
-        }
-        practice::verify_application(db,&application)?;
-        let call=application.body["decision"].as_str().ok_or_else(||failure("Missing application decision"))?;
-        let (event,boundary)=subsequent_event(db,snapshot,call,&note.outcome)?;
-        let work=application.body["work"].as_str().ok_or_else(||failure("Missing application activity"))?;
-        let linked=experience::responses_to_call(db,&snapshot.actor,work,call)?.into_iter().find(|r|r["experience"]==note.outcome);
-        let ordinary = event["work"]==work && (event["kind"]=="tool_result" && event["invocation"]==call
-            || event["actor"]!=snapshot.actor && matches!(event["kind"].as_str(),Some("user_message"|"user_acceptance"|"requirements_amended"|"message")));
-        if application.body["action"].is_object() && !practice::responses(db,&application.body,linked.iter().cloned().collect())?.iter().any(|r|r["experience"]==note.outcome){
-            return Err(failure("Interpret a receipt or direct reply for the actual action named in this practice"));
-        }
-        if !ordinary && !(linked.is_some() && (event["kind"]=="asset_feedback" || application.body["action"].is_object())) {
-            return Err(failure("Use a result of this choice, a received exchange in its activity, or feedback linked to the exact asset or report"));
-        }
-        let relation=linked.as_ref().and_then(|r|r["relation"].as_str()).unwrap_or(
-            if event["kind"]=="tool_result" {"operation_result"} else {"later_in_activity"});
-        let entry=json!({"observation":note,"question_applied":application.body["question"],"decision":call,
-            "character_use":application.body["character_use"],"decision_effects":boundary,"relation":relation,
-            "reply_or_review_target":linked.as_ref().and_then(|r|r["target"].as_str()),"outcome_author":event["actor"],
-            "judgment_author":snapshot.actor,"interpretation_decision":snapshot.invocation});
-        if !body["question_observations"].is_array() {body["question_observations"]=json!([]);}
-        let prior=body["question_observations"].as_array_mut().unwrap();
-        if prior.iter().any(|r|r["observation"]["application"]==note.application && r["observation"]["outcome"]==note.outcome
-            && r["observation"]==entry["observation"]) {
-            return Err(failure("This interpretation of the same observation is already recorded"));
-        }
-        prior.push(entry);
-    }
+    let observed = update.question_observation.as_ref().map(|note| observation::read(db, snapshot, &key, note)).transpose()?;
+    let subject = observation::practice_subject(&update, &body, observed.as_ref())?;
+    if let Some(observed) = observed { observed.append(&mut body)?; }
     if let Some(review) = &update.candidate_review {
         let candidate = super::revision_uses::issued_candidate(db, &snapshot.actor, &review.candidate)?;
         let origin = candidate.body["development"]
@@ -483,7 +457,7 @@ fn write_update(db:&Connection, snapshot:&Snapshot, update:Update, plan:Option<&
         body["follow_ups"].as_array_mut().unwrap().push(json!({"observation":observation,
             "interpretation":follow_up,"disposition":update.disposition,"alternative_explanations":update.alternatives,
             "decision":snapshot.invocation,"work":snapshot.work}));
-    } else if snapshot.development_version >= 2
+    } else if subject.is_none() && snapshot.development_version >= 2
         && matches!(
             update.disposition,
             Disposition::Supported | Disposition::Regressed | Disposition::NoEffect
@@ -494,7 +468,7 @@ fn write_update(db:&Connection, snapshot:&Snapshot, update:Update, plan:Option<&
                 .as_ref()
                 .is_some_and(|r| r.assessment.is_some()))
     {
-        return Err(failure("For a live effect, cite adoption, later use and an observed consequence. For a matched probe with no effect, supply candidate_review with the exact assessment."));
+        return Err(failure("For an effect of an adopted character, supply follow_up with its later use and outcome. For a matched probe with no effect, supply candidate_review with the exact assessment. For just the result of a named practice, use practice_observed and question_observation."));
     }
     if !matches!(update.disposition, Disposition::Closed) {
         if let Some(fields) = body.as_object_mut() { fields.remove("closure"); }
@@ -508,6 +482,10 @@ fn write_update(db:&Connection, snapshot:&Snapshot, update:Update, plan:Option<&
             body.as_object_mut().expect("development record").remove("behavioral_plan");
         }
     }
+    // Keep the authored update verbatim in meaning. The separate subject limits
+    // the verdict on this edition, not the owner's next update or the weights.
+    if let Some(subject) = subject { body["disposition_subject"] = subject; }
+    else if let Some(fields) = body.as_object_mut() { fields.remove("disposition_subject"); }
     body["interpretation"] = serde_json::to_value(&update)?;
     body["revisit_after_event"] = json!(snapshot.observation_through.unwrap_or(snapshot.cursor));
     body["model_at_interpretation"] = json!(snapshot.model);
@@ -735,8 +713,7 @@ pub(super) fn index(db: &Connection, actor: &str) -> Result<Vec<Value>> {
             }
         }
         pending.sort_by_key(|response| response["sequence"].as_i64());
-        entries.push(
-            json!({"reference":record.reference.handle(),"origin_work":record.body["origin_work"],
+        let mut entry = json!({"reference":record.reference.handle(),"origin_work":record.body["origin_work"],
             "question":detail["question"],"disposition":detail["disposition"],"revisit":revisit,
             "last_adoption":last.map(|a|json!({"candidate":a["candidate"],"model":a["model"],"epoch":a["epoch"],"decision":a["decision"],
                 "revision_uses":a["decision"].as_str().map(|id|format!("experience:{id}@1"))})),
@@ -745,8 +722,9 @@ pub(super) fn index(db: &Connection, actor: &str) -> Result<Vec<Value>> {
             "pending_responses":pending,"behavioral_plan":record.body["behavioral_plan"],
             "due_by_time":revisit["at_unix"].as_i64().is_some_and(|t|t<=super::now()),
             "matching_experience":matching.map(|n|format!("experience:event-{n}@1")),
-            "later_feedback":feedback.map(|n|format!("experience:event-{n}@1"))}),
-        );
+            "later_feedback":feedback.map(|n|format!("experience:event-{n}@1"))});
+        if let Some(subject) = record.body.get("disposition_subject") { entry["disposition_subject"] = subject.clone(); }
+        entries.push(entry);
     }
     Ok(entries)
 }
