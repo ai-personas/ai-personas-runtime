@@ -551,6 +551,23 @@ pub fn describe(name: &str) -> Result<Value> {
 }
 
 pub fn validate(name: &str, value: &Value) -> Result<()> {
+    validate_input(name, value).map_err(|error| {
+        // The typed decoder remains authoritative. On a shape error only,
+        // explain it using the same field names the persona can discover.
+        if error.is::<serde_json::Error>() {
+            if let Ok(tool) = describe(name) {
+                let schema = &tool["inputs"];
+                let issues = crate::schema_diagnostics::issues(schema, schema, value, "input");
+                if !issues.is_empty() {
+                    return failure(issues.join("; "));
+                }
+            }
+        }
+        error
+    })
+}
+
+fn validate_input(name: &str, value: &Value) -> Result<()> {
     fn parse<T: serde::de::DeserializeOwned>(value: &Value) -> Result<()> {
         serde_json::from_value::<T>(value.clone())?;
         Ok(())

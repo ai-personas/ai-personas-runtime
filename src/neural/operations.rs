@@ -1059,9 +1059,12 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         super::development::record_applications(db,snapshot,decision)?;
         super::development::consider(db,snapshot,decision)?;
         let mut ids=BTreeSet::new();
-        for op in &decision.operations {
-            if op.id.trim().is_empty()||!ids.insert(&op.id){return Err(failure("operation id duplicate or blank"));}
-            tools::validate(&op.tool,&op.input)?;
+        for (ordinal, op) in decision.operations.iter().enumerate() {
+            if op.id.trim().is_empty() || !ids.insert(&op.id) {
+                return Err(failure(format!("operations[{ordinal}].id is duplicate or blank")));
+            }
+            tools::validate(&op.tool, &op.input)
+                .map_err(|error| failure(format!("operations[{ordinal}] ({}): {error}", op.tool)))?;
         }
         let mut aliases=BTreeMap::new();
         for (ordinal,raw) in decision.operations.iter().enumerate() {
