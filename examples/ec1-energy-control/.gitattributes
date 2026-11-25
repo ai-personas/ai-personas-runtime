@@ -2,3 +2,4 @@
 *.pdf binary
 EC1.sha256 -text
 relief-note.txt -text
+intake/examples/*.csv -text whitespace=cr-at-eol
