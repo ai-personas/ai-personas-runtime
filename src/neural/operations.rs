@@ -814,6 +814,7 @@ pub fn invite(
         member.last_evaluation=None;
         member.appraisal_use=None;
         member.pending_resume=None;
+        member.peer_request_cursors.clear();
         member.continuation=Continuation::Ready{purpose:"Consider the new invitation".into()};
         (member,existing.reference.revision,Some(existing.reference.handle()),departure,closure)
     } else {
