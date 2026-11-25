@@ -1,0 +1,77 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.276 841.890] /Resources << /Font << /F1 4 0 R /F2 5 0 R /F3 6 0 R >> >> /Contents 7 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+6 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>
+endobj
+7 0 obj
+<< /Length 2970 >>
+stream
+BT /F2 11 Tf 0.08 0.13 0.16 rg 1 0 0 1 36 790 Tm (WORKSHOP  /  EC1 REV A) Tj ET
+BT /F2 32 Tf 0.08 0.13 0.16 rg 1 0 0 1 36 749 Tm (Counter receiving card) Tj ET
+BT /F1 12 Tf 0.08 0.13 0.16 rg 1 0 0 1 36 721 Tm (Match each original ZIP before use. Compare all 64 SHA-256 characters.) Tj ET
+BT /F1 12 Tf 0.08 0.13 0.16 rg 1 0 0 1 36 701 Tm (If a name, size or digest differs, hold that file and notify Rowan.) Tj ET
+0.10 0.23 0.28 rg 36 641 523 32 re f
+BT /F2 15 Tf 1 1 1 rg 1 0 0 1 46 650 Tm (01   Rowan  /  Counter handoff) Tj ET
+BT /F3 16 Tf 0.08 0.13 0.16 rg 1 0 0 1 45 612 Tm (EC1-workshop.zip) Tj ET
+BT /F2 11 Tf 0.08 0.13 0.16 rg 1 0 0 1 45 589 Tm (52,276 bytes   |   SHA-256 of unchanged ZIP) Tj ET
+BT /F3 11 Tf 0.08 0.13 0.16 rg 1 0 0 1 45 571 Tm (aab635a36c90d513dc082e7c94c4c5bc918d9004638e407616efbcfae381a305) Tj ET
+0.2 G 0.9 w 44 537 10 10 re S
+BT /F1 11 Tf 0.08 0.13 0.16 rg 1 0 0 1 65 538 Tm (Editable workshop ZIP received; name, size and digest match.) Tj ET
+BT /F1 11 Tf 0.08 0.13 0.16 rg 1 0 0 1 45 510 Tm (For workshop use: extract the whole ZIP, keeping its folders together.) Tj ET
+BT /F1 11 Tf 0.08 0.13 0.16 rg 1 0 0 1 45 490 Tm (Open EC1-workshop/EC1/EC1.kicad_pro in KiCad 9.) Tj ET
+BT /F1 11 Tf 0.08 0.13 0.16 rg 1 0 0 1 45 455 Tm (Initials) Tj ET
+0.35 G 0.75 w 85 453 m 177 453 l S
+BT /F1 11 Tf 0.08 0.13 0.16 rg 1 0 0 1 210 455 Tm (Date / time) Tj ET
+0.35 G 0.75 w 273 453 m 504 453 l S
+0.10 0.23 0.28 rg 36 388 523 32 re f
+BT /F2 15 Tf 1 1 1 rg 1 0 0 1 46 397 Tm (02   Ellis  /  Fabrication viewer only) Tj ET
+BT /F3 16 Tf 0.08 0.13 0.16 rg 1 0 0 1 45 359 Tm (EC1-fabrication.zip) Tj ET
+BT /F2 11 Tf 0.08 0.13 0.16 rg 1 0 0 1 45 336 Tm (7,784 bytes   |   SHA-256 of unchanged ZIP) Tj ET
+BT /F3 11 Tf 0.08 0.13 0.16 rg 1 0 0 1 45 318 Tm (b2d536954a968bf86c33b6eecd6fa2f8eb4a7cfdea90b7fa45d7336849a8b8be) Tj ET
+0.2 G 0.9 w 44 284 10 10 re S
+BT /F1 11 Tf 0.08 0.13 0.16 rg 1 0 0 1 65 285 Tm (Bare-board upload ZIP: name, size and digest match.) Tj ET
+0.2 G 0.9 w 44 259 10 10 re S
+BT /F1 11 Tf 0.08 0.13 0.16 rg 1 0 0 1 65 260 Tm (Unchanged ZIP checked in the fabrication viewer.) Tj ET
+BT /F1 11 Tf 0.08 0.13 0.16 rg 1 0 0 1 45 232 Tm (Check the two-layer board outline, copper and plated drill alignment.) Tj ET
+BT /F1 11 Tf 0.08 0.13 0.16 rg 1 0 0 1 45 211 Tm (Viewer result / discrepancy:) Tj ET
+0.35 G 0.75 w 185 209 m 550 209 l S
+BT /F1 11 Tf 0.08 0.13 0.16 rg 1 0 0 1 45 177 Tm (Initials) Tj ET
+0.35 G 0.75 w 85 175 m 177 175 l S
+BT /F1 11 Tf 0.08 0.13 0.16 rg 1 0 0 1 210 177 Tm (Date / time) Tj ET
+0.35 G 0.75 w 273 175 m 504 175 l S
+0.35 G 0.75 w 36 138 m 559 138 l S
+BT /F2 13 Tf 0.08 0.13 0.16 rg 1 0 0 1 36 114 Tm (Mark a box only after performing its check.) Tj ET
+BT /F1 11 Tf 0.08 0.13 0.16 rg 1 0 0 1 36 92 Tm (File handoff only. No order authorization, physical inspection or acceptance.) Tj ET
+BT /F2 9 Tf 0.08 0.13 0.16 rg 1 0 0 1 36 56 Tm (EC1  /  REV A) Tj ET
+BT /F1 9 Tf 0.08 0.13 0.16 rg 1 0 0 1 522 56 Tm (1 of 1) Tj ET
+endstream
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000269 00000 n 
+0000000339 00000 n 
+0000000414 00000 n 
+0000000482 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+3503
+%%EOF

@@ -27,6 +27,7 @@ The first delivery contained 25 files, including an SVG schematic, board, simula
 
 - Extracted the two original ZIPs in a clean directory. With an empty user configuration, KiCad **9.0.9** reported zero ERC errors/warnings and zero DRC violations, unconnected pads or schematic parity issues. The four-net exported schematic matched all 14 pin assignments of the charge/hold/discharge circuit, including capacitor polarity.
 - Regenerated both copper layers, both masks, the top legend (subtract solder mask), outline, Gerber job and metric drill. **All eight** matched the download apart from creation timestamps. The closed rectangular outline was 54 × 34 mm. The plated drill had two 1.0 mm holes and eight 1.1 mm holes; every hole coincided with a bottom copper land and mask opening. The BOM specifies two 1 kΩ Vishay resistors, a 1000 µF Panasonic radial capacitor and four formed-wire terminals. This verifies a digital **bare-board and hand-assembly handoff**, not a turnkey assembly order or supplier stock.
+- Checked the populated parts against their manufacturers’ data. The [Panasonic EEUFR1C102](https://industrial.panasonic.com/ww/products/pt/aluminum-cap-lead/models/EEUFR1C102) is 1000 µF ±20%, 16 V, 10 mm diameter × 16 mm high, with 5 mm lead pitch as drawn. [Vishay document 20035](https://www.vishay.com/docs/20035/dcrcwe3.pdf), pp. 1–3, identifies the D25/CRCW1206 size, 0.25 W rating and resistance, tolerance, TCR and packing fields used by `CRCW12061K00FKEA`. The PCB has two 1.5 × 1.9 mm lands 3.1 mm apart for each resistor. The four clip loops are formed wire, not four missing order codes. This comparison does not confirm stock or a soldered fit.
 - Ran the unchanged SPICE deck with ngspice 36. In 18 seconds of simulated time the store reached 4.998323 V after charging and ended at 0.001677 V. The source supplied 24.9914 mJ; 12.4915 mJ reached the load and 12.4996 mJ went into the charging resistor. Separately, on the shipped **synthetic** CSV the reducer returned 24.9381 mJ inward and 12.4382 mJ to the load. Neither result is a bench measurement.
 
 To repeat the native design checks from the directory containing the `.kicad_pro` file:
@@ -49,5 +50,13 @@ Both activities were launched and monitored in the Linux native Studio. The sele
 | KiCad receiving commission | Kit xhigh: 14 accepted; no rejection | 361,826 |
 
 [Actual high/xhigh reports in Studio](../../docs/assets/studio-astra-receipts.jpg). Each new persona authored and activated its own model; all **48 accepted post-initialization decisions** used the original parameters at baseline. Arden distinguished a receiving wrapper's successful exit from its child process's substantive result; Kit revised the packaging. Those useful choices are **not** evidence of numerical maturation.
+
+### When two humans choose to help
+
+[Download Arden’s A4 counter receiving card](EC1-receiving-card.pdf). In a **new** Studio task, Rowan declared responsibility for receiving the workshop archive and Ellis volunteered to check the bare-board file in a viewer. Each chose their own scope on the responsibility board. Both declarations reached all five of Arden’s high-effort decisions (102,837 reported tokens). No further task message or outside-step claim was needed.
+
+![Rowan’s workshop handoff and Ellis’s viewer-only contribution on the native responsibility board.](../../docs/assets/studio-ec1-responsibilities.jpg)
+
+The original Studio download is 3,727 bytes, SHA-256 `4a89c1c77eedc33a98f9e9c4aa1c483edb9957b71a00aa210391be606fc363a5`. Opening it independently showed one A4 page with the two recipients, correct ZIP names, sizes and full hashes, and blank check boxes. It is **not an order authorization** or a record of receiving a physical board. These were two desks operated by the evaluator, not two independent usability participants. Card edition: `delivery:delivery-ce3b89c3c073b93b652c7f4f8c5d9d15@1`.
 
 First edition: `delivery:delivery-04ffb28bd15b33d01295a7f99481e610@1`. Final workshop edition: `delivery:delivery-f6d488e097d50c27fae27894649902f9@1`. Private state, prompts and transport archives are not in this example.
