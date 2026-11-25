@@ -5,7 +5,7 @@ use crate::neural::{
     activity_sources::delivery::{self, Edition},
     failure,
     issued_files::IssueTerms,
-    store, Result,
+    Result,
 };
 use clap::Args;
 use rusqlite::{params, Connection};
@@ -97,39 +97,7 @@ const MATCHES: &str = "FROM versions v JOIN objects o ON o.digest=v.digest
     WHEN 'delivery' THEN EXISTS (SELECT 1 FROM json_each(CAST(o.bytes AS TEXT),'$.evidence') WHERE value=?1)
     OR EXISTS (SELECT 1 FROM json_each(CAST(o.bytes AS TEXT),'$.review_inputs') WHERE value=?1) END END";
 
-pub(in crate::neural) fn public_issue(db: &Connection, reference: &str) -> Result<Edition> {
-    let edition = delivery::edition(db, reference)?;
-    check_public(db, &edition)?;
-    Ok(edition)
-}
-
-fn check_public(db: &Connection, edition: &Edition) -> Result<()> {
-    let issue = &edition.issue;
-    let reference = issue.record.reference.handle();
-    let b = &issue.record.body;
-    let mut q = db.prepare_cached(
-        "SELECT seq,e.digest FROM events e JOIN objects o ON o.digest=e.digest
-        WHERE e.kind='delivery' AND e.target='*' AND e.actor=?1 AND e.work=?2 AND e.invocation=?3
-        AND CASE WHEN json_valid(CAST(o.bytes AS TEXT)) THEN json_extract(CAST(o.bytes AS TEXT),'$.reference') END=?4",
-    )?;
-    let mut rows = q.query(params![
-        b["owner"].as_str(),
-        b["work"].as_str(),
-        issue.invocation,
-        reference
-    ])?;
-    let row = rows
-        .next()?
-        .ok_or_else(|| failure("Missing public issue notice"))?;
-    if row.get::<_, i64>(0)? != issue.sequence
-        || store::object::<Value>(db, row.get_ref(1)?.as_str()?)?
-            != json!({"reference":reference,"scope":b["scope"],"title":b["title"]})
-        || rows.next()?.is_some()
-    {
-        return Err(failure("Ambiguous or mismatched public issue notice"));
-    }
-    Ok(())
-}
+pub(in crate::neural) use delivery::edition as public_issue;
 
 fn entry(db: &Connection, issue: &Edition, kind: &str, reference: String) -> Result<Entry> {
     if kind == "package_review" {
@@ -288,7 +256,6 @@ pub(in crate::neural) fn at_export(
     selected: &Edition,
     kind: Records,
 ) -> Result<Vec<Entry>> {
-    check_public(db, selected)?;
     rows(
         db,
         selected,

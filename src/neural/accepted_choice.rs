@@ -372,16 +372,14 @@ impl Choice {
             "result.deliver" => {
                 let declared: tools::Deliver = serde_json::from_value(op.input.clone())?;
                 declared.validate_dispatches()?;
-                let fields = serde_json::to_value(declared)?;
-                record.reference.kind == "delivery"
-                    && ["dispatches", "review_inputs", "reviews"]
-                        .iter()
-                        .all(|key| b.get(*key) == fields.get(*key))
-                    && b["owner"] == snapshot.actor
-                    && b["work"] == snapshot.work
-                    && fields
-                        .as_object()
-                        .is_some_and(|values| values.iter().all(|(k, v)| b.get(k) == Some(v)))
+                let mut expected = operations::delivery_body(&declared, snapshot)?;
+                // Recording the governing brief began during snapshot format
+                // 4. All later formats include it; a missing field on a new
+                // issue is not evidence that it was issued without a brief.
+                if snapshot.development_version <= 4 && b.get("mandate").is_none() {
+                    expected.as_object_mut().unwrap().remove("mandate");
+                }
+                record.reference.kind == "delivery" && result["user_accepted"] == false && *b == expected
             }
             "human.request" | "human.issue_packet" | "human.withdraw" => {
                 record.reference.kind == "human_request"

@@ -71,14 +71,14 @@ impl App {
         self.layout.editor = Editor::Delivery;
     }
 
-    pub(super) fn open_issued_package(&mut self, ctx: &egui::Context, reference: &str) {
+    pub(super) fn open_issued_package(&mut self, _ctx: &egui::Context, reference: &str) {
         let work = self.records("deliveries").iter()
             .find(|record| inbox::handle(record) == reference)
             .and_then(|record| record["body"]["work"].as_str()).map(str::to_owned);
         if let Some(work) = work {
             self.open_home_delivery(reference, &work);
         } else {
-            self.open_resource(ctx, reference.into());
+            self.error = Some(format!("No delivery record indexed for {reference}. Refresh and select an exact edition."));
         }
     }
 

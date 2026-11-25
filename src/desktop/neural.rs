@@ -59,6 +59,8 @@ mod activity_sources;
 mod people;
 mod mesh_profile;
 mod artifact_library;
+mod edition_library;
+use edition_library::ArtifactView;
 mod workspace;
 mod workspace_find;
 mod usage;
@@ -184,8 +186,9 @@ pub struct App {
     activity_filter: usize,
     asset_filter: String,
     asset_owner: String,
-    artifact_scope: usize,
-    artifact_mode: usize,
+    retired_assets: bool,
+    artifact_mode: ArtifactView,
+    edition_list: edition_library::List,
     artifact_folders: super::folder_nav::Folders,
     selected_reference: String,
     reference_input: String,
@@ -307,8 +310,9 @@ impl App {
             activity_filter: 0,
             asset_filter: String::new(),
             asset_owner: String::new(),
-            artifact_scope: 0,
-            artifact_mode: 0,
+            retired_assets: false,
+            artifact_mode: ArtifactView::Retained,
+            edition_list: Default::default(),
             artifact_folders: Default::default(),
             selected_reference: String::new(),
             reference_input: String::new(),
@@ -436,7 +440,11 @@ impl App {
         });
     }
     fn open_resource(&mut self, ctx: &egui::Context, reference: String) {
-        self.open_named_resource(ctx, reference, None);
+        if reference.starts_with("delivery:") {
+            self.open_issued_package(ctx, &reference);
+        } else {
+            self.open_named_resource(ctx, reference, None);
+        }
     }
     fn open_named_resource(&mut self, ctx: &egui::Context, reference: String, output: Option<(String,String)>) {
         self.print_preview = None;
@@ -449,7 +457,7 @@ impl App {
         self.selected_reference = reference.clone();
         self.reference_input = reference.clone();
         self.layout.editor = Editor::Artifacts;
-        self.artifact_mode = 0;
+        self.artifact_mode = ArtifactView::Retained;
         self.preview_generation += 1;
         self.preview_member = None;
         self.preview_pending = true;
@@ -702,14 +710,6 @@ impl App {
     }
     fn task_title(&self) -> &str {
         self.home_index.activity(&self.work).map(|a| a.title.as_str()).unwrap_or("Your workspace")
-    }
-    fn delivered_refs(&self) -> BTreeSet<String> {
-        self.records("deliveries")
-            .iter()
-            .filter(|d| d["body"]["work"] == self.work)
-            .flat_map(|d| d["body"]["artifacts"].as_array().into_iter().flatten())
-            .filter_map(|v| v.as_str().map(String::from))
-            .collect()
     }
     fn color(&self, id: &str) -> Color32 {
         persona_color(id)

@@ -10,6 +10,7 @@ pub(crate) struct Issued {
     pub record: store::Record,
     pub invocation: String,
     pub sequence: i64,
+    pub addressed_sequence: Option<i64>,
     pub time: i64,
 }
 
@@ -67,29 +68,61 @@ pub(crate) fn issued(db: &Connection, reference: &str) -> Result<Issued> {
             failure("Delivery has no accepted issuing decision for this persona and activity")
         })?;
 
-    let mut published = db.prepare(
-        "SELECT e.seq,e.digest FROM events e JOIN objects o ON o.digest=e.digest
-        WHERE e.work=?1 AND e.actor=?2 AND e.kind='delivery' AND e.invocation=?3
-        AND json_extract(CAST(o.bytes AS TEXT),'$.reference')=?4 ORDER BY e.seq",
+    // The addressed copy contains the full record, but is not the public
+    // notice. Equally, publication alone does not prove anyone received it.
+    let mut published = db.prepare_cached(
+        "SELECT e.seq,e.digest,e.actor,e.work,e.invocation FROM events e JOIN objects o USING(digest)
+         WHERE e.kind='delivery' AND e.target='*'
+         AND CASE WHEN json_valid(CAST(o.bytes AS TEXT)) THEN json_extract(CAST(o.bytes AS TEXT),'$.reference') END=?1",
     )?;
-    let mut rows = published.query(params![work, owner, invocation, reference])?;
-    let mut sequence = None;
-    while let Some(row) = rows.next()? {
-        let event: Value = store::object(db, &row.get::<_, String>(1)?)?;
-        let same_record = event.get("record").map_or_else(
-            || event["title"] == record.body["title"] && event["scope"] == record.body["scope"],
-            |body| *body == record.body,
-        );
-        if event["reference"] != reference || !same_record {
-            return Err(failure("Delivery differs from its original issue event"));
-        }
-        sequence.get_or_insert(row.get(0)?);
+    let mut rows = published.query([reference])?;
+    let row = rows
+        .next()?
+        .ok_or_else(|| failure("Missing public issue notice"))?;
+    let sequence = row.get(0)?;
+    let notice: Value = store::object(db, row.get_ref(1)?.as_str()?)?;
+    if row.get_ref(2)?.as_str()? != owner
+        || row.get_ref(3)?.as_str()? != work
+        || row.get::<_, Option<String>>(4)?.as_deref() != Some(invocation.as_str())
+        || notice
+            != json!({"reference":reference,"title":record.body["title"],"scope":record.body["scope"]})
+        || rows.next()?.is_some()
+    {
+        return Err(failure("Ambiguous or mismatched public issue notice"));
     }
-    let sequence = sequence.ok_or_else(|| failure("Delivery has no matching issue event"))?;
+    // An intact public notice need not have a surviving inbox copy. If a
+    // copy is indexed under this operation and edition, don't silently use
+    // contradictory terms. This does not verify a recipient read anything.
+    let mut copies = db.prepare_cached(
+        "SELECT e.seq,e.digest,e.work,e.actor,e.invocation,e.target FROM events e JOIN objects o USING(digest)
+         WHERE e.kind='delivery' AND e.target<>'*'
+         AND CASE WHEN json_valid(CAST(o.bytes AS TEXT)) THEN json_extract(CAST(o.bytes AS TEXT),'$.reference') END=?1",
+    )?;
+    let mut copies = copies.query([reference])?;
+    let addressed_sequence = if let Some(row) = copies.next()? {
+        let seq = row.get::<_, i64>(0)?;
+        let copy: Value = store::object(db, row.get_ref(1)?.as_str()?)?;
+        let origin = super::activity_requests::origin(db, work)?;
+        let recipient = origin.as_ref().map_or("user", |o| &o.requester);
+        if seq <= sequence
+            || row.get_ref(2)?.as_str()? != work
+            || row.get_ref(3)?.as_str()? != owner
+            || row.get::<_, Option<String>>(4)?.as_deref() != Some(invocation.as_str())
+            || row.get_ref(5)?.as_str()? != recipient
+            || copy != json!({"reference":reference,"record":record.body})
+            || copies.next()?.is_some()
+        {
+            return Err(failure("Inbox copy conflicts with its original issue"));
+        }
+        Some(seq)
+    } else {
+        None
+    };
     Ok(Issued {
         record,
         invocation,
         sequence,
+        addressed_sequence,
         time,
     })
 }
@@ -117,8 +150,10 @@ pub(super) fn latest_elsewhere(db: &Connection, actor: &str, work: &str) -> Resu
     edition.check_message(&message, &activity, actor, seq)?;
     let observation = format!("experience:event-{seq}@1");
     let choice = format!("experience:{}@1", edition.invocation);
-    Ok(Some(json!({"experience":observation,"work":activity,"author":author,"delivery":reference,
-        "issuing_decision":choice,"read_together":[choice,observation],"bodies_supplied":false})))
+    Ok(Some(
+        json!({"experience":observation,"work":activity,"author":author,"delivery":reference,
+        "issuing_decision":choice,"read_together":[choice,observation],"bodies_supplied":false}),
+    ))
 }
 
 /// Read a page of human feedback. Full message/file supply is verified on demand

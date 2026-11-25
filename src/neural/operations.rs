@@ -85,6 +85,15 @@ pub(super) fn evaluate_appraisal(
     Ok(json!({"evaluation":part.last_evaluation,"result":evaluation,"available_for_next_decision":true}))
 }
 
+pub(super) fn delivery_body(declared: &tools::Deliver, snapshot: &Snapshot) -> Result<Value> {
+    let mut body = serde_json::to_value(declared)?;
+    body["work"] = json!(snapshot.work);
+    body["mandate"] = snapshot.data["work"]["reference"].clone();
+    body["owner"] = json!(snapshot.actor);
+    body["user_accepted"] = json!(false);
+    Ok(body)
+}
+
 /// A delivery is a coherent file tree. Keep different deliveries separate, but
 /// preserve relative references among files within one delivered package.
 pub fn package_paths(
@@ -694,11 +703,7 @@ fn internal(
                 let mandate=snapshot.data["work"]["reference"].as_str().ok_or_else(||failure("Missing delivery mandate"))?;
                 super::package_review::check_reliance(db,&x.artifacts,mandate,&x.review_inputs,&x.reviews,call)?;
             }
-            let mut body = serde_json::to_value(x)?;
-            body["work"] = json!(work);
-            body["mandate"] = snapshot.data["work"]["reference"].clone();
-            body["owner"] = json!(actor);
-            body["user_accepted"] = json!(false);
+            let body = delivery_body(&x, snapshot)?;
             let r = store::write(db, "delivery", &id("delivery")?, 0, &body, Some(call))?;
             store::event(
                 db,
