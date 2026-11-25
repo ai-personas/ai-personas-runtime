@@ -1,5 +1,4 @@
 use super::*;
-use ai_personas::provider::AccessMode;
 
 // Unknown stream labels are retained as digests rather than free-form provider
 // text. Recognize only the exact documented label, never an error-message substring.
@@ -22,12 +21,8 @@ fn failed_attempt(db: &Connection, call: &str, digest: &str) -> neural::Result<V
         || (stream["stage"] == "event"
             && matches!(stream["event_type"].as_str(), Some("error" | "response.error" | "response.failed"))
             && (quota_label(stream, "remote_error_type") || quota_label(stream, "remote_error_code")));
-    let connection = [
-        (AccessMode::PlatformApiKey, "OpenAI API key"),
-        (AccessMode::ChatgptOAuth, "ChatGPT OAuth"),
-        (AccessMode::SiwcOAuth, "OpenAI OAuth"),
-    ].into_iter().find(|(mode, _)| receipt["audit"]["transport_profile"] == mode.profile())
-        .map_or("Model provider", |(_, name)| name);
+    let connection = receipt["audit"]["transport_profile"].as_str()
+        .and_then(crate::desktop::providers::transport_label).unwrap_or("Model provider");
     let summary = if quota {
         Some(format!("{connection}: insufficient quota"))
     } else if receipt["http_status"] == 200 && receipt["reported_terminal_status"].is_null()

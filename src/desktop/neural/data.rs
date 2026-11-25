@@ -343,18 +343,39 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
         CASE WHEN i.state LIKE 'probe_%' OR json_type(CAST(o.bytes AS TEXT),'$.source_invocation')='text' THEN 'assessment'
              WHEN json_type(CAST(o.bytes AS TEXT),'$.data.context_recovery')='object' THEN 'context_recovery'
              WHEN json_type(CAST(o.bytes AS TEXT),'$.model')='text' THEN 'ordinary'
-             WHEN json_type(CAST(o.bytes AS TEXT),'$.model')='null' THEN 'initialization' ELSE 'unknown' END
+             WHEN json_type(CAST(o.bytes AS TEXT),'$.model')='null' THEN 'initialization' ELSE 'unknown' END,
+        CASE WHEN json_extract(CAST(o.bytes AS TEXT),'$.invocation')=i.id
+              AND json_extract(CAST(o.bytes AS TEXT),'$.actor')=i.actor
+              AND json_extract(CAST(o.bytes AS TEXT),'$.work')=i.work
+              AND json_type(CAST(o.bytes AS TEXT),'$.persona_revision')='integer'
+             THEN json_extract(CAST(o.bytes AS TEXT),'$.persona_revision') END
         FROM invocations i JOIN objects o ON o.digest=i.snapshot
         WHERE i.state IN ('prepared','dispatched','responded','probe_prepared','probe_dispatched','uncertain')
         ORDER BY i.created,i.rowid")?;
-    let calls = q.query_map([], |r| Ok(json!({"id":r.get::<_,String>(0)?, "actor":r.get::<_,String>(1)?,
+    let calls = q.query_map([], |r| Ok((json!({"id":r.get::<_,String>(0)?, "actor":r.get::<_,String>(1)?,
         "work":r.get::<_,String>(2)?, "state":r.get::<_,String>(3)?, "created":r.get::<_,i64>(4)?,
-        "updated":r.get::<_,i64>(5)?, "stage":r.get::<_,String>(6)?})))?;
+        "updated":r.get::<_,i64>(5)?, "stage":r.get::<_,String>(6)?}), r.get::<_,Option<i64>>(7)?)))?;
     let mut active = Vec::new();
     let mut uncertain_calls = Vec::new();
     for call in calls {
-        let call = call?;
-        if call["state"] == "uncertain" { uncertain_calls.push(call); } else { active.push(call); }
+        let (mut call, revision) = call?;
+        if call["state"] == "uncertain" {
+            uncertain_calls.push(call);
+            continue;
+        }
+        // Never substitute the current persona settings or infer an assessment
+        // arm's selection from its owner's latest ordinary decision.
+        if let (Some(actor), Some(rev)) = (call["actor"].as_str(), revision) {
+            let reference = format!("persona:{actor}@{rev}");
+            if let Ok(person) = store::exact(&db, &reference) {
+                let provider = &person.body["provider"];
+                if person.body["id"] == actor {
+                    call["prepared_selection"] = json!({"source":reference,"model":provider["model"],
+                        "effort":provider["effort"],"transport_profile":provider["evidence"]["transport_profile"]});
+                }
+            }
+        }
+        active.push(call);
     }
     let mut q = db.prepare(
         "SELECT o.id,o.actor,o.work,o.state,o.operation,i.id,i.updated FROM outbox o

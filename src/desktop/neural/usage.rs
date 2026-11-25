@@ -40,7 +40,7 @@ impl Panel {
         });
     }
 
-    pub(super) fn show(&mut self, ui: &mut Ui, root: &Path, work: &str) -> Option<String> {
+    pub(super) fn show(&mut self, ui: &mut Ui, root: &Path, work: &str, status: &Value) -> Option<String> {
         ui.heading("Usage");
         let refresh = ui
             .horizontal_wrapped(|ui| {
@@ -96,7 +96,7 @@ impl Panel {
                 if self.storage {
                     storage_view(ui, report)
                 } else {
-                    open = activity_view(ui, report, &mut self.selected_call);
+                    open = activity_view(ui, report, status, &mut self.selected_call);
                 }
             });
         open
@@ -117,9 +117,55 @@ fn fact(ui: &mut Ui, label: &str, detail: String, color: Color32) {
     });
 }
 
+fn connection(call: &Value) -> &str {
+    let profile = call["transport_profile"].as_str().unwrap_or("Connection unreported");
+    crate::desktop::providers::transport_label(profile).unwrap_or(profile)
+}
+
+fn reasoning_receipts(ui: &mut Ui, report: &Value, status: &Value) -> Option<String> {
+    let rows = report["reasoning_receipts"].as_array().map(Vec::as_slice).unwrap_or_default();
+    ui.strong("Reasoning receipts");
+    ui.small("Accepted decisions with verified inputs. Model and effort are provider reports, not current settings.");
+    let mut open = None;
+    card(ui).show(ui, |ui| {
+        if rows.is_empty() {
+            ui.weak("No matching receipts yet. Pending and unsuccessful calls remain in the call list.");
+        }
+        for (i, row) in rows.iter().enumerate() {
+            if i != 0 { ui.separator(); }
+            ui.push_id(s(row, "last_invocation"), |ui| {
+                let actor = s(row, "actor");
+                let name = persona_label(status, actor);
+                ui.horizontal_top(|ui| {
+                    let (mark, hover) = ui.allocate_exact_size(egui::vec2(32., 36.), egui::Sense::hover());
+                    design::persona_mark(ui, mark, name, persona_color(actor));
+                    hover.on_hover_text(actor);
+                    ui.vertical(|ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.strong(name).on_hover_text(actor);
+                            let count = row["calls"].as_u64().unwrap_or_default();
+                            ui.weak(format!("{count} {}", if count == 1 { "call" } else { "calls" }));
+                            if ui.link("Receipt ↗").on_hover_text(format!("Open the most recently prepared call in this group\n{}", s(row, "last_invocation"))).clicked() {
+                                open = row["last_receipt"].as_str().map(str::to_owned);
+                            }
+                        });
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(row["reported_model"].as_str().unwrap_or("Model unreported"));
+                            theme::badge(ui, row["reported_effort"].as_str().unwrap_or("Effort unreported"), theme::palette(ui).muted);
+                            ui.small(connection(row)).on_hover_text(s(row, "transport_profile"));
+                        });
+                    });
+                });
+            });
+        }
+    });
+    open
+}
+
 fn activity_view(
     ui: &mut Ui,
     report: &Value,
+    status: &Value,
     selected_call: &mut Option<String>,
 ) -> Option<String> {
     let totals = &report["totals"];
@@ -164,7 +210,8 @@ fn activity_view(
         }
     }
     ui.separator();
-    let mut open = None;
+    let mut open = reasoning_receipts(ui, report, status);
+    ui.add_space(6.);
     let sources = report["text_sources"]
         .as_array()
         .map(Vec::as_slice)
@@ -291,8 +338,11 @@ fn activity_view(
                         "{}  ·  {}  ·  {}",
                         title(s(call, "mode")),
                         time_label(call["created"].as_i64().unwrap_or_default()),
-                        s(call, "reported_model")
+                        connection(call)
                     ));
+                    ui.small(format!("Provider report: {} · {}",
+                        call["reported_model"].as_str().unwrap_or("model unreported"),
+                        call["reported_effort"].as_str().unwrap_or("effort unreported")));
                     ui.label(format!(
                         "{} input  ·  {} cached  ·  {} output tokens",
                         value(&call["usage"]["input_tokens"]),

@@ -6,6 +6,19 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Name only a recognized transport profile, not a credential file or account.
+/// Unknown or historical profiles can still be inspected on the exact receipt.
+pub(super) fn transport_label(profile: &str) -> Option<&'static str> {
+    Some(match AccessMode::ALL.into_iter().find(|mode| mode.profile() == profile)? {
+        AccessMode::ChatgptOAuth => "ChatGPT OAuth",
+        AccessMode::SiwcOAuth => "OpenAI OAuth",
+        AccessMode::PlatformApiKey => "OpenAI API key",
+        AccessMode::OpenRouterApiKey => "OpenRouter API key",
+        AccessMode::AnthropicApiKey => "Anthropic API key",
+        AccessMode::OpenCodeApiKey => "OpenCode API key",
+    })
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ApiProvider { OpenAi, OpenRouter, Anthropic, OpenCode }
