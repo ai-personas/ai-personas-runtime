@@ -12,7 +12,8 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
-    io::{self, Cursor, Read},
+    fs::File,
+    io::{self, BufReader, Cursor, Read, Seek, SeekFrom},
 };
 use zip::ZipArchive;
 
@@ -20,26 +21,45 @@ use zip::ZipArchive;
 /// A recipient using a different reader need not see the same member in that case.
 pub fn directory(bytes: &[u8]) -> Result<ZipArchive<Cursor<&[u8]>>> {
     let zip = ZipArchive::new(Cursor::new(bytes))?;
-    let mut tail = bytes
-        .get(usize::try_from(zip.central_directory_start())?..)
+    let tail = bytes.get(usize::try_from(zip.central_directory_start())?..)
         .ok_or_else(|| failure("Invalid ZIP directory offset"))?;
+    unique_entries(tail, zip.len())?;
+    Ok(zip)
+}
+
+/// The full-file viewer streams archives, including archives nested in an
+/// immutable snapshot. Apply the same directory check as the edition reader.
+pub fn file_directory(mut file: &File) -> Result<ZipArchive<&File>> {
+    let zip = ZipArchive::new(file)?;
+    let resume = file.stream_position()?;
+    file.seek(SeekFrom::Start(zip.central_directory_start()))?;
+    unique_entries(BufReader::new(file), zip.len())?;
+    file.seek(SeekFrom::Start(resume))?;
+    Ok(zip)
+}
+
+fn unique_entries(mut tail: impl Read, expected: usize) -> Result<()> {
     let mut count = 0;
-    while tail.starts_with(b"PK\x01\x02") {
-        let header = tail
-            .get(..46)
-            .ok_or_else(|| failure("Incomplete ZIP directory"))?;
-        let field = |i: usize| usize::from(u16::from_le_bytes([header[i], header[i + 1]]));
-        tail = tail
-            .get(46 + field(28) + field(30) + field(32)..)
-            .ok_or_else(|| failure("Incomplete ZIP directory entry"))?;
+    let mut header = [0; 46];
+    loop {
+        tail.read_exact(&mut header[..4])?;
+        if &header[..4] != b"PK\x01\x02" {
+            break;
+        }
+        tail.read_exact(&mut header[4..])?;
+        let field = |i: usize| u64::from(u16::from_le_bytes([header[i], header[i + 1]]));
+        let n = field(28) + field(30) + field(32);
+        if io::copy(&mut (&mut tail).take(n), &mut io::sink())? != n {
+            return Err(failure("Incomplete ZIP directory entry"));
+        }
         count += 1;
     }
-    if count != zip.len() {
+    if count != expected {
         return Err(failure(
             "Cannot identify unique file paths in this ZIP directory",
         ));
     }
-    Ok(zip)
+    Ok(())
 }
 
 fn members(db: &Connection, source: &Source) -> Result<BTreeMap<String, Fingerprint>> {

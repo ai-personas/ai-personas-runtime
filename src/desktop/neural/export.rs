@@ -6,7 +6,7 @@ use std::io::Write;
 
 #[derive(Clone)]
 enum Contents {
-    Artifact { reference: String, digest: String, metadata_view: bool, source: Option<(String, String)> },
+    Artifact { reference: String, digest: String, metadata_view: bool, source: Option<(String, String)>, entry: Option<artifacts::ViewedMember> },
     PackageMember { reference: String, member: Member },
     Printed { source: print_preview::Source, document: print_preview::Document },
     Deliveries { work: Option<String>, label: String, editions: Vec<ListedEdition> },
@@ -158,23 +158,26 @@ impl App {
             format!("{folder}.zip"),
         ));
     }
-    pub(super) fn save_artifact(&mut self, _ctx: &egui::Context) {
+    pub(super) fn save_artifact(&mut self, entry: Option<artifacts::ViewedMember>) {
         if self.selected_reference.is_empty() || self.preview_metadata.is_null() {
             return;
         }
-        if let Some(delivery) = self.preview_metadata["package_edition"].as_str() {
+        if let Some(delivery) = self.preview_metadata["package_edition"].as_str().filter(|_| entry.is_none()) {
             let (delivery, file, path, digest) = (delivery.to_owned(), self.selected_reference.clone(),
                 s(&self.preview_metadata, "path").to_owned(), s(&self.preview_metadata, "blob").to_owned());
             self.save_package_member(&delivery, &file, &path, &digest, None);
             return;
         }
         let path = s(&self.preview_metadata, "path");
-        let source = self.preview_metadata["source_record"].as_str()
+        let source = self.preview_metadata["package_edition"].as_str()
+            .or_else(|| self.preview_metadata["source_record"].as_str())
             .or_else(|| self.preview_metadata["command_run"].as_str())
             .map(|record| (record.to_owned(), path.to_owned()));
         let file = &self.preview_metadata["preview_file"];
         let metadata_view = self.preview_metadata["view"] == "provider_receipt_metadata";
-        let name = if metadata_view {
+        let name = if let Some(entry) = &entry {
+            basename(entry.name()).to_owned()
+        } else if metadata_view {
             "provider-receipt-metadata.json".to_owned()
         } else {
             basename(s(file, "name")).to_owned()
@@ -182,7 +185,7 @@ impl App {
         self.export_generation += 1;
         self.export_dialog = Some(Dialog::new(
             self.export_generation,
-            Contents::Artifact { reference: self.selected_reference.clone(), digest: s(file, "sha256").to_owned(), metadata_view, source },
+            Contents::Artifact { reference: self.selected_reference.clone(), digest: s(file, "sha256").to_owned(), metadata_view, source, entry },
             name,
         ));
     }
@@ -215,6 +218,7 @@ impl App {
             return;
         };
         let (heading, description, action) = match &dialog.contents {
+            Contents::Artifact { entry: Some(_), .. } => ("Save archive member", "Save the original member bytes, not the enclosing archive or a rendered preview.", "Save member"),
             Contents::Artifact { metadata_view: true, .. } => (
                 "Save receipt metadata", "Save the public receipt view, including its audit and usage.", "Save file"),
             Contents::PackageMember { member, .. } if member.entry.is_some() =>
@@ -309,6 +313,14 @@ impl App {
                 }
                 ui.small(format!("{}  ·  Revision {edition}", member.path)).on_hover_text(reference);
                 ui.small(&member.edition);
+            }
+            if let Contents::Artifact { entry: Some(entry), reference, source, .. } = &dialog.contents {
+                let original = source.as_ref().map_or(entry.original(), |(_, path)| path.as_str());
+                ui.small(format!("Original archive · {original}")).on_hover_text(reference);
+                for name in entry.paths() {
+                    ui.add(egui::Label::new(RichText::new(name).strong()).wrap());
+                }
+                if let Some((origin, _)) = source { ui.small(origin); }
             }
             if let Contents::ReviewFile(selected) = &dialog.contents {
                 ui.strong(&selected.name);
@@ -414,13 +426,17 @@ impl App {
                             .map_err(|e| e.to_string())?;
                     }
                     Contents::PackageMember { reference, member } => return member.save(&root, &reference, &path),
-                    Contents::Artifact { reference, source, digest, metadata_view } => {
+                    Contents::Artifact { reference, source, digest, metadata_view, entry } => {
                         let preview = data::preview_output(&root, &reference, source.as_ref()).map_err(|e| e.to_string())?;
                         if preview.digest != digest || (preview.metadata["view"] == "provider_receipt_metadata") != metadata_view {
                             return Err("The retained contents differ from the preview. Reopen the file before saving.".into());
                         }
-                        let bytes = std::fs::read(&preview.path).map_err(|e| e.to_string())?;
-                        save_new_file(&path, &bytes)?;
+                        if let Some(entry) = entry {
+                            save_new_file_with(&path, |file| entry.copy_from(preview.directory, preview.path, preview.digest, file))?;
+                        } else {
+                            let bytes = std::fs::read(&preview.path).map_err(|e| e.to_string())?;
+                            save_new_file(&path, &bytes)?;
+                        }
                     }
                     Contents::Deliveries { work, editions, .. } => {
                         let listed = editions.into_iter().map(|e| (e.reference, e.digest)).collect();

@@ -110,13 +110,15 @@ impl ArchiveFormat {
         file.rewind().map_err(|e|e.to_string())?;
         let mut entries = match self {
             Self::Zip => {
-                let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+                let mut zip = ai_personas::neural::issued_zip::file_directory(file).map_err(|e| e.to_string())?;
                 let mut entries = Vec::new();
                 for index in 0..zip.len() {
                     if cancel.is_cancelled() { return Err("Preview request cancelled.".into()); }
                     let f = zip.by_index_raw(index).map_err(|e| e.to_string())?;
                     if !f.is_dir() {
-                        entries.push(ArchiveEntry { index, name: f.name().into(), size: f.size(), note: None });
+                        let regular = f.is_file() && matches!(f.unix_mode().unwrap_or(0) & 0o170000, 0 | 0o100000);
+                        entries.push(ArchiveEntry { index, name: f.name().into(), size: f.size(),
+                            note: (!regular).then(|| "Link or special entry".into()) });
                     }
                 }
                 entries

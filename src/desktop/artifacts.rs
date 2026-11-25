@@ -27,6 +27,9 @@ mod sequence;
 mod database;
 #[path = "native_preview.rs"]
 mod native_preview;
+#[path = "viewed_member.rs"]
+mod viewed_member;
+pub(super) use viewed_member::ViewedMember;
 pub(super) use loader::read_file;
 pub(super) use native_preview::{cam_layers, Cancellation as PreviewCancellation};
 
