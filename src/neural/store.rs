@@ -412,6 +412,14 @@ pub fn events(db: &Connection, work: &str, actor: &str, after: i64) -> Result<Ve
     rows.into_iter().map(|(seq,actor,target,kind,digest,invocation,created)| Ok(json!({"event":seq,"experience":format!("experience:event-{seq}@1"),"actor":actor,"target":target,"kind":kind,"body":object::<Value>(db,&digest)?,"digest":digest,"invocation":invocation,"created":created}))).collect()
 }
 
+/// An actual arrival or a changed register edition on this participation's chosen wait.
+/// This does not deliver a message, override a stop, or include time-based wakes.
+pub fn waiting_arrival(db: &Connection, part: &super::protocol::Participation) -> Result<bool> {
+    let super::protocol::Continuation::Wait { on_events, .. } = &part.continuation else { return Ok(false) };
+    Ok(has_arrival(db, &part.work, &part.persona, part.cursor, on_events)?
+        || !super::human_requests::following::changes(db, part)?.is_empty())
+}
+
 pub fn has_arrival(db:&Connection, work:&str, actor:&str, after:i64, kinds:&[String])->Result<bool> {
     let specific = kinds.iter().any(|k| k.starts_with("human_request:"));
     let mut query=db.prepare("SELECT e.kind, e.invocation IS NOT NULL AND e.target=?3 AND e.actor<>?3,

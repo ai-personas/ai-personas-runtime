@@ -409,6 +409,7 @@ pub(super) fn change_activity(
             part.accepted = false;
             part.pending_resume = None;
             part.closed_by_activity = Some(proof.clone());
+            part.peer_request_cursors.clear();
             part.continuation = super::protocol::Continuation::Stop {
                 reason: format!("Activity ended by {operator}: {reason}"),
             };

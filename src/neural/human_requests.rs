@@ -5,7 +5,7 @@ use rusqlite::Connection;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 mod files_at_issue;
 pub use files_at_issue::Materials;
@@ -16,6 +16,7 @@ pub(super) use packet::issue as issue_packet;
 mod correspondence;
 pub use correspondence::correspondence;
 pub(crate) mod register;
+pub(super) mod following;
 pub use register::Lookup;
 mod field_report;
 pub use field_report::{FieldReport, ReturnForm};
@@ -226,8 +227,9 @@ fn exact(db: &Connection, reference: &str) -> Result<store::Record> {
 /// Keep the chosen edition even if a newer report arrived during inference.
 pub(super) fn bind_waits(
     db: &Connection, snapshot: &Snapshot, triggers: &mut [String],
-    aliases: &std::collections::BTreeMap<String, String>,
-) -> Result<()> {
+    aliases: &BTreeMap<String, String>, previous: &BTreeMap<String, i64>,
+) -> Result<BTreeMap<String, i64>> {
+    let mut peers = BTreeMap::<String, i64>::new();
     for trigger in triggers {
         if let Some(key) = trigger.strip_prefix('$') {
             *trigger = aliases.get(key).cloned()
@@ -239,19 +241,30 @@ pub(super) fn bind_waits(
             continue;
         }
         let record = exact(db, trigger)?;
-        if record.body["requester"] != snapshot.actor || record.body["work"] != snapshot.work
-            || !matches!(record.body["state"].as_str(), Some("open" | "in_progress"))
-        {
-            return Err(failure("Choose an open or taken edition of your own human request in this activity"));
+        if record.body["work"] != snapshot.work || !matches!(record.body["state"].as_str(), Some("open" | "in_progress")) {
+            return Err(failure("Choose an open or taken edition of a human request in this activity"));
         }
         let current = store::required(db, "human_request", &record.reference.id)?;
+        let requester = record.body["requester"].as_str().ok_or_else(|| failure("Missing requester"))?;
+        if requester != snapshot.actor {
+            let seen = following::observed(snapshot, &record, previous)?;
+            if seen > current.reference.revision || !same_terms(&record.body, &current.body) {
+                return Err(failure("The selected outside step differs from its current edition"));
+            }
+            if seen == current.reference.revision && !matches!(current.body["state"].as_str(), Some("open" | "in_progress")) {
+                return Err(failure(format!("{} is closed. Reconsider what still needs an outside return.", current.reference.handle())));
+            }
+            let floor = peers.entry(record.reference.id).or_default();
+            *floor = (*floor).max(seen);
+            continue;
+        }
         if !matches!(current.body["state"].as_str(), Some("open" | "in_progress")) && !store::has_arrival(
             db, &snapshot.work, &snapshot.actor, snapshot.cursor, std::slice::from_ref(trigger),
         )? {
             return Err(failure(format!("This request is closed. Read {} and reconsider what still needs a human return.", current.reference.handle())));
         }
     }
-    Ok(())
+    Ok(peers)
 }
 
 pub(super) fn newer_report(trigger: &str, reported: &str) -> bool {

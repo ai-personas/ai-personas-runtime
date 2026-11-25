@@ -520,6 +520,33 @@ impl App {
             egui::CollapsingHeader::new(format!("{name}’s continuation")).id_salt(("requester-continuation", reference))
                 .show(ui, |ui| { ui.add(egui::Label::new(reason).wrap()); });
         }
+        let Some((key, revision)) = reference.rsplit_once('@') else { return };
+        let Some(id) = key.strip_prefix("human_request:") else { return };
+        let mut followers = Vec::new();
+        for p in self.records("participation").iter().map(|r| &r["body"]) {
+            let next = &p["continuation"];
+            if p["work"] != work || p["persona"] == actor || next["kind"] != "wait" { continue; }
+            if let Some(seen) = p["peer_request_cursors"][id].as_i64() {
+                if next["on_events"].as_array().into_iter().flatten().filter_map(Value::as_str)
+                    .any(|s| s.rsplit_once('@').is_some_and(|(k, _)| k == key)) {
+                    followers.push((s(p,"persona"), seen, s(next,"reason")));
+                }
+            }
+        }
+        if !followers.is_empty() {
+            egui::CollapsingHeader::new(format!("Peers following this step · {}", followers.len()))
+                .id_salt(("outside-step-followers", key)).show(ui, |ui| {
+                    ui.weak("A newer edition can wake these peers. Following does not assign the outside step or forward the human’s report.");
+                    for (person, seen, reason) in followers {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.strong(self.label(person));
+                            ui.label(format!("Watching for changes since edition {seen}"));
+                            if revision.parse::<i64>().is_ok_and(|n| n > seen) { ui.small("New edition available"); }
+                        });
+                        ui.add(egui::Label::new(reason).wrap());
+                    }
+                });
+        }
     }
 
     fn request_materials(&mut self, ui: &mut Ui, reference: &str, body: &Value) {

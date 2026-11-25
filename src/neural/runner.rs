@@ -895,12 +895,12 @@ async fn drive(root:&Path,watch:bool,work:Option<&str>,actor:Option<&str>,from_a
                 && (part.pending_resume.is_some() || match &part.continuation {
                     Continuation::Ready { .. } => true,
                     Continuation::Stop { .. } => false,
-                    Continuation::Wait { wake_at_unix, on_events, .. } => {
+                    Continuation::Wait { wake_at_unix, .. } => {
                         if let Some(t) = wake_at_unix.filter(|t| *t > now()) {
                             next_wake = Some(next_wake.map_or(t, |prior| prior.min(t)));
                         }
                         wake_at_unix.is_some_and(|t| t <= now())
-                            || store::has_arrival(&store.db,&part.work,&part.persona,part.cursor,on_events)?
+                            || store::waiting_arrival(&store.db, &part)?
                     }
                 });
             if ready {

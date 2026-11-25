@@ -1052,17 +1052,30 @@ impl App {
                     .on_hover_text(reason);
             }
             if open && matches!(s(continuation, "kind"), "wait" | "waiting") {
+                let mut steps = Vec::new();
                 let names: Vec<_> = continuation["on_events"]
                     .as_array()
                     .into_iter()
                     .flatten()
                     .filter_map(Value::as_str)
                     .map(|v| {
-                        if let Some((id, _)) = v.strip_prefix("human_request:").and_then(|h| h.rsplit_once('@')) {
-                            let title = self.records("human_requests").iter()
-                                .find(|r| r["reference"]["id"] == id).and_then(|r| r["body"]["title"].as_str()).unwrap_or(v);
-                            format!("human update on {title}")
-                        } else { v.replace('_', " ") }
+                        let Some((id, revision)) = v.strip_prefix("human_request:").and_then(|h| h.rsplit_once('@')) else {
+                            return v.replace('_', " ");
+                        };
+                        let Some(request) = self.records("human_requests").iter()
+                            .find(|r| r["reference"]["id"] == id && r["body"]["work"] == self.work) else {
+                            return v.to_owned();
+                        };
+                        let title = s(&request["body"], "title");
+                        let (condition, detail) = if request["body"]["requester"] == person {
+                            ("human return", format!("Waiting for a human update on {title} (selected edition {revision})."))
+                        } else if let Some(seen) = part["peer_request_cursors"][id].as_i64() {
+                            ("outside step changes", format!("Following {title} after edition {seen}. A new edition gives this peer the register status, not the human’s report."))
+                        } else {
+                            return v.to_owned();
+                        };
+                        steps.push((id.to_owned(), title.to_owned(), detail));
+                        condition.to_owned()
                     })
                     .collect();
                 let mut triggers = if names.is_empty() {
@@ -1079,6 +1092,12 @@ impl App {
                     triggers.push_str(&format!(" or {} ({relative})", time_label(at)));
                 }
                 small_text(ui, format!("Wake conditions · {triggers}"));
+                for (id, title, detail) in steps {
+                    let label = format!("{} ↗", preview_text(&title, 54));
+                    if text_action(ui, &label).on_hover_text(format!("{detail}\nOpen the current request in Needs you.")).clicked() {
+                        self.show_human_request(&id);
+                    }
+                }
             }
             if let Some(last) = self
                 .character_decisions
