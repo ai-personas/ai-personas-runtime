@@ -444,8 +444,9 @@ pub(super) fn change_activity(
         &activity.body,
         None,
     )?;
+    let human_roles = super::task_roles::at_closure(db, work, &proof)?;
     let body = json!({"work":work,"operator":operator,"reason":reason,"at_unix":super::now(),"prior_brief":prior,
-        "brief":next.handle(),"members":members,"released_outcomes":outcomes,"unfinished_outcomes":unfinished,
+        "brief":next.handle(),"human_roles_at_closure":human_roles,"members":members,"released_outcomes":outcomes,"unfinished_outcomes":unfinished,
         "closed_offers":offers,"effect_observations":effects,"open_jobs_observed":open_jobs(db,work)?,"inference_observations":unsettled_inference(db,work)?});
     store::write(db, "dissolution", &key, 0, &body, None)?;
     let change = json!({"work":work,"dissolution":proof,"operator":operator,"reason":reason,"brief":next.handle(),
@@ -491,6 +492,7 @@ pub fn responsibilities(db: &Connection, work: &str) -> Result<Value> {
     }).collect::<Vec<_>>();
     Ok(
         json!({"work":work,"brief":activity.reference.handle(),"phase":activity.body["phase"],
+        "kind":activity.body["kind"],"human_roles":super::task_roles::entries(db,work)?,
         "brief_requester":activity.body["requester"],"outside_steps":outside_steps,"dissolutions":closures,"members":members,"outcomes":outcomes,"ownership":ownership,
         "offers":handoff::offers(db,Some(work))?,"departures":store::in_work(db,"departure",work)?,
         "responsibility_acceptances":store::in_work(db,"responsibility_acceptance",work)?,

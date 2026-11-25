@@ -1730,6 +1730,9 @@ impl App {
             "human_request" => "requested your help".into(),
             "human_request_packet" => "issued files for your request".into(),
             "human_request_progress" => "updated a request".into(),
+            "human_role_changed" if body["state"] == "left" => "left their task role".into(),
+            "human_role_changed" if body["role"] == "owner" => "recorded their part as task owner".into(),
+            "human_role_changed" => "recorded their contribution".into(),
             "human_request_withdrawn" => "withdrew a request".into(),
             "invitation" => format!("invited {target}"),
             "invitation_response" if body["accept"] == true => "accepted the invitation".into(),
@@ -1792,6 +1795,9 @@ impl App {
 
 pub(super) fn event_text(event: &Value) -> &str {
     let body = &event["body"];
+    if event["kind"] == "human_role_changed" {
+        return s(body, "note");
+    }
     if event["kind"] == "delivery_check" {
         return s(body, "purpose");
     }
