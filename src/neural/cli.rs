@@ -302,7 +302,9 @@ pub enum Command {
     /// Read the reports and replies published on this exact shared asset revision.
     AssetFeedbackHistory(super::asset_feedback::History),
     /// Publish a criterion and finding on the exact delivery or proposed files.
-    PackageReview {work:String,#[command(flatten)] review:super::package_review::Review},
+    PackageReview {work:String,#[command(flatten)] review:super::package_review::Review,#[command(flatten)] #[serde(skip_serializing_if="InputFiles::is_empty")] files:InputFiles},
+    /// Save one file supplied by a reviewer, not a member of the issued package.
+    ExportReviewFile {#[command(flatten)] file:super::package_review::EvidenceFile,destination:PathBuf},
     /// Find later published findings on this exact edition and later packages that explicitly cite it.
     AfterIssue(super::package_review::after_issue::Query),
     /// Compare retained findings with exact files and their brief.
@@ -544,7 +546,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
     if operator.trim().is_empty() { return Err(failure("An operator name is required for attribution")); }
     match &mut command {
         Command::Request { files, .. } | Command::Social { files, .. } | Command::Amend { files, .. }
-        | Command::Message { files, .. } | Command::HumanRespond { files, .. } => files.capture_paths()?,
+        | Command::Message { files, .. } | Command::HumanRespond { files, .. } | Command::PackageReview { files, .. } => files.capture_paths()?,
         _ => {}
     }
     if let Command::HumanRespond { note, files, field_report, .. } = &mut command {
@@ -581,6 +583,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
         Command::ConnectPlatform { platform_key_file } =>
             super::connection::change(root, operator, super::connection::Route::PlatformKeyFile(platform_key_file)).await,
         Command::Export{directory,work}=>Ok(serde_json::to_value(super::delivery_export::collection(root,&directory,work.as_deref(),None)?)?),
+        Command::ExportReviewFile{file,destination}=>file.save(&store::open_inspection(root)?,&destination),
         Command::AfterIssue(query)=>super::package_review::after_issue::inspect(&store::open_inspection(root)?, &query),
         Command::CompareIssuedZips{baseline_edition,baseline_file,edition,file,baseline_root,selected_root}=>Ok(serde_json::to_value(super::issued_zip::compare(&store::open_inspection(root)?,&baseline_edition,&baseline_file,&edition,&file,&baseline_root,&selected_root)?)?),
         Command::ExportPackage{reference,destination}=>super::human_requests::export_package(&store::open_inspection(root)?,&reference,&destination),
@@ -856,7 +859,7 @@ fn operator_action(root: &Path, db: &rusqlite::Connection, operator: &str, comma
         Command::AgreementPosition{work,response}=>super::agreements::respond(db,&work,super::agreements::Author::Operator(operator),&response),
         Command::Dissolve{work,reason,expected}=>super::membership::change_activity(db,&work,operator,&reason,expected.as_deref(),false),
         Command::Reopen{work,reason,expected}=>super::membership::change_activity(db,&work,operator,&reason,expected.as_deref(),true),
-        Command::PackageReview{work,review}=>super::package_review::publish(db,&work,operator,None,&review),
+        Command::PackageReview{work,review,files}=>super::package_review::publish(db,&work,operator,super::package_review::Publisher::Operator(&files),&review),
         Command::AssetFeedback{work,feedback}=>super::asset_feedback::publish(db,&work,operator,None,&feedback),
         Command::Accept{delivery,reject,reason}=>{
             if reason.trim().is_empty(){return Err(failure("Explain the delivery review"));}

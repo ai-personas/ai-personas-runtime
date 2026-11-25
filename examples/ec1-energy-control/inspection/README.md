@@ -1,6 +1,6 @@
 # EC1 bare-board inspection sheet
 
-**[One-page A4 PDF](EC1-inspection.pdf) · [Editable SVG drawing](EC1-inspection.svg) · [Original KiCad project and CAM](../)**
+**[One-page A4 PDF](EC1-inspection.pdf) · [Editable SVG drawing](EC1-inspection.svg) · [Ten-hole digital register and shift note](register/) · [Original KiCad project and CAM](../)**
 
 Use the PDF for the unpowered bench. Print at **Actual size / 100%**, with Fit, Shrink and borderless expansion off. Measure the **50 mm horizontal and 20 mm vertical** spans between tick centres. If either is wrong, do not use that print. The outline is the component-side view: IN at upper left, LOAD at upper right, G below LOAD. The table identifies every loop and both C1 leads. Use the SVG if you want to edit the drawing; editing is not required to use either file.
 
@@ -41,3 +41,5 @@ Choose **Overview → My work** under the operator name used for the declaration
 ![My work on the bench: one declared task contribution, Noor’s issued sheet, and no outside step held by the operator.](../../../docs/assets/studio-ec1-my-work.jpg)
 
 Open **Who received this?**. The operator recorded the role at event 409, while the third call was already in flight. **Six of nine** accepted inputs contained the exact declaration; the first three did not. **Supplied input** opens the retained input, and **Decision** opens that specific choice, including Noor’s decision to stop. A receipt establishes what the persona was supplied, not assent, causation, completion by the human or user acceptance of the files. The operator’s clicks here are not an independent usability study.
+
+The declaration was a promise, not the measurements. On a later shift, **Record my check…** let Bench desk publish [the original observations](bench-return/EC1-digital-disc-measurements.csv) on this edition. Read [the register Lumen made from those observations](register/) without changing Noor’s drawing or treating the digital comparison as physical sign-off.

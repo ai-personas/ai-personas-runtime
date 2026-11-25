@@ -15,6 +15,7 @@ enum Open {
     Board(String),
     Receipts(String),
     Edition(String, String),
+    Report(String, String),
     Request(String),
     FieldDesk,
     FindActivity,
@@ -105,6 +106,7 @@ impl App {
             Some(Open::Board(work)) => self.open_task_board(&work),
             Some(Open::Receipts(r)) => self.open_role_receipts(ui.ctx(), r),
             Some(Open::Edition(r, work)) => self.open_home_delivery(&r, &work),
+            Some(Open::Report(r, work)) => self.package_reviews.write_for(ui.ctx(), &self.root, &work, &r),
             Some(Open::Request(id)) => self.show_human_request(&id),
             Some(Open::FieldDesk) => {
                 self.inbox.active_list();
@@ -173,11 +175,12 @@ impl App {
                     {
                         *open = Some(Open::Edition(reference.clone(), activity.id.clone()));
                     }
-                    ui.small(format!(
-                        "By {} · {}",
-                        self.label(s(b, "owner")),
-                        edition_scope(s(b, "scope"))
-                    ));
+                    ui.horizontal_wrapped(|ui| {
+                        ui.small(format!("By {} · {}", self.label(s(b, "owner")), edition_scope(s(b, "scope"))));
+                        if ui.small_button("Record my check…").on_hover_text("Publish a finding and optional evidence files on this edition, without accepting it.").clicked() {
+                            *open = Some(Open::Report(reference.clone(), activity.id.clone()));
+                        }
+                    });
                 });
             }
             pager(ui, &mut page, total, PER_PAGE, "deliveries");

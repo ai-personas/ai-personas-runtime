@@ -10,6 +10,7 @@ enum Contents {
     Printed { source: print_preview::Source, document: print_preview::Document },
     Deliveries { work: Option<String>, label: String, editions: Vec<ListedEdition> },
     Package(String),
+    ReviewFile(ai_personas::neural::package_review::EvidenceFile),
     Dispatch { delivery: String, number: usize, recipient: String, files: usize, packet: bool },
     Handoff { reference: String, files: usize, format: HandoffFormat },
 }
@@ -135,6 +136,11 @@ impl App {
             delivery: delivery.into(), number, recipient: recipient.into(), files, packet,
         }, name));
     }
+    pub(super) fn save_review_file(&mut self, file: ai_personas::neural::package_review::EvidenceFile) {
+        self.export_generation += 1;
+        let name = file.name.clone();
+        self.export_dialog = Some(Dialog::new(self.export_generation, Contents::ReviewFile(file), name));
+    }
     pub(super) fn save_request_handoff(&mut self, reference: &str, title: &str, files: usize) {
         self.save_handoff(reference, title, files, "Request");
     }
@@ -217,6 +223,7 @@ impl App {
             Contents::Dispatch { packet: true, .. } => ("Save recipient packet", "Dispatch.html contains this recipient’s instructions and flags later edition notes without sharing the reports. Files/ holds only the original files on this slip.", "Save packet"),
             Contents::Dispatch { files: 1, .. } => ("Save dispatch file", "This is the original file, not a new ZIP around it.", "Save original"),
             Contents::Dispatch { .. } => ("Save dispatch files", "Only the files on this slip are included, at their issued paths.", "Save ZIP"),
+            Contents::ReviewFile(_) => ("Save reviewer’s file", "Save the named evidence from this published finding. It is not a file issued by the delivery owner.", "Save original"),
             Contents::Package(_) => ("Save file package", "The ZIP contains the selected file revisions with their original names and folders.", "Save file"),
             Contents::Handoff { reference, .. } if reference.starts_with("delivery:") =>
                 ("Save delivery handoff", "Send this edition as issued. The sheet separates the issuer’s instructions from reviews and citations verified when you save.", "Save handoff"),
@@ -299,6 +306,11 @@ impl App {
                 }
                 ui.small(format!("{}  ·  Revision {edition}", member.path)).on_hover_text(reference);
                 ui.small(&member.edition);
+            }
+            if let Contents::ReviewFile(selected) = &dialog.contents {
+                ui.strong(&selected.name);
+                ui.small(&selected.finding);
+                ui.small(&selected.object);
             }
             if let Contents::Printed { source, document } = &dialog.contents {
                 ui.strong(&source.path);
@@ -384,6 +396,10 @@ impl App {
                         let export = if packet { export_dispatch_packet } else { export_dispatch };
                         export(&db, &delivery, number, &path).map_err(|e| e.to_string())?;
                         return Ok(format!("Saved dispatch {number} to {}", path.display()));
+                    }
+                    Contents::ReviewFile(file) => {
+                        let db = data::open(&root).map_err(|e| e.to_string())?;
+                        file.save(&db, &path).map_err(|e| e.to_string())?;
                     }
                     Contents::Package(reference) => {
                         let db = data::open(&root).map_err(|e|e.to_string())?;

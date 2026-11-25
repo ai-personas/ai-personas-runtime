@@ -3,7 +3,8 @@ use super::{activity_title, card, data, excerpt, operator_call, s, theme, title,
 use ai_personas::neural::{
     self,
     cli::Command,
-    package_review::{self, Lookup, Review, Subject, Verdict},
+    input_files::CapturedFile,
+    package_review::{self, EvidenceFile, Lookup, Review, Subject, Verdict},
 };
 use eframe::egui::{self, Color32, RichText, Ui};
 use serde_json::Value;
@@ -51,9 +52,16 @@ struct Draft {
     criterion: String,
     finding: String,
     evidence: String,
+    files: Vec<CapturedFile>,
+    picker: super::input_files::Picker,
     verdict: Option<Verdict>,
     request: Option<(String, String)>,
 }
+pub(super) enum Action {
+    Inspect(String),
+    Save(EvidenceFile),
+}
+
 enum Reply {
     Page(Value),
     Published(String),
@@ -82,6 +90,11 @@ impl Desk {
         delivery: Option<&str>,
     ) {
         self.open_selection(ctx, root, work, delivery, None);
+    }
+    pub(super) fn write_for(&mut self, ctx: &egui::Context, root: &Path, work: &str, edition: &str) {
+        self.open(ctx, root, work, Some(edition));
+        // Opening another entry point must never re-address an existing draft.
+        if !self.publishing { self.draft.get_or_insert_with(Draft::default); }
     }
     pub(super) fn open_finding(
         &mut self, ctx: &egui::Context, root: &Path, work: &str, delivery: &str, finding: &str,
@@ -157,6 +170,7 @@ impl Desk {
             .ok_or_else(|| neural::failure("Open a review draft"))?;
         let command = Command::PackageReview {
             work: self.selection.work.clone(),
+            files: draft.files.clone().into(),
             review: Review {
                 subject: self.selection.subject(),
                 expected_mandate: self
@@ -224,13 +238,14 @@ impl Desk {
         root: &Path,
         operator: &str,
         status: &Value,
-    ) -> Option<String> {
+    ) -> Option<Action> {
         self.receive(ctx, root);
         if !self.visible {
             return None;
         }
         let mut visible = true;
         let mut inspect = None;
+        let mut save = None;
         let mut load = None;
         let mut publish = false;
         let rect = ctx.content_rect().shrink(6.);
@@ -345,7 +360,8 @@ impl Desk {
                         .id_salt("package-review-compose")
                         .show(ui, |ui| {
                             ui.add_enabled_ui(!self.publishing, |ui| {
-                                ui.strong(format!("Review by {operator}"));
+                                ui.strong(format!("Finding by {operator}"));
+                                ui.weak("Publish what you checked. This does not accept the edition or complete an outside step.");
                                 let activity = status["work"]
                                     .as_array()
                                     .into_iter()
@@ -396,10 +412,25 @@ impl Desk {
                                             "Exact resources or receipts, separated by whitespace",
                                         ),
                                 );
-                                ui.horizontal(|ui| {
+                                if let Some(role) = status["human_task_roles"].as_array().into_iter().flatten().find(|r| {
+                                    let b = &r["body"];
+                                    b["state"] == "active" && b["operator"] == operator && b["work"] == self.selection.work
+                                }) {
+                                    let reference = super::inbox::handle(role);
+                                    if !draft.evidence.split_whitespace().any(|r| r == reference)
+                                        && ui.small_button("Cite my role declaration").on_hover_text(s(&role["body"], "note")).clicked() {
+                                        if !draft.evidence.is_empty() { draft.evidence.push('\n'); }
+                                        draft.evidence.push_str(&reference);
+                                    }
+                                }
+                                ui.add_space(5.);
+                                ui.strong("My evidence files");
+                                ui.small("Optional. These files will be available with your published finding, separately from the issuer’s files.");
+                                draft.picker.show(ui, &mut draft.files);
+                                ui.horizontal_wrapped(|ui| {
                                     publish = ui
                                         .add_enabled(
-                                            draft.verdict.is_some()
+                                            !draft.picker.busy() && draft.verdict.is_some()
                                                 && !draft.criterion.trim().is_empty()
                                                 && !draft.finding.trim().is_empty(),
                                             egui::Button::new("Publish review"),
@@ -486,7 +517,7 @@ impl Desk {
                                     if ui.small_button("Check again").clicked() { load = Some(self.offset); }
                                 });
                             } else {
-                                review_card(ui, entry, package, status, &mut inspect);
+                                review_card(ui, entry, package, status, &mut inspect, &mut save);
                             }
                         }
                         if self.offset > 0 || self.offset + PAGE < total {
@@ -515,7 +546,7 @@ impl Desk {
                         }
                     });
             });
-        self.visible = visible && inspect.is_none();
+        self.visible = visible && inspect.is_none() && save.is_none();
         if let Some(offset) = load {
             self.load(ctx, root, offset);
         }
@@ -524,8 +555,28 @@ impl Desk {
                 self.error = Some(e.to_string());
             }
         }
-        inspect
+        save.map(Action::Save).or_else(|| inspect.map(Action::Inspect))
     }
+}
+
+/// Save one explicitly selected attachment. The worker rechecks publication,
+/// filename and bytes; this button does not open or execute a submitted file.
+pub(super) fn file_button(ui: &mut Ui, finding: &str, name: &str, object: &str, bytes: u64) -> Option<EvidenceFile> {
+    ui.push_id((finding, name, object), |ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(excerpt(name, 54)).on_hover_text(name);
+            ui.small(super::size(bytes)).on_hover_text(format!("{bytes} bytes"));
+            // Two publications, or even two rows of one report, may use the
+            // same filename and length for different observations.
+            if let Some(digest) = object.strip_prefix("object:") {
+                ui.small(digest.chars().take(12).collect::<String>()).on_hover_text(object);
+            }
+            ui.small_button("Save original…").on_hover_text(format!("Save {name}\n{object}"))
+                .clicked().then(|| EvidenceFile {
+                    finding: finding.into(), object: object.into(), name: name.into(),
+                })
+        }).inner
+    }).inner
 }
 
 fn choose_subject(ui: &mut Ui, selection: &mut Selection, status: &Value) -> bool {
@@ -626,7 +677,7 @@ fn ref_button(
         *open = Some(reference.to_owned());
     }
 }
-fn review_card(ui: &mut Ui, item: &Value, selected: &Value, status: &Value, open: &mut Option<String>) {
+fn review_card(ui: &mut Ui, item: &Value, selected: &Value, status: &Value, open: &mut Option<String>, save: &mut Option<EvidenceFile>) {
     let review = &item["review"];
     let reviewed = &review["subject"];
     let reference = s(review, "reference");
@@ -684,6 +735,12 @@ fn review_card(ui: &mut Ui, item: &Value, selected: &Value, status: &Value, open
             }
         });
         ui.label(s(review, "finding"));
+        if let Some(files) = review["attachments"].as_array().filter(|v| !v.is_empty()) {
+            ui.strong("Reviewer’s files · not part of the issued package");
+            for f in files {
+                if let Some(file) = file_button(ui, reference, s(f,"name"), s(f,"reference"), f["bytes"].as_u64().unwrap_or(0)) { *save = Some(file); }
+            }
+        }
         egui::CollapsingHeader::new("Compare constituent versions")
             .id_salt(("review-files", reference))
             .default_open(item["same_files"] == false || item["same_inputs"] == false)

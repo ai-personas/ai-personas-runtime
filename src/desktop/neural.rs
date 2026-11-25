@@ -845,8 +845,11 @@ impl eframe::App for App {
             }
         }
         if let Some(reference)=self.mesh_profile.show(ctx,&self.root,&self.operator){self.open_resource(ctx,reference);}
-        if let Some(reference)=self.package_reviews.show(ctx,&self.root,&self.operator,&self.snapshot.status) {
-            self.open_resource(ctx,reference);
+        if let Some(action)=self.package_reviews.show(ctx,&self.root,&self.operator,&self.snapshot.status) {
+            match action {
+                package_reviews::Action::Inspect(r) => self.open_resource(ctx,r),
+                package_reviews::Action::Save(f) => self.save_review_file(f),
+            }
         }
         if let Some(reference) = self.asset_feedback.show(ctx, &self.root, &self.operator, &self.snapshot.status) {
             self.open_resource(ctx, reference);
