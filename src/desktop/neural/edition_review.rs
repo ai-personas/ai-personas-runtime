@@ -2,9 +2,7 @@
 //! not to whatever brief happens to be current when the writer gets the lock.
 use super::*;
 
-fn revision(reference: &str) -> &str {
-    reference.rsplit_once('@').map_or(reference, |(_, n)| n)
-}
+use brief_terms::revision;
 
 /// Older records tell us when a review was saved, not which terms its author selected.
 pub(super) fn summary(ui: &mut Ui, review: &Value) -> bool {
@@ -84,7 +82,7 @@ impl Form {
         .on_hover_text(&self.issued_under);
         ui.separator();
         let mut inspect = None;
-        terms(
+        brief_terms::show(
             ui,
             &self.reviewed,
             &self.terms,
@@ -107,7 +105,7 @@ impl Form {
                     ui.strong(format!("Latest amendment · {}", s(amendment, "author")));
                     ui.label(document::excerpt(s(amendment, "text"), 240));
                 }
-                terms(ui, current, now, "Current terms", &mut inspect);
+                brief_terms::show(ui, current, now, "Current terms", &mut inspect);
             }
             if self.reviewed != current {
                 if !stale {
@@ -170,8 +168,8 @@ impl Form {
                 Err(e) => app.error = Some(e.to_string()),
             }
         }
-        if let Some((file, source, name)) = inspect {
-            app.open_named_resource(ui.ctx(), file, Some((source, name)));
+        if let Some(link) = inspect {
+            link.open(app, ui.ctx());
         }
         ui.add_space(5.);
         ui.label("Decision note");
@@ -205,39 +203,4 @@ impl Form {
         });
         command
     }
-}
-
-fn terms(
-    ui: &mut Ui,
-    handle: &str,
-    body: &Value,
-    caption: &str,
-    inspect: &mut Option<(String, String, String)>,
-) {
-    egui::CollapsingHeader::new(format!("{caption} · brief {}", revision(handle)))
-        .id_salt((caption, handle))
-        .show(ui, |ui| {
-            ui.small(handle);
-            ui.strong(format!("Original request · {}", s(body, "requester")));
-            ui.label(s(body, "original_need"));
-            let mut files = |ui: &mut Ui, list: &Value| {
-                if let Some((file, name)) = overview::source_file_links(ui, list, handle) {
-                    *inspect = Some((file, handle.into(), name));
-                }
-            };
-            files(ui, &body["materials"]);
-            for (index, change) in body["amendments"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .enumerate()
-            {
-                ui.push_id(index, |ui| {
-                    ui.strong(format!("Amendment {} · {}", index + 1, s(change, "author")));
-                    ui.label(s(change, "text"));
-                    files(ui, &change["attachments"]);
-                });
-            }
-            ui.small(format!("Activity state: {}", s(body, "phase")));
-        });
 }

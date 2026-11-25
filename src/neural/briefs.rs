@@ -1,10 +1,80 @@
-//! Deliberate discovery by the wording of a brief, not by a later choice's paraphrase.
-use super::{failure, provider_evidence, store, Result};
+//! Exact governing briefs: an operator can amend the edition they inspected;
+//! a persona can discover editions actually supplied to its earlier decisions.
+use super::{
+    failure, input_files::InputFiles, now, protocol::Work, provider_evidence, store, Result,
+};
 use regex::{Regex, RegexBuilder};
 use rusqlite::Connection;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
+
+/// Called in the operator transaction. An intervening amendment, closure or
+/// reopening must not silently become the parent of a draft composed earlier.
+pub(super) fn amend(
+    db: &Connection,
+    operator: &str,
+    brief: &str,
+    expect_digest: Option<&str>,
+    text: &str,
+    files: &InputFiles,
+) -> Result<Value> {
+    if text.trim().is_empty() {
+        return Err(failure("Describe the amended requirement"));
+    }
+    if !brief.starts_with("work:") {
+        return Err(failure("Choose an exact brief (work:ID@REV) to amend"));
+    }
+    let base = store::exact(db, brief)?;
+    let r = &base.reference;
+    if r.revision < 1 || r.handle() != brief || base.body["id"] != r.id {
+        return Err(failure(
+            "The selected revision does not identify an exact activity brief",
+        ));
+    }
+    let head = store::open_activity(db, &r.id)?;
+    if r.revision != head.reference.revision {
+        return Err(failure(format!(
+            "The brief changed. Inspect {} before saving your amendment.",
+            head.reference.handle()
+        )));
+    }
+    if r.digest != head.reference.digest || expect_digest.is_some_and(|seen| seen != r.digest) {
+        return Err(failure(format!(
+            "The contents of {brief} do not match the selected brief"
+        )));
+    }
+    let mut body = base.body;
+    let mut terms = Work::deserialize(&body)?;
+    if terms.phase != "open" {
+        return Err(failure("Choose an open activity to amend"));
+    }
+    let mut change = json!({"author":operator,"time":now(),"text":text,"prior_brief":brief});
+    let mut notice = json!({"text":text,"prior_brief":brief});
+    if !files.is_empty() {
+        let attachments = json!(files.retain(db)?);
+        change["attachments"] = attachments.clone();
+        notice["attachments"] = attachments;
+    }
+    // Validate the work schema, but append to the retained representation.
+    // Re-serializing Work here would normalize unrelated fields and defaults.
+    terms.amendments.push(change);
+    body["amendments"] = Value::Array(terms.amendments);
+    let next = store::write(db, "work", &r.id, r.revision, &body, None)?.handle();
+    notice["reference"] = json!(next);
+    let event = store::event(
+        db,
+        &r.id,
+        operator,
+        "*",
+        "requirements_amended",
+        &notice,
+        None,
+    )?;
+    Ok(
+        json!({"work":r.id,"event":event,"prior_brief":brief,"reference":next,"original_need":terms.original_need}),
+    )
+}
 
 fn page_size() -> usize {
     20

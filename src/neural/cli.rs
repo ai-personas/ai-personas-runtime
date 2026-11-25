@@ -400,10 +400,15 @@ pub enum Command {
         #[serde(skip_serializing_if = "Option::is_none")]
         delivery: Option<String>,
     },
-    /// Amend requirements with attribution while preserving the original need.
+    /// Append an attributed change to the exact current brief, preserving the original need.
     Amend {
-        work: String,
+        /// Brief you inspected in this workspace (work:ID@REV), not a mutable activity ID.
+        brief: String,
         text: String,
+        /// Also require this brief record's SHA-256 (reference.digest in status).
+        #[arg(long)]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        expect_digest: Option<String>,
         #[command(flatten)]
         #[serde(flatten, skip_serializing_if = "InputFiles::is_empty")]
         files: InputFiles,
@@ -850,22 +855,7 @@ fn operator_action(root: &Path, db: &rusqlite::Connection, operator: &str, comma
             if let Some(reference) = delivery { result["delivery"] = json!(reference); }
             Ok(result)
         },
-        Command::Amend{work,text,files}=>{
-            if text.trim().is_empty(){return Err(failure("Describe the amended requirement"));}
-            let record=store::open_activity(db,&work)?;let mut body:Work=serde_json::from_value(record.body)?;
-            let mut amendment=json!({"author":operator,"text":text,"time":now()});
-            let mut notice=json!({"text":text});
-            if !files.is_empty() {
-                let attached=json!(files.retain(db)?);
-                amendment["attachments"]=attached.clone();
-                notice["attachments"]=attached;
-            }
-            body.amendments.push(amendment);
-            let r=store::write(db,"work",&work,record.reference.revision,&body,None)?;
-            notice["reference"]=json!(r.handle());
-            store::event(db,&work,operator,"*","requirements_amended",&notice,None)?;
-            Ok(json!({"reference":r.handle(),"original_need":body.original_need}))
-        },
+        Command::Amend{brief,text,expect_digest,files}=>super::briefs::amend(db,operator,&brief,expect_digest.as_deref(),&text,&files),
         Command::TaskRole{work,role,note,brief,base}=>super::task_roles::choose(db,operator,&work,&brief,base.as_deref(),role,&note),
         Command::ProposeAgreement{work,proposal}=>super::agreements::propose(db,&work,super::agreements::Author::Operator(operator),&proposal),
         Command::AgreementPosition{work,response}=>super::agreements::respond(db,&work,super::agreements::Author::Operator(operator),&response),

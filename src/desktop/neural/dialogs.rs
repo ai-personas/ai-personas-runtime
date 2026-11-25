@@ -1,5 +1,6 @@
 use super::*;
 use ai_personas::neural::input_files::{CapturedFile, InputFiles};
+mod amendment;
 mod invitation;
 mod connection;
 mod resume;
@@ -19,7 +20,6 @@ pub(super) struct SourceEdition {
 #[derive(Clone, Copy, PartialEq)]
 pub(super) enum Action {
     Message,
-    Amend,
     Invite,
 }
 
@@ -27,7 +27,6 @@ impl Action {
     fn title(self) -> &'static str {
         match self {
             Self::Message => "Write a message",
-            Self::Amend => "Amend the brief",
             Self::Invite => "Invite a persona",
         }
     }
@@ -35,6 +34,7 @@ impl Action {
 
 pub(super) enum Dialog {
     Resume(resume::Form),
+    Amendment(amendment::Form),
     Agreement(agreements::Form),
     ActivityState { work: String, expected: String, reopen: bool, reason: String },
     Activity {
@@ -99,6 +99,7 @@ impl Dialog {
         let id = egui::Id::new(std::mem::discriminant(self));
         match self {
             Self::Review(form) => id.with(&form.edition),
+            Self::Amendment(form) => id.with(form.work()),
             Self::Reasoning { persona, expected, .. } => id.with((persona, expected)),
             Self::Participation { work, person, action, reply_to, .. } =>
                 id.with((work, person, action.title(), reply_to.as_ref().map(|r| &r.0))),
@@ -120,6 +121,7 @@ impl Dialog {
             Self::Resume(_) => "Resume a participant",
             Self::Persona { .. } => "New persona",
             Self::Review(_) => "Review delivery",
+            Self::Amendment(_) => "Amend the brief",
             Self::Reasoning { .. } => "Change reasoning settings",
             Self::Agreement(form) => form.title(),
             Self::Settings(_) => "Workspace settings",
@@ -173,13 +175,21 @@ impl App {
         Dialog::Resume(resume::Form::new(self))
     }
 
+    pub(super) fn amend_brief(&mut self) {
+        if let Some(form) = amendment::Form::open(self) {
+            self.dialog = Some(Dialog::Amendment(form));
+            self.error = None;
+        } else {
+            self.error = Some("No current open brief is available for this activity.".into());
+        }
+    }
+
     fn can_address(&self, work: &str, action: Action, id: &str) -> bool {
         let member = self.records("participation").iter().map(|r| &r["body"])
             .find(|p| p["work"] == work && p["persona"] == id);
         match action {
             Action::Invite => member.is_none_or(|p| p["declined"] == true || p["departure"].is_string() || p["closed_by_activity"].is_string()),
             Action::Message => member.is_some(),
-            Action::Amend => false,
         }
     }
 
@@ -262,7 +272,7 @@ impl App {
                 Dialog::Agreement(_) => "Agreement",
                 Dialog::Activity { social: true, .. } => "Conversation",
                 Dialog::Participation { action: Action::Message, .. } => "Message",
-                Dialog::Participation { action: Action::Amend, .. } => "Amend brief",
+                Dialog::Amendment(_) => "Amend brief",
                 Dialog::Participation { action: Action::Invite, .. } => "Invite",
                 Dialog::Activity { edition: Some(_), .. } => "New brief",
                 Dialog::Render(_) => "Render project",
@@ -385,27 +395,23 @@ impl App {
                         if let Some((_,quote))=reply_to.as_ref() {
                             ui.label(format!("Replying to {}",self.label(person)));
                             ui.add(egui::Label::new(egui::RichText::new(quote.as_str()).italics().weak()).wrap());
-                        } else if *action != Action::Amend {
+                        } else {
                             address_valid = self.choose_person(ui, person, |id| self.can_address(work, *action, id));
                         }
                         let (hint, label) = match action {
                             Action::Message => ("Write a message or attach a file…", "Send message"),
-                            Action::Amend => (
-                                "Describe the change to the original brief…",
-                                "Save amendment",
-                            ),
                             Action::Invite => (
                                 "What would you like to invite them to consider?",
                                 "Send invitation",
                             ),
                         };
                         multiline(ui, text, hint);
-                        if matches!(action, Action::Message | Action::Amend) {
+                        if *action == Action::Message {
                             sources.picker.show(ui, &mut sources.files);
                         }
                         let enabled = !sources.picker.busy()
                             && (!text.trim().is_empty() || (*action == Action::Message && !sources.files.is_empty()))
-                            && address_valid && (*action == Action::Amend || !person.is_empty());
+                            && address_valid && !person.is_empty();
                         if ui.add_enabled(enabled, theme::primary(label)).clicked() {
                             command = Some(match action {
                                 Action::Message => Command::Message {
@@ -414,11 +420,6 @@ impl App {
                                     text: text.clone(),
                                     reply_to: reply_to.as_ref().map(|(reference,_)|reference.clone()),
                                     delivery: None,
-                                    files: InputFiles::from(sources.files.clone()),
-                                },
-                                Action::Amend => Command::Amend {
-                                    work: work.clone(),
-                                    text: text.clone(),
                                     files: InputFiles::from(sources.files.clone()),
                                 },
                                 Action::Invite => Command::Invite {
@@ -430,6 +431,7 @@ impl App {
                         }
                     }
                     Dialog::Review(form) => command = form.show(ui, self),
+                    Dialog::Amendment(form) => command = form.show(ui, self),
                     Dialog::Reasoning { persona, expected, model, effort, reason } => {
                         ui.add(egui::Label::new(egui::RichText::new(self.label(persona)).heading()).wrap());
                         ui.label("Model ID");
@@ -466,6 +468,7 @@ impl App {
                     let intent = match &mut draft {
                         Dialog::Activity { retry, .. } => Some(("invitation", retry)),
                         Dialog::Review(form) => Some(("delivery-review", &mut form.retry)),
+                        Dialog::Amendment(form) => Some(("amendment", &mut form.retry)),
                         _ => None,
                     };
                     if let Some((prefix, retry)) = intent {
