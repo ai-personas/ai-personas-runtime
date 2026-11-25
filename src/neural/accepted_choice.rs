@@ -102,6 +102,12 @@ pub(super) fn matches_effect(
     Ok(serde_json::to_value(op)? == *queued)
 }
 
+#[derive(Clone, Copy)]
+enum ResultMatch<'a> {
+    Field(&'a str, &'a Value),
+    Sequence(i64),
+}
+
 pub(super) struct Choice {
     pub accepted: provider_evidence::Accepted,
     first: i64,
@@ -177,7 +183,15 @@ impl Choice {
         field: &str,
         expected: &Value,
     ) -> Result<(Operation, Value, i64)> {
-        let (found, _) = self.resolve_prefix(db, usize::MAX, Some((tool, field, expected)))?;
+        self.match_operation(db, tool, ResultMatch::Field(field, expected))
+    }
+
+    pub(super) fn at_result(&self, db: &Connection, tool: &str, seq: i64) -> Result<(Operation, Value, i64)> {
+        self.match_operation(db, tool, ResultMatch::Sequence(seq))
+    }
+
+    fn match_operation(&self, db: &Connection, tool: &str, by: ResultMatch<'_>) -> Result<(Operation, Value, i64)> {
+        let (found, _) = self.resolve_prefix(db, usize::MAX, Some((tool, by)))?;
         found.ok_or_else(|| {
             failure("The accepted operation and its retained result do not identify this event")
         })
@@ -189,7 +203,7 @@ impl Choice {
         &self,
         db: &Connection,
         count: usize,
-        wanted: Option<(&str, &str, &Value)>,
+        wanted: Option<(&str, ResultMatch<'_>)>,
     ) -> Result<(Option<(Operation, Value, i64)>, BTreeMap<String, String>)> {
         let s = &self.accepted.snapshot;
         let mut q = db.prepare("SELECT seq,digest FROM events WHERE invocation=?1 AND work=?2 AND actor=?3 AND target=?3 AND kind='tool_result' ORDER BY seq")?;
@@ -207,7 +221,7 @@ impl Choice {
             if !event["effect"].is_null() || event["context"] != "complete" {
                 continue;
             }
-            if !wanted.is_some_and(|(tool, _, _)| event["tool"] == tool)
+            if !wanted.is_some_and(|(tool, _)| event["tool"] == tool)
                 && !event["tool"]
                     .as_str()
                     .is_some_and(operations::returns_alias)
@@ -243,8 +257,9 @@ impl Choice {
                 .ok_or_else(|| failure("Missing immutable operation result"))?;
             let result: Value = store::object(db, digest)?;
             let mut op: Operation = serde_json::from_value(raw.clone())?;
-            let selected = wanted.is_some_and(|(tool, field, expected)| {
-                op.tool == tool && result.get(field) == Some(expected)
+            let selected = wanted.is_some_and(|(tool, by)| op.tool == tool && match by {
+                ResultMatch::Field(field, expected) => result.get(field) == Some(expected),
+                ResultMatch::Sequence(sequence) => *seq == sequence,
             });
             if let Err(error) = operations::resolve_operation(&mut op, &aliases) {
                 if selected {

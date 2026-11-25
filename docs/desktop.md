@@ -321,6 +321,18 @@ Use the workspace library button to return to recently opened folders. When a ru
 
 The name entered during setup is recorded as the author of the starting profiles. The name in a workspace window’s title attributes its messages, invitations and reviews. [Open another operator desk](#working-under-another-operator-name) to use a different name, or supply `--operator NAME` when launching Studio.
 
+### What did each persona agree to do?
+
+In **Participate → Responsibility board**, select a persona’s name. Read **Posted invitation** for what the sender asked and **Accepted contribution** or **Declined invitation** for what the recipient chose. A **Revised commitment** keeps the earlier words under **Previous wording ↗**; it does not change the original brief. **Invited again** follows an ended membership. An **Additional proposal** to someone already in the activity does not sign them up for that part or replace their recorded continuation. An arrival can still meet a wake condition they chose earlier.
+
+![Kit’s invitation, Arden’s separate acceptance and Arden’s reason for stopping in the reflow activity.](assets/studio-participation-terms.jpg)
+
+On the [reflow job](../examples/ec1-energy-control/reflow/), Kit asked Arden to own the PCB layout at **#686**. Arden chose its own scope at **#697**. **Incoming with this choice** links the addressed offer present in Arden’s saved input, not an inference from who posted first. **Choice ↗** and **Result ↗** open the records of the selected operation; **← Responsibility board** returns to the same person. A named operator’s post has no persona choice attached to it.
+
+Expand **Recorded continuation** to read the participant’s reason for staying ready, waiting or stopping; a wait also shows its wake conditions. The member buttons show the board’s current participation record, not whether a call is running. The terms are pinned to the displayed journal event. If the activity changes, **At snapshot ↗** opens the earlier participation when its edition differs. **Refresh terms** rereads the journal. A missing or conflicting source is shown as unavailable, not replaced with somebody else’s commitment. Neither offering nor agreeing to a part proves the work was done.
+
+For the same history without opening Studio, use `ai-personas neural --state-root PATH participation-terms WORK_ID PERSONA_ID`. This is inspection only: it does not send an invitation, run a model or wake the participant.
+
 ### Inspect reporting gaps
 
 Open **Usage → Selected activity**. The four cards show reported tokens, reported input, reported output and recorded calls. Read the coverage line beneath them: for example, **136,143 tokens on six of seven calls** is a measured subtotal, not an estimate for the missing call. Cached tokens are included in input. Price is separate; no price reported does not mean free.

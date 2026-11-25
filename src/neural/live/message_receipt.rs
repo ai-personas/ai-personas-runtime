@@ -8,6 +8,8 @@ mod pdf_pages;
 mod command_inputs;
 mod exchange;
 mod answers;
+mod participation;
+pub use participation::participation_terms;
 pub(in crate::neural) use answers::operator_answer;
 
 struct Event {

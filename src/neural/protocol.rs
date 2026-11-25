@@ -350,3 +350,12 @@ pub enum ActivityKind {
     Task,
     Social,
 }
+
+impl ActivityKind {
+    pub(super) fn founding_invitation(self) -> &'static str {
+        match self {
+            Self::Task => "Choose whether and how to contribute to this need",
+            Self::Social => "An open social invitation. Choose whether to join, what to discuss and when to leave",
+        }
+    }
+}

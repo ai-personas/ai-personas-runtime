@@ -6,6 +6,7 @@ use std::{
 };
 
 mod humans;
+mod terms;
 
 pub(super) enum Action {
     SetRole(Command),
@@ -22,15 +23,35 @@ pub(super) struct Board {
     work: String,
     cursor: i64,
     role_draft: Option<humans::Draft>,
+    terms: Option<terms::Panel>,
+    source: Option<String>,
     pending: Option<Receiver<Result<Value, String>>>,
     report: Option<Value>,
     error: Option<String>,
+}
+
+impl App {
+    pub(super) fn open_board_source(&mut self, ctx: &egui::Context, reference: String) {
+        self.open_resource(ctx, reference.clone());
+        self.responsibilities.source = Some(reference);
+    }
+    pub(super) fn board_return(&mut self, ui: &mut Ui) {
+        let board = &mut self.responsibilities;
+        let Some(reference) = &board.source else { return };
+        if self.layout.editor != Editor::Artifacts || self.selected_reference != *reference || self.work != board.work {
+            board.source = None;
+        } else if ui.link("← Responsibility board").clicked() {
+            board.source = None;
+            self.layout.editor = Editor::Responsibilities;
+        }
+    }
 }
 
 impl Board {
     fn refresh(&mut self, ctx: &egui::Context, root: &Path, work: &str, cursor: i64) {
         if self.work != work {
             self.role_draft = None;
+            self.terms = None;
             self.report = None;
         }
         self.work = work.to_owned();
@@ -61,7 +82,10 @@ impl Board {
         self.pending = None;
         match result {
             Ok(report) => self.report = Some(report),
-            Err(error) => self.error = Some(error),
+            Err(error) => {
+                self.report = None;
+                self.error = Some(error);
+            }
         }
     }
     pub(super) fn show(
@@ -122,17 +146,9 @@ impl Board {
                     ui.add_space(3.);
                 }
                 ui.label(format!("Brief from {}", s(report, "brief_requester")));
-                ui.horizontal_wrapped(|ui| {
-                    for member in members {
-                        let actor = s(member, "actor");
-                        let status = if member["pending_resume"].is_object() { "resume requested" } else { s(member, "state") };
-                        let button =
-                            ui.small_button(format!("{} · {}", person(members, actor), status));
-                        if button.on_hover_text("Inspect this participation").clicked() {
-                            action = Some(Action::Inspect(s(member, "participation").into()));
-                        }
-                    }
-                });
+                if let Some(a) = terms::show(ui, root, work, cursor, members, &mut self.terms) {
+                    action = Some(a);
+                }
                 ui.add_space(10.);
                 if report["kind"] != "social" {
                     if let Some(chosen) = humans::show(ui, report, operator, busy, &mut self.role_draft) {
