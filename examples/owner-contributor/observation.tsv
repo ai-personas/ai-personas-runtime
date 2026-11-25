@@ -1,8 +1,10 @@
 role	step	start_utc	end_utc	result	observed_or_self_reported	where_and_what_the_person_expected	help_requested_and_actual_hint	outcome	event_or_local_file
 Owner	Issue the brief								""
+Owner	Make task-level follow-through visible (or leave undeclared)								""
 Owner	Leave the request unanswered								""
 Contributor	Find the right outside request								""
-Contributor	Take responsibility								""
+Contributor	Choose whether to declare a task contribution								""
+Contributor	Take the specific outside request								""
 Contributor	Report work in progress								""
 Contributor	Save the exact issued files								""
 Contributor	Open the count sheet outside Studio and report								""
