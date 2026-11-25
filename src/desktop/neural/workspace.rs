@@ -544,21 +544,17 @@ impl App {
                 .open(ui.ctx(), &self.root, &self.work, self.cursor);
             ui.close_kind(egui::UiKind::Menu);
         }
-        for (action, label) in [
-            (dialogs::Action::Message, "Write message"),
-            (dialogs::Action::Amend, "Amend brief"),
-            (dialogs::Action::Invite, "Invite a persona"),
-        ] {
-            if ui
-                .add_enabled(
-                    !ended || action == dialogs::Action::Message,
-                    egui::Button::new(label),
-                )
-                .clicked()
-            {
-                self.dialog = Some(self.participation_dialog(action));
-                ui.close_kind(egui::UiKind::Menu);
-            }
+        if ui.button("Write message").clicked() {
+            self.dialog = Some(self.participation_dialog(dialogs::Action::Message));
+            ui.close_kind(egui::UiKind::Menu);
+        }
+        if ui.add_enabled(!ended, egui::Button::new("Amend brief")).clicked() {
+            self.amend_brief();
+            ui.close_kind(egui::UiKind::Menu);
+        }
+        if ui.add_enabled(!ended, egui::Button::new("Invite a persona")).clicked() {
+            self.dialog = Some(self.participation_dialog(dialogs::Action::Invite));
+            ui.close_kind(egui::UiKind::Menu);
         }
         if ui.add_enabled(!ended, egui::Button::new("Resume participant")).clicked() {
             self.dialog = Some(self.resume_dialog());

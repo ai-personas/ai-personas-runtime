@@ -35,6 +35,7 @@ mod pdf_pages;
 mod print_preview;
 mod file_history;
 mod delivery_followups;
+mod brief_terms;
 mod edition_review;
 mod dialogs;
 mod export;
@@ -673,6 +674,12 @@ impl App {
                 } else if v["reference"].as_str().is_some_and(|r|r.starts_with("human_request:")) {
                     self.inbox.response_saved(v["reference"].as_str().unwrap());
                     "Human update recorded".into()
+                } else if let (Some(work), Some(event), Some(brief)) = (v["work"].as_str(), v["event"].as_i64(),
+                    v["reference"].as_str().filter(|r| r.starts_with("work:") && v["prior_brief"].is_string())) {
+                    self.select_activity(work);
+                    self.layout.editor = Editor::Studio;
+                    self.live_board.show_event(work, event);
+                    format!("Amendment saved · brief {}", brief_terms::revision(brief))
                 } else if v["reference"].as_str().is_some_and(|r| r.starts_with("human_task_role:")) {
                     if v["state"] == "left" { "You left your task role".into() } else { "Your part in the task was saved".into() }
                 } else if let Some(state) = v["state"].as_str() {

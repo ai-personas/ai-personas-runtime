@@ -196,6 +196,20 @@ On a persona's profile, **Received briefs** searches the original requests and a
 
 **Resume participant** shows the person’s last wait or stop and the exact participation revision. Your draft stays with that person. If another window resumes them or a new decision arrives, a stale draft cannot resume a different person or a newer stop. **Resume requested** means an operator asked for another decision, not that the persona agreed to continue, finished the task, or that a model call is running. A listener and applicable run controls still determine when that decision can start.
 
+### Amend an exact brief
+
+Choose **Participate → Amend brief**. **Draft basis** shows the revision you are changing, its original requester and words, earlier amendments and files. You can open a file or the starting edition without redirecting the draft to another activity.
+
+If another desk changes the brief, Studio keeps your wording and captured files but disables **Save amendment**. Compare **Current terms** with **Draft basis**. Edit your draft, choose **Use brief … for this draft** if it still belongs there, or close the form without sending. Choosing a basis does not publish anything. An ended activity cannot be amended; reopening it does not make an older draft current again.
+
+![Amendment draft still on brief 1, with the other editor’s landscape requirement visible and Save disabled](assets/studio-amend-brief.jpg)
+
+*Two named windows on a disconnected copy. Neither the portrait draft nor the landscape requirement is part of Kit’s actual inspection-rest brief.*
+
+**Save amendment** checks the revision and its content again inside the write transaction. On success, Studio returns to the amended activity and shows the posted change in its timeline. This is an attributed addition, not a rewrite of the original request, a delivery verdict, or evidence that a persona has read it. It does not resume a stopped participant.
+
+From the numerical CLI, use the exact `brief` from `neural responsibilities WORK_ID`, for example `neural amend 'work:WORK_ID@REV' 'Describe the change' --attach FILE`. The positional argument is the brief revision, not the bare work ID. To bind a saved view to its content as Studio does, also pass `--expect-digest` with the work record’s `reference.digest` from `neural status`. A repeated `--request-id` with the same operator, basis, wording and attachments returns the original receipt; changing the submission under that ID is a conflict.
+
 ### Read and respond to an agreement
 
 Open an activity and choose **Participate → Agreement book**. On a small screen, **Activity tools → Participate** opens the same book. **Propose terms…** lets you give the arrangement a title, scope and complete text under the current brief. Open any edition to see who proposed it, read its terms and inspect its references.
