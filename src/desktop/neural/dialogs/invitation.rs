@@ -97,19 +97,6 @@ impl Roster {
     }
 }
 
-pub(super) fn request_key(
-    command: &Command,
-    prior: &mut Option<(String, String)>,
-) -> ai_personas::neural::Result<String> {
-    let hash = ai_personas::store::sha256_bytes(&serde_json::to_vec(command)?);
-    if let Some((_, key)) = prior.as_ref().filter(|(old, _)| old == &hash) {
-        return Ok(key.clone());
-    }
-    let key = ai_personas::neural::id("invitation")?;
-    *prior = Some((hash, key.clone()));
-    Ok(key)
-}
-
 /// Some actions submit to a listener already in place. Saving an invitation
 /// never creates another executor or clears a pause.
 pub(super) fn form(

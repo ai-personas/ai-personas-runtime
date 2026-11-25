@@ -406,16 +406,7 @@ impl App {
                                 gaps.first().and_then(Value::as_str).unwrap_or_default(),
                             );
                         }
-                        if let Some(accepted) = self.snapshot.status["delivery_reviews"][&reference]
-                            ["accepted"]
-                            .as_bool()
-                        {
-                            ui.small(if accepted {
-                                "Accepted"
-                            } else {
-                                "Changes requested"
-                            });
-                        }
+                        edition_review::summary(ui, &self.snapshot.status["delivery_reviews"][&reference]);
                         ui.menu_button("Export ↓", |ui| {
                         if ui.button("Save handoff…")
                             .on_hover_text("Save the printable delivery sheet and its exact files").clicked() {

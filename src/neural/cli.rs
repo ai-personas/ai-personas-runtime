@@ -422,9 +422,15 @@ pub enum Command {
         #[arg(long)]
         expected: Option<String>,
     },
-    /// Explicit user acceptance/rejection of an exact delivery.
+    /// Record this operator’s decision on an issued edition against an exact brief.
     Accept {
         delivery: String,
+        /// Work revision whose terms you are reviewing against (work:ID@REV).
+        #[arg(long)]
+        brief: String,
+        /// Confirm the current work revision when deliberately reviewing against an earlier brief.
+        #[arg(long)]
+        current_brief: Option<String>,
         #[arg(long)]
         reject: bool,
         reason: String,
@@ -864,16 +870,28 @@ fn operator_action(root: &Path, db: &rusqlite::Connection, operator: &str, comma
         Command::Reopen{work,reason,expected}=>super::membership::change_activity(db,&work,operator,&reason,expected.as_deref(),true),
         Command::PackageReview{work,review,files}=>super::package_review::publish(db,&work,operator,super::package_review::Publisher::Operator(&files),&review),
         Command::AssetFeedback{work,feedback}=>super::asset_feedback::publish(db,&work,operator,None,&feedback),
-        Command::Accept{delivery,reject,reason}=>{
+        Command::Accept{delivery,brief,current_brief,reject,reason}=>{
             if reason.trim().is_empty(){return Err(failure("Explain the delivery review"));}
-            let record=store::exact(db,&delivery)?;
-            if record.reference.kind!="delivery"{return Err(failure("acceptance needs an exact delivered result"));}
-            let work=record.body["work"].as_str().ok_or_else(||failure("delivery missing work"))?;
+            let issue=super::package_review::after_issue::public_issue(db,&delivery)?;
+            let work=issue.issue.record.body["work"].as_str().ok_or_else(||failure("Delivery missing work"))?;
+            let current=store::required(db,"work",work)?;
+            let head=current.reference.handle();
+            if current_brief.as_ref().unwrap_or(&brief)!=&head {
+                return Err(failure(format!("The current brief is {head}. Check its terms before recording your review.")));
+            }
+            let basis=store::exact(db,&brief)?;
+            let r=&basis.reference;
+            if r.kind!="work" || r.id!=work || r.handle()!=brief || r.revision>current.reference.revision || basis.body["id"]!=work {
+                return Err(failure("Review against an exact brief revision of the issuing activity"));
+            }
+            if current.body["id"]!=work || store::exact(db,&head)?.reference.digest!=current.reference.digest {
+                return Err(failure("The current brief does not match its retained revision"));
+            }
             let decision=json!({"delivery":delivery,"user":operator,"accepted":!reject,"reason":reason,
-                "brief_at_review":store::required(db,"work",work)?.reference.handle()});
+                "reviewed_brief":brief,"brief_at_review":head});
             let r=store::write(db,"acceptance",&id("acceptance")?,0,&decision,None)?;
-            store::event(db,record.body["work"].as_str().ok_or_else(||failure("delivery missing work"))?,operator,"*","user_acceptance",&json!({"reference":r.handle(),"decision":decision}),None)?;
-            Ok(json!({"reference":r.handle(),"accepted":!reject}))
+            store::event(db,work,operator,"*","user_acceptance",&json!({"reference":r.handle(),"decision":decision}),None)?;
+            Ok(json!({"reference":r.handle(),"accepted":!reject,"reviewed_brief":brief,"brief_at_review":head}))
         },
         _ => Err(failure("Expected a workspace mutation")),
     }

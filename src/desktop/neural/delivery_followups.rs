@@ -91,7 +91,7 @@ impl App {
         };
         let total = report["total"].as_u64().unwrap_or(0) as usize;
         if total == 0 {
-            ui.weak("No human feedback on this edition yet.");
+            ui.weak("No feedback messages to the issuer on this edition.");
             return;
         }
         let mut receipt = None;

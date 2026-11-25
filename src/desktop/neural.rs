@@ -35,6 +35,7 @@ mod pdf_pages;
 mod print_preview;
 mod file_history;
 mod delivery_followups;
+mod edition_review;
 mod dialogs;
 mod export;
 mod life;
@@ -644,8 +645,9 @@ impl App {
                 } else if let Some(persona) = v["persona"].as_str() {
                     self.persona = persona.to_owned();
                     "Persona created".into()
-                } else if let Some(accepted) = v["accepted"].as_bool() {
-                    if accepted { "Delivery accepted".into() } else { "Changes requested".into() }
+                } else if let (Some(accepted), Some(brief)) = (v["accepted"].as_bool(), v["reviewed_brief"].as_str()) {
+                    let verdict = if accepted { "Edition accepted" } else { "Changes requested" };
+                    format!("{verdict} against brief {}", brief.rsplit_once('@').map_or(brief, |(_, n)| n))
                 } else if v["configuration"].is_string() {
                     format!("Saved reasoning settings · {} at {} effort", s(&v["selected"],"model"), s(&v["selected"],"effort"))
                 } else if v["workspace_connection"] == "codex_oauth" {

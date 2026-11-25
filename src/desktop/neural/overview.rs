@@ -337,9 +337,7 @@ impl App {
         let b = &d["body"];
         let from_profile = self.layout.editor == Editor::People;
         let handle = inbox::handle(d);
-        let review = &self.snapshot.status["delivery_reviews"][&handle];
-        let accepted = review["accepted"].as_bool();
-        let reviewer = s(review, "reviewer").to_owned();
+        let review = self.snapshot.status["delivery_reviews"][&handle].clone();
         let n = b["artifacts"].as_array().map_or(0, Vec::len);
         let gaps = b["remaining"].as_array().map(Vec::as_slice).unwrap_or(&[]);
         card(ui).show(ui, |ui| {
@@ -357,10 +355,7 @@ impl App {
                 theme::badge(ui, label, c);
                 ui.weak(format!("by {}", self.label(s(b, "owner"))));
             });
-            if let Some(accepted) = accepted {
-                let verdict = if accepted { "Accepted" } else { "Changes requested" };
-                ui.small(if reviewer.is_empty() { verdict.to_owned() } else { format!("{verdict} · {reviewer}") });
-            }
+            edition_review::summary(ui, &review);
             if from_profile {
                 let activity = self.work_name(s(b, "work"));
                 ui.small(excerpt(&activity, 100)).on_hover_text(activity);

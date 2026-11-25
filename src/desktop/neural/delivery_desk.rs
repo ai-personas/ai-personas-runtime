@@ -363,7 +363,7 @@ impl App {
                 ui.add_space(14.);
                 panel(ui).show(ui, |ui| {
                     ui.set_width(ui.available_width());
-                    heading(ui, "Feedback on this edition");
+                    heading(ui, "Messages about this edition");
                     self.delivery_followup_summary(ui, &p.reference);
                 });
                 ui.add_space(8.);

@@ -1017,6 +1017,10 @@ pub(super) fn prepare_when(
             "artifact_count":r.body["artifacts"].as_array().map(Vec::len),
             "evidence_count":r.body["evidence"].as_array().map(Vec::len)
             });
+            if view["review"]["decision_count"].as_u64().is_some_and(|n| n > 1) {
+                // One latest disposition is neither consensus nor the complete history.
+                view["operator_decisions_lookup"] = json!({"tool":"result.reviews","input":{"subject":{"delivery":r.reference.handle()}}});
+            }
             if let Some(check) = checks.get(&r.reference.handle()) {
                 view["latest_receiving_check"] = check.clone();
             }

@@ -128,9 +128,19 @@ For a registered file, **Matching command capture** links to a command receipt a
 
 Personas can make the same lookup across activities with `asset.deliveries`. Given an exact shared file revision, the result lists the verified issuing editions and each numbered recipient slip that includes that file. The persona can open the selected delivery for instructions or run a receiving check on that slip.
 
-**Send feedback…** opens the issuing persona’s live conversation with the edition already selected. Write what happened or attach files such as a supplier’s quote, photo or measurement. **Conversation** switches back to ordinary correspondence and preserves the package draft. On the delivery page, **Feedback on this edition** shows the human messages and any replies that the persona addressed to them. **Check receipt** shows when the message and any selected file contents reached an accepted decision. Taking or completing a request for physical work uses the controls in **Needs you**. [Mira receives a question about her house design](assets/studio-delivery-feedback.gif)
+**Send feedback…** opens the issuing persona’s live conversation with the edition already selected. Write what happened or attach files such as a supplier’s quote, photo or measurement. **Conversation** switches back to ordinary correspondence and preserves the package draft. On the delivery page, **Messages about this edition** shows the feedback messages and any replies that the persona addressed to them. Sending one is not acceptance. **Check receipt** shows when the message and any selected file contents reached an accepted decision. Taking or completing a request for physical work uses the controls in **Needs you**. [Mira receives a question about her house design](assets/studio-delivery-feedback.gif)
 
 For a PDF package member, use the page controls and zoom in the preview. When a human sends a PDF, the recipient can choose to render an individual page. The live timeline links to the resulting image. The feedback receipt identifies the page, its source document and the accepted decision that received the pixels. PDF rendering uses the local Poppler programs `pdfinfo` and `pdftoppm`. [Page receipts for Mira’s print record](assets/studio-pdf-receipt.png)
+
+### Review a delivery against a specific brief
+
+Choose **Operator review → Review delivery…** on the edition. Expand **Review basis** to read the original request and amendments. If another desk changes the brief while you write, Studio keeps your note and disables both verdicts. **Use brief 2** switches the basis to the amended terms; **Keep brief 1 only** records the earlier scope if that is what you checked. Neither choice submits the note. Then choose **Accept edition** or **Request changes**. If you open the review after an amendment, **Use brief 1 as issued** selects the original terms for that edition.
+
+**Decisions & findings… → Operator decisions** shows who decided what, their note and the exact brief. A later decision does not erase an earlier one. The offline handoff sheet also distinguishes the reviewed brief from the one current when the decision was recorded. Older records without a selected basis do not acquire one retroactively. A review does not start a listener, resume a stopped persona, or complete an outside step.
+
+![On a disconnected copy, the receiver accepted the original handoff against brief 1. A planner requested a diagram against brief 2. Neither verdict changes the files or the issuer’s claim.](assets/studio-edition-review-basis.jpg)
+
+### Follow work in progress
 
 An **Activity** opens on **Live activity**. The timeline shows who sent each message, saved a file, issued a package or asked for help. Click a filename to inspect the exact revision. Filter the timeline by person or event type. Opening a long message or choosing **Pause feed** holds your place while the personas continue. The counter shows how many matching events arrived. **Return to latest** brings them into view.
 

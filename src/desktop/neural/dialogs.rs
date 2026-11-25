@@ -59,11 +59,7 @@ pub(super) enum Dialog {
         seed: String,
         provider: String,
     },
-    Review {
-        reference: String,
-        title: String,
-        reason: String,
-    },
+    Review(edition_review::Form),
     Reasoning {
         persona: String,
         expected: String,
@@ -102,7 +98,7 @@ impl Dialog {
     fn scroll_identity(&self) -> egui::Id {
         let id = egui::Id::new(std::mem::discriminant(self));
         match self {
-            Self::Review { reference, .. } => id.with(reference),
+            Self::Review(form) => id.with(&form.edition),
             Self::Reasoning { persona, expected, .. } => id.with((persona, expected)),
             Self::Participation { work, person, action, reply_to, .. } =>
                 id.with((work, person, action.title(), reply_to.as_ref().map(|r| &r.0))),
@@ -123,13 +119,23 @@ impl Dialog {
             Self::Participation { action, .. } => action.title(),
             Self::Resume(_) => "Resume a participant",
             Self::Persona { .. } => "New persona",
-            Self::Review { .. } => "Review delivery",
+            Self::Review(_) => "Review delivery",
             Self::Reasoning { .. } => "Change reasoning settings",
             Self::Agreement(form) => form.title(),
             Self::Settings(_) => "Workspace settings",
             Self::Render(_) => "Render OpenSCAD project",
         }
     }
+}
+
+// Same submission, same receipt. Changes to the terms, verdict or other
+// submitted contents are a new intent, even while the form stays open.
+fn request_key(prefix: &str, command: &Command, prior: &mut Option<(String, String)>) -> ai_personas::neural::Result<String> {
+    let hash = ai_personas::store::sha256_bytes(&serde_json::to_vec(command)?);
+    if let Some((_, key)) = prior.as_ref().filter(|(old, _)| old == &hash) { return Ok(key.clone()); }
+    let key = ai_personas::neural::id(prefix)?;
+    *prior = Some((hash, key.clone()));
+    Ok(key)
 }
 
 fn multiline(ui: &mut Ui, value: &mut String, hint: &str) {
@@ -211,29 +217,22 @@ impl App {
                 .on_hover_text(format!("Delivered under {}\nCurrent brief {}",s(basis,"delivered_under"),s(basis,"current_brief")));
         }
         let review = &self.snapshot.status["delivery_reviews"][reference];
-        if let Some(accepted) = review["accepted"].as_bool() {
-            ui.small(format!(
-                "{} · {}",
-                if accepted {
-                    "Accepted"
-                } else {
-                    "Changes requested"
-                },
-                s(review, "reviewer")
-            ));
+        if edition_review::summary(ui, review) {
             ui.label(s(review, "reason"));
         } else {
             ui.small("No operator review recorded");
         }
-        if ui.small_button("Package findings…").clicked() {
+        let history = if review["decision_count"].as_u64().unwrap_or(0) > 0 { "Decisions & findings…" } else { "Package findings…" };
+        if ui.small_button(history).clicked() {
             self.package_reviews.open(ui.ctx(),&self.root,&self.work,Some(reference));
         }
         if ui.small_button("Review delivery…").clicked() {
-            self.dialog = Some(Dialog::Review {
-                reference: reference.into(),
-                title: title.into(),
-                reason: String::new(),
-            });
+            if let Some(form) = edition_review::Form::open(self, reference, title) {
+                self.error = None;
+                self.dialog = Some(Dialog::Review(form));
+            } else {
+                self.error = Some("The issuing or current brief is unavailable for this edition.".into());
+            }
         }
     }
 
@@ -259,7 +258,7 @@ impl App {
                 Dialog::Settings(_) => "Settings",
                 Dialog::Reasoning { .. } => "Reasoning",
                 Dialog::Resume(_) => "Resume",
-                Dialog::Review { .. } => "Review",
+                Dialog::Review(_) => "Review",
                 Dialog::Agreement(_) => "Agreement",
                 Dialog::Activity { social: true, .. } => "Conversation",
                 Dialog::Participation { action: Action::Message, .. } => "Message",
@@ -430,34 +429,7 @@ impl App {
                             });
                         }
                     }
-                    Dialog::Review {
-                        reference,
-                        title,
-                        reason,
-                    } => {
-                        ui.add(egui::Label::new(egui::RichText::new(title.as_str()).heading()).wrap());
-                        ui.small(reference.as_str());
-                        multiline(ui, reason, "Which parts meet the brief or need changes?");
-                        ui.horizontal_wrapped(|ui| {
-                            for (reject, label) in
-                                [(false, "Accept delivery"), (true, "Request changes")]
-                            {
-                                if ui
-                                    .add_enabled(
-                                        !reason.trim().is_empty(),
-                                        egui::Button::new(label),
-                                    )
-                                    .clicked()
-                                {
-                                    command = Some(Command::Accept {
-                                        delivery: reference.clone(),
-                                        reject,
-                                        reason: reason.clone(),
-                                    });
-                                }
-                            }
-                        });
-                    }
+                    Dialog::Review(form) => command = form.show(ui, self),
                     Dialog::Reasoning { persona, expected, model, effort, reason } => {
                         ui.add(egui::Label::new(egui::RichText::new(self.label(persona)).heading()).wrap());
                         ui.label("Model ID");
@@ -490,14 +462,19 @@ impl App {
                         Ok(id) => Some(id),
                         Err(error) => { self.error=Some(error.to_string()); command=None; None }
                     }
-                } else if let Dialog::Activity {retry, ..} = &mut draft {
-                    // Same submission, same receipt. Editing the brief, roster or
-                    // attachments after a failure creates a new intent.
-                    match invitation::request_key(submission, retry) {
-                        Ok(id)=>Some(id),
-                        Err(e)=>{self.error=Some(e.to_string()); command=None; None}
-                    }
-                } else { None }
+                } else {
+                    let intent = match &mut draft {
+                        Dialog::Activity { retry, .. } => Some(("invitation", retry)),
+                        Dialog::Review(form) => Some(("delivery-review", &mut form.retry)),
+                        _ => None,
+                    };
+                    if let Some((prefix, retry)) = intent {
+                        match request_key(prefix, submission, retry) {
+                            Ok(id) => Some(id),
+                            Err(e) => { self.error = Some(e.to_string()); command = None; None }
+                        }
+                    } else { None }
+                }
             } else { None };
             self.dialog = Some(draft);
             if let Some(command) = command {

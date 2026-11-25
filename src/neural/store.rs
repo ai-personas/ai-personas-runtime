@@ -191,14 +191,18 @@ fn visit_delivery_reviews(db:&Connection,mut visit:impl FnMut(&str,Value))->Resu
         let delivery=review["delivery"].as_str().ok_or_else(||failure("Review is missing its exact delivery"))?;
         visit(delivery,json!({"reference":format!("acceptance:{id}@{revision}"),"reviewer":review["user"],
             "accepted":review["accepted"],"reason":review["reason"],"created":row.get::<_,i64>(3)?,
-            "brief_at_review":review["brief_at_review"]}));
+            "reviewed_brief":review["reviewed_brief"],"brief_at_review":review["brief_at_review"]}));
     }
     Ok(())
 }
 
 pub fn delivery_reviews(db:&Connection)->Result<std::collections::BTreeMap<String,Value>> {
-    let mut latest=std::collections::BTreeMap::new();
-    visit_delivery_reviews(db,|delivery,review|{latest.insert(delivery.to_owned(),review);})?;
+    let mut latest=std::collections::BTreeMap::<String,Value>::new();
+    visit_delivery_reviews(db,|delivery,mut review|{
+        let count=latest.get(delivery).and_then(|v|v["decision_count"].as_u64()).unwrap_or(0);
+        review["decision_count"]=json!(count+1);
+        latest.insert(delivery.to_owned(),review);
+    })?;
     Ok(latest)
 }
 
