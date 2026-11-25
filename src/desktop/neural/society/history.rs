@@ -13,7 +13,7 @@ impl Identity {
         match self {
             Self::Persona(id) => personas.get(id.as_str()).copied().unwrap_or(id),
             Self::Operator(name) => name,
-            Self::Inbox => "Human inbox",
+            Self::Inbox => "Workspace inbox",
             Self::Shared => "Shared activity",
         }
     }
@@ -262,18 +262,7 @@ fn contribution(event: &Value) -> Option<(Identity, Option<Identity>)> {
     let body = &event["body"];
     let human = event["invocation"].is_null();
     let author = if human {
-        match kind {
-            "invitation"
-            | "user_message"
-            | "human_request_progress"
-            | "user_acceptance"
-            | "requirements_amended"
-            | "explicit_resume" => Identity::Operator(actor.into()),
-            "agreement_proposed" | "agreement_response" | "package_review" | "asset_feedback" => {
-                Identity::Operator(actor.strip_prefix("operator:").unwrap_or(actor).into())
-            }
-            _ => return None,
-        }
+        Identity::Operator(super::super::operator_desk::author(event)?.into())
     } else {
         Identity::Persona(actor.into())
     };
@@ -330,6 +319,7 @@ fn contribution(event: &Value) -> Option<(Identity, Option<Identity>)> {
         | "human_request_packet"
         | "human_request_withdrawn"
         | "human_request_progress"
+        | "human_role_changed"
         | "delivery"
         | "user_acceptance"
         | "package_review"

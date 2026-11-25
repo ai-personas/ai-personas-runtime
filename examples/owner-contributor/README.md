@@ -6,9 +6,11 @@
 
 ### Set the desks
 
-Use packaged native Studio `8e956cf`, direct Codex OAuth, `gpt-6.1-sol`, medium effort. Restore the [BC-17 closing archive](../solar-bond-strip/decisions.json) with the two continuing residents into a separate workspace with an empty shared project. Start the [private epoch observer](../stitch-desk/watch_epochs.py) **before** opening either desk. Keep the task cards, study notes, exports and private archives outside the personas’ project.
+The prepared station and its recorded preflight used packaged native Studio `8e956cf`, direct Codex OAuth, `gpt-6.1-sol`, medium effort. Record the actual build, model and effort if using another station. Restore the [BC-17 closing archive](../solar-bond-strip/decisions.json) with the two continuing residents into a separate workspace with an empty shared project. Start the [private epoch observer](../stitch-desk/watch_epochs.py) **before** opening either desk. Keep the task cards, study notes, exports and private archives outside the personas’ project.
 
 The prepared local Linux station is linked at `target/owner-contributor-desk`. From the checkout, run `sh examples/owner-contributor/open-studio.sh owner` for the first person; give them only the [owner card](owner.md). At the shift change use `sh examples/owner-contributor/open-studio.sh contributor` for the other person and give them only the [contributor card](contributor.md). Keep the owner's listener window open. Both windows open the same workspace at its ordinary entry point; the launcher supplies only the local operator label and host settings. Two labels or two windows do not establish two participants.
+
+Current Studio also lets the facilitator open another window from [**+ New → Operator desk…**](../../docs/desktop.md#working-under-another-operator-name) on the same workspace. Leave the first window open: its unfinished forms belong there. Opening the contributor’s window does **not** declare a task role, take the outside request, or start another listener. Keep the preflight and any single-evaluator checks separate from the two participants’ observations.
 
 ### Observe one handoff
 

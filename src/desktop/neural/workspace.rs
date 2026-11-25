@@ -349,9 +349,7 @@ impl App {
 
     fn open_library(&mut self) {
         if self.running {
-            if let Err(error) = std::env::current_exe().and_then(|exe| {
-                std::process::Command::new(exe).arg("--operator").arg(&self.operator).spawn()
-            }) {
+            if let Err(error) = operator_desk::open_window(None, &self.operator) {
                 self.error = Some(error.to_string());
             }
         } else if !self.busy {
@@ -381,6 +379,11 @@ impl App {
             if ui.button("File viewer…").clicked() { file_desk::request(ctx, false); ui.close(); }
             if ui.button("Persona").clicked() {
                 self.dialog = Some(Dialog::persona(&self.persona));
+                ui.close();
+            }
+            ui.separator();
+            if ui.button("Operator desk…").clicked() {
+                self.operator_desk.open();
                 ui.close();
             }
         });
@@ -1324,23 +1327,28 @@ impl App {
         let actor = s(event, "actor");
         let target = if matches!(s(event,"kind"),"request_message_sent"|"request_review_sent"){s(&event["body"],"to")}else{s(event,"target")};
         let published = event["kind"] == "asset_feedback";
-        let operator = published && event["body"]["author_kind"] == "operator";
-        let from = if operator { format!("Operator · {}", s(&event["body"],"author")) } else { self.label(actor).to_owned() };
+        let operator = operator_desk::author(event);
+        let from = operator.map_or_else(|| self.label(actor).to_owned(), |name| format!("Operator · {name}"));
         let to = if published && event["body"]["recipient_kind"] == "operator" {
             s(&event["body"],"recipient")
         } else if target == "*" {
             "Everyone"
         } else if target == "user" {
-            "You"
+            "Workspace inbox"
         } else {
             self.label(target)
         }
         .to_owned();
         ui.horizontal_wrapped(|ui| {
-            if avatar(ui, &from, self.color(actor), 24.).clicked() && !operator {
-                self.persona = actor.into();
-            }
-            ui.label(RichText::new(from).strong().color(self.color(actor)));
+            let ink = if operator.is_some() {
+                theme::glyph(ui, Icon::People, theme::ACCENT);
+                theme::ACCENT
+            } else {
+                let ink = self.color(actor);
+                if avatar(ui, &from, ink, 24.).clicked() { self.persona = actor.into(); }
+                ink
+            };
+            ui.label(RichText::new(from).strong().color(ink));
             ui.weak("→");
             ui.strong(to);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

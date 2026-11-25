@@ -623,7 +623,7 @@ impl eframe::App for App {
         if let Some(workspace) = &mut self.workspace {
             workspace.update(ctx, frame);
             if workspace.show_library {
-                self.operator.clone_from(&workspace.operator);
+                ctx.send_viewport_cmd(egui::ViewportCommand::Title("Persona Studio".into()));
                 workspace.on_exit(self.gl.as_deref());
                 self.workspace=None;
                 self.library_read=Some(read_library(ctx));

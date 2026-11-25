@@ -1380,22 +1380,21 @@ impl App {
         let body = &event["body"];
         let result = &event["tool_outcome"];
         let actor = s(event, "actor");
-        let persona = event["invocation"].is_string() && actor != "runtime";
-        let who = if persona {
+        let operator = operator_desk::author(event);
+        let runtime = actor == "runtime" && operator.is_none();
+        let persona = event["invocation"].is_string() && !runtime;
+        let who = if let Some(name) = operator {
+            format!("Operator {name}")
+        } else if persona {
             self.label(actor).to_owned()
-        } else if actor == "runtime" {
+        } else if runtime {
             "Runtime".into()
         } else {
-            let operator = actor.strip_prefix("operator:").unwrap_or(actor);
-            if operator == self.operator || operator == "user" {
-                "You".into()
-            } else {
-                format!("Operator {operator}")
-            }
+            actor.to_owned()
         };
         let tint = if persona {
             p.ink(self.color(actor))
-        } else if actor == "runtime" {
+        } else if runtime {
             p.muted
         } else {
             p.accent
@@ -1418,7 +1417,7 @@ impl App {
                 theme::paint_icon(
                     ui.painter(),
                     r.shrink(5.),
-                    if actor == "runtime" {
+                    if runtime {
                         Icon::Activity
                     } else {
                         Icon::People
@@ -1752,7 +1751,7 @@ impl App {
         let kind = s(event, "kind");
         let body = &event["body"];
         let target = match recipient(event) {
-            "user" => "you",
+            "user" => "the workspace inbox",
             "*" => "everyone",
             who => self.label(who),
         };
@@ -1771,8 +1770,8 @@ impl App {
             }
             "reply" | "request_reply" => format!("replied to {target}"),
             "initialization_note" => "recorded an initialization note".into(),
-            "human_request" => "requested your help".into(),
-            "human_request_packet" => "issued files for your request".into(),
+            "human_request" => "asked for outside help".into(),
+            "human_request_packet" => "issued files for the outside step".into(),
             "human_request_progress" => "updated a request".into(),
             "human_role_changed" if body["state"] == "left" => "left their task role".into(),
             "human_role_changed" if body["role"] == "owner" => "recorded their part as task owner".into(),

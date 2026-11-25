@@ -259,7 +259,7 @@ fn record_label(app: &App, event: &Value) -> String {
         "message" | "requester_message" | "user_message" => "Message".into(),
         "human_request" => "Human request".into(),
         "human_request_packet" => "Field packet".into(),
-        "tool_result" | "invitation_response" | "user_acceptance" => app.event_heading(event),
+        "human_role_changed" | "tool_result" | "invitation_response" | "user_acceptance" => app.event_heading(event),
         kind => title(kind),
     }
 }
