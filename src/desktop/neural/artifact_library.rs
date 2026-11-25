@@ -21,18 +21,12 @@ impl App {
     }
 
     fn library_filters(&mut self, ui: &mut Ui) {
-        let scopes = [
-            "Current artifacts",
-            "Delivered for this task",
-            "Retired artifacts",
-        ];
         egui::ComboBox::from_id_salt("artifact-scope")
-            .selected_text(scopes[self.artifact_scope])
+            .selected_text(if self.retired_assets { "Retired artifacts" } else { "Current artifacts" })
             .width(ui.available_width())
             .show_ui(ui, |ui| {
-                for (i, text) in scopes.iter().enumerate() {
-                    ui.selectable_value(&mut self.artifact_scope, i, *text);
-                }
+                ui.selectable_value(&mut self.retired_assets, false, "Current artifacts");
+                ui.selectable_value(&mut self.retired_assets, true, "Retired artifacts");
             });
         let owner = if self.asset_owner.is_empty() {
             "All personas"
@@ -56,7 +50,7 @@ impl App {
     }
 
     pub(super) fn retained_library(&mut self, ui: &mut Ui) {
-        let before = (self.artifact_scope, self.asset_owner.clone());
+        let before = (self.retired_assets, self.asset_owner.clone());
         let field = |ui: &mut Ui, filter: &mut String| {
             ui.add(
                 egui::TextEdit::singleline(filter)
@@ -77,7 +71,7 @@ impl App {
             self.library_filters(ui);
             edited
         };
-        let scope_changed = before != (self.artifact_scope, self.asset_owner.clone());
+        let scope_changed = before != (self.retired_assets, self.asset_owner.clone());
         if scope_changed {
             self.artifact_folders.directory.clear();
         }
@@ -86,15 +80,11 @@ impl App {
         let mut navigated = self
             .artifact_folders
             .location(ui, "Library folders", search);
-        let mut delivered = self.delivered_refs();
         let mut paths = Vec::new();
         for (i, asset) in self.snapshot.assets.iter().enumerate() {
             let b = &asset["body"];
-            let member = delivered.remove(s(asset, "reference"));
-            let scope = match self.artifact_scope {
-                1 => member,
-                2 => b["retired"] == true,
-                _ => b["retired"] != true && asset["current"] != false,
+            let scope = if self.retired_assets { b["retired"] == true } else {
+                b["retired"] != true && asset["current"] != false
             };
             let path = s(b, "path");
             if scope
@@ -106,20 +96,6 @@ impl App {
                 paths.push((i, path));
             }
         }
-        // Keep exact delivered references reachable even if their paths were
-        // not projected. Do not invent a filename, parent, size or author.
-        let absent: Vec<_> = if self.artifact_scope == 1 && !search && self.asset_owner.is_empty() {
-            delivered.into_iter().collect()
-        } else {
-            Vec::new()
-        };
-        let known = self.snapshot.assets.len();
-        paths.extend(
-            absent
-                .iter()
-                .enumerate()
-                .map(|(i, r)| (known + i, r.as_str())),
-        );
         let total = paths.len();
         let rows = library_folders::entries(
             (!search).then_some(&self.artifact_folders.directory[..]),
@@ -150,7 +126,7 @@ impl App {
             "library-folder-rows",
             &self.artifact_folders.directory,
             &query,
-            self.artifact_scope,
+            self.retired_assets,
             &self.asset_owner,
         ));
         egui::ScrollArea::vertical()
@@ -173,24 +149,12 @@ impl App {
                                 });
                             });
                         }
-                        Entry::File(index) if *index < known => {
+                        Entry::File(index) => {
                             let asset = self.snapshot.assets[*index].clone();
                             ui.push_id(s(&asset, "reference"), |ui| {
                                 self.artifact_row(ui, &asset, true)
                             });
                             ui.add_space(4.);
-                        }
-                        Entry::File(index) => {
-                            let reference = &absent[index - known];
-                            if ui
-                                .link(reference)
-                                .on_hover_text(
-                                    "Open this exact issued reference; library path unavailable",
-                                )
-                                .clicked()
-                            {
-                                self.open_resource(ui.ctx(), reference.clone());
-                            }
                         }
                     }
                 }

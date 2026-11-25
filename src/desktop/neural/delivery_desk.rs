@@ -137,11 +137,7 @@ impl Package {
                 }
             })
             .collect();
-        let issued = app
-            .events
-            .iter()
-            .rev()
-            .find(|e| e["kind"] == "delivery" && e["body"]["reference"] == reference)
+        let issued = app.indexed_issue(&reference, body)
             .and_then(|e| e["created_utc"].as_str())
             .map(str::to_owned);
         Self {
@@ -176,6 +172,15 @@ fn strings(value: &Value) -> impl Iterator<Item = &str> {
         .into_iter()
         .flatten()
         .filter_map(Value::as_str)
+}
+
+pub(super) fn scope(body: &Value) -> (&str, egui::Color32) {
+    match s(body, "scope") {
+        "partial" => ("Partial delivery", theme::ACCENT),
+        "claimed_complete" => ("Author claims complete", TEAL),
+        other if !other.is_empty() => (other, TEAL),
+        _ => ("Scope not recorded", theme::ACCENT),
+    }
 }
 
 fn heading(ui: &mut Ui, title: &str) {
@@ -292,6 +297,10 @@ impl App {
                 if ui.link(label).on_hover_text(format!("{title}\n{work}")).clicked() {
                     self.open_home_activity(work);
                 }
+                ui.weak("/");
+                if ui.link("Deliveries").on_hover_text("Browse the editions in this activity").clicked() {
+                    self.browse_editions();
+                }
             }
         });
         ui.add_space(6.);
@@ -389,12 +398,7 @@ impl App {
             .on_hover_text("Inspect published findings and later editions that cite this issue").clicked());
         let colors = theme::palette(ui);
         let compact = Self::constrained_activity_layout(ui.ctx());
-        let (scope, tint) = match s(b, "scope") {
-            "partial" => ("Partial delivery", theme::ACCENT),
-            "claimed_complete" => ("Author claims complete", TEAL),
-            other if !other.is_empty() => (other, TEAL),
-            _ => ("Issued", TEAL),
-        };
+        let (scope, tint) = scope(b);
         egui::Frame::new()
             .fill(colors.header)
             .stroke(Stroke::new(1., colors.border))
@@ -405,7 +409,7 @@ impl App {
                 if !compact {
                     ui.horizontal_wrapped(|ui| {
                         theme::glyph(ui, Icon::Files, colors.ink(persona_color(s(b, "owner"))));
-                        eyebrow(ui, "Persona Studio  /  Issued edition");
+                        eyebrow(ui, "Persona Studio  /  Delivery record");
                         theme::badge(ui, scope, tint);
                         if updates_link(ui) { jump = Some(Jump::Updates); }
                     });
@@ -432,7 +436,7 @@ impl App {
                     });
                 }
                 ui.horizontal_wrapped(|ui| {
-                    ui.label(format!("Issued by {}", self.label(s(b, "owner"))))
+                    ui.label(format!("Issuer · {}", self.label(s(b, "owner"))))
                         .on_hover_text(s(b, "owner"));
                     if let Some(rev) = revision(&p.reference) {
                         ui.weak(format!("·  Revision {rev}"))
@@ -440,6 +444,8 @@ impl App {
                     }
                     if let Some(utc) = &p.issued {
                         ui.weak(format!("·  {utc}"));
+                    } else {
+                        ui.colored_label(theme::ACCENT, "No matching public notice indexed");
                     }
                     if ui
                         .link(counted(p.files.len() as u64, "file", "files"))

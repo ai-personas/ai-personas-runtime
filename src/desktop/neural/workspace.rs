@@ -907,8 +907,8 @@ impl App {
                             .clicked()
                         {
                             self.layout.editor = Editor::Artifacts;
-                            self.artifact_mode = 0;
-                            self.artifact_scope = 0;
+                            self.artifact_mode = ArtifactView::Retained;
+                            self.retired_assets = false;
                             self.reset_library_view();
                             self.compact_browser = false;
                         }
@@ -926,10 +926,7 @@ impl App {
                             )
                             .clicked()
                         {
-                            self.layout.editor = Editor::Artifacts;
-                            self.artifact_mode = 0;
-                            self.artifact_scope = 1;
-                            self.reset_library_view();
+                            self.browse_editions();
                             self.compact_browser = false;
                         }
                         if ui
@@ -940,7 +937,7 @@ impl App {
                             .clicked()
                         {
                             self.layout.editor = Editor::Artifacts;
-                            self.artifact_mode = 1;
+                            self.artifact_mode = ArtifactView::Workspace;
                             self.files.workspace_mode();
                             self.compact_browser = false;
                         }
@@ -1118,7 +1115,7 @@ impl App {
                     }
                     if cols[1].button("Browse all artifacts →").clicked() {
                         self.layout.editor = Editor::Artifacts;
-                        self.artifact_mode = 0;
+                        self.artifact_mode = ArtifactView::Retained;
                     }
                 });
                 ui.spacing_mut().item_spacing.x = column_gap;
@@ -1696,13 +1693,13 @@ impl App {
         }
     }
     pub(super) fn artifacts(&mut self, ui: &mut Ui) {
-        self.delivery_return_link(ui);
+        if self.artifact_mode == ArtifactView::Retained { self.delivery_return_link(ui); }
         let compact = ui.available_width() < 620. || ui.available_height() < 500.;
         if compact {
             ui.horizontal_wrapped(|ui| {
                 ui.strong("Artifacts");
                 ui.menu_button("Browse & tools", |ui| self.artifact_tools(ui));
-                if self.artifact_mode == 0 && !self.selected_reference.is_empty() && ui.small_button("← Library").clicked() {
+                if self.artifact_mode == ArtifactView::Retained && !self.selected_reference.is_empty() && ui.small_button("← Library").clicked() {
                     self.clear_file_preview();
                 }
             });
@@ -1712,9 +1709,12 @@ impl App {
         self.artifact_body(ui, compact);
     }
     fn artifact_tools(&mut self, ui: &mut Ui) {
-            ui.selectable_value(&mut self.artifact_mode, 0, "Retained library");
+            ui.selectable_value(&mut self.artifact_mode, ArtifactView::Retained, "Retained library");
+            if ui.selectable_label(self.artifact_mode == ArtifactView::Editions, "Issued editions").clicked() {
+                self.browse_editions();
+            }
             if ui
-                .selectable_value(&mut self.artifact_mode, 1, "Workspace files")
+                .selectable_value(&mut self.artifact_mode, ArtifactView::Workspace, "Workspace files")
                 .changed()
             {
                 self.files.workspace_mode();
@@ -1752,7 +1752,11 @@ impl App {
     }
     fn artifact_body(&mut self, ui: &mut Ui, compact: bool) {
         ui.add_space(if compact { 2. } else { 8. });
-        if self.artifact_mode == 1 {
+        if self.artifact_mode == ArtifactView::Editions {
+            self.edition_library(ui);
+            return;
+        }
+        if self.artifact_mode == ArtifactView::Workspace {
             let directory = self.snapshot.directory.clone();
             if directory.as_os_str().is_empty() {
                 ui.weak("The workspace location is unavailable.");
@@ -1765,37 +1769,6 @@ impl App {
         if !compact {
             ui.small("Folders follow the paths chosen by the personas. Retained files may be intermediate; open an issued package to browse its contents.");
             ui.add_space(8.);
-        }
-        if self.artifact_scope == 1 {
-            let deliveries: Vec<_> = self
-                .records("deliveries")
-                .iter()
-                .filter(|d| d["body"]["work"] == self.work)
-                .cloned()
-                .collect();
-            ui.collapsing(
-                format!(
-                    "{} delivery records and their remaining work",
-                    deliveries.len()
-                ),
-                |ui| {
-                    egui::ScrollArea::vertical()
-                        .max_height(230.)
-                        .show(ui, |ui| {
-                            for d in deliveries {
-                                let b = &d["body"];
-                                ui.strong(s(b, "title"));
-                                ui.label(format!("{} · {}", self.label(s(b, "owner")), title(s(b, "scope"))));
-                                ui.label(s(b, "supported_use"));
-                                self.delivery_review(ui, &d);
-                                for gap in b["remaining"].as_array().into_iter().flatten() {
-                                    ui.small(format!("• {}", gap.as_str().unwrap_or("")));
-                                }
-                                ui.separator();
-                            }
-                        });
-                },
-            );
         }
         if compact {
             if self.selected_reference.is_empty() {

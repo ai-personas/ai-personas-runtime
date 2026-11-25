@@ -27,19 +27,19 @@ pub(in crate::neural) fn edition(db: &Connection, reference: &str) -> Result<Edi
     let (op, result, result_event) =
         choice.operation(db, "result.deliver", "reference", &json!(reference))?;
     let members: Vec<String> = serde_json::from_value(body["artifacts"].clone())?;
-    let supplied: Vec<String> = serde_json::from_value(op.input["artifacts"].clone())?;
     if !choice.contains(issue.sequence)
         || result_event <= issue.sequence
-        || body.get("mandate").is_some_and(|m| m != &choice.accepted.snapshot.data["work"]["reference"])
-        || !choice.issued_alias(db, &op, &issue.record, &result)?
-        || operations::package_paths(db, &supplied)? != operations::package_paths(db, &members)?
-        || op.input["dispatches"].as_array().into_iter().flatten()
-            .ne(body["dispatches"].as_array().into_iter().flatten())
+        || issue.addressed_sequence.is_some_and(|seq| seq >= result_event)
     {
-        return Err(failure(
-            "The file list differs from the accepted delivery and its original issue",
-        ));
+        return Err(failure("The publication falls outside its accepted issuing operation"));
     }
+    if op.input["artifacts"] != body["artifacts"] {
+        return Err(failure("The file list differs from the accepted delivery and its original issue"));
+    }
+    if !choice.issued_alias(db, &op, &issue.record, &result)? {
+        return Err(failure("The edition terms or issuing receipt differ from the accepted delivery"));
+    }
+    operations::package_paths(db, &members)?;
     let issuer_label = choice.accepted.snapshot.data["identity"]["label"].as_str()
         .filter(|name| !name.trim().is_empty()).map(str::to_owned);
     Ok(Edition { issue, issuer_label, operation: op.id, members })

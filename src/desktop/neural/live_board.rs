@@ -1362,7 +1362,7 @@ impl App {
                 .ok()
         });
         if let Some(title) = issue
-            .and_then(|i| self.events[i]["body"]["record"]["title"].as_str())
+            .and_then(|i| self.events[i]["body"]["title"].as_str())
             .filter(|s| !s.trim().is_empty())
         {
             return title;

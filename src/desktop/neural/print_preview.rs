@@ -457,7 +457,7 @@ impl App {
                 && self.delivery_desk.selected_file() == Some(source.reference.as_str())
         } else {
             self.layout.editor == Editor::Artifacts
-                && self.artifact_mode == 0
+                && self.artifact_mode == ArtifactView::Retained
                 && self.selected_reference == source.reference
         };
         if !active {

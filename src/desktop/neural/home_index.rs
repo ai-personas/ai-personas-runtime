@@ -39,7 +39,7 @@ pub(super) struct Index {
     steps_by_holder: BTreeMap<String, Vec<usize>>,
     last_event: BTreeMap<String, (i64, Option<String>)>,
     tool_results: BTreeMap<String, BTreeMap<String, i64>>,
-    issued: BTreeMap<String, i64>,
+    issued: BTreeMap<String, Option<i64>>,
     receiving_checks: BTreeMap<String, Vec<i64>>,
     request_events: BTreeMap<String, i64>,
     request_origins: BTreeMap<String, i64>,
@@ -47,7 +47,7 @@ pub(super) struct Index {
 
 impl Index {
     pub(super) fn delivery_issue(&self, reference: &str) -> Option<i64> {
-        self.issued.get(reference).copied()
+        self.issued.get(reference).copied().flatten()
     }
 
     pub(super) fn receiving_checks(&self, delivery: &str) -> &[i64] {
@@ -119,9 +119,10 @@ impl Index {
             ) {
                 self.latest_asset_receipt = self.latest_asset_receipt.max(seq);
             }
-            if event["kind"] == "delivery" {
+            if event["kind"] == "delivery" && event["target"] == "*" {
                 if let Some(reference) = body["reference"].as_str() {
-                    self.issued.insert(reference.to_owned(), seq);
+                    self.issued.entry(reference.to_owned())
+                        .and_modify(|unique| *unique = None).or_insert(Some(seq));
                 }
             }
             if event["kind"] == "delivery_check" {
@@ -191,7 +192,7 @@ impl Index {
         let deliveries = rows("deliveries");
         self.deliveries = (0..deliveries.len()).collect();
         self.deliveries.sort_by_cached_key(|i| {
-            Reverse(self.issued.get(&inbox::handle(&deliveries[*i])).copied())
+            Reverse(self.issued.get(&inbox::handle(&deliveries[*i])).copied().flatten())
         });
         let mut by_work = BTreeMap::<&str, Vec<usize>>::new();
         for &i in &self.deliveries {
