@@ -249,7 +249,11 @@ pub(super) fn verify_completion(
     db: &Connection, call: &str, actor: &str, work: &str, snapshot: &str,
     response: &str, receipt: &str, disposition: &str,
 ) -> Result<()> {
-    let terminal = required(db, "provider_completion", call)?.body;
+    let record = required(db, "provider_completion", call)?;
+    if record.reference.revision != 1 || !written_by(db, &record, call)? {
+        return Err(failure("Missing original completion record written for this invocation"));
+    }
+    let terminal = record.body;
     if terminal["actor"] != actor || terminal["work"] != work || terminal["invocation"] != call
         || terminal["response"] != format!("object:{response}") || terminal["snapshot"] != format!("object:{snapshot}")
         || terminal["receipt"] != format!("object:{receipt}") || terminal["disposition"] != disposition {

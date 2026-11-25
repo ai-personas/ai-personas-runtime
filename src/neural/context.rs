@@ -1152,8 +1152,7 @@ pub(super) fn prepare_when(
         }
         let component_bytes=data.as_object().expect("snapshot is an object").iter().map(|(name,value)|Ok((name.clone(),serde_json::to_vec(value)?.len()))).collect::<Result<std::collections::BTreeMap<_,_>>>()?;
         let resource_bytes=data["selected_resources"].as_array().expect("resources is an array").iter().map(|value|Ok(json!({"reference":value["reference"],"range":value["range"],"serialized_bytes":serde_json::to_vec(value)?.len()}))).collect::<Result<Vec<_>>>()?;
-        let previous:Option<String>=db.query_row("SELECT receipt FROM invocations WHERE actor=?1 AND state='accepted' AND receipt IS NOT NULL ORDER BY updated DESC,rowid DESC LIMIT 1",[actor],|r|r.get(0)).optional()?;
-        let previous=previous.map(|digest|store::object::<Value>(db,&digest).map(|receipt|json!({"receipt":format!("object:{digest}"),"usage":receipt["usage"]}))).transpose()?;
+        let previous = super::accounting::previous_usage(db, actor)?;
         let image_bytes=image_blobs.iter().map(|(blob,mime)|{let bytes:i64=db.query_row("SELECT length(bytes) FROM objects WHERE digest=?1",[blob],|r|r.get(0))?;Ok(json!({"reference":format!("object:{blob}"),"mime":mime,"bytes":bytes}))}).collect::<Result<Vec<_>>>()?;
         data["context_accounting"]=json!({"meaning":"Observed bytes, not token estimates or limits. Choose the exact context useful for your next decision; complete resources remain retained.","developer_prefix_bytes":prefix.len(),"components_serialized_bytes":component_bytes,"selected_resource_bytes":resource_bytes,"images":image_bytes,"previous_accepted_provider_usage":previous});
         let mut refs=BTreeSet::new();collect_references(&data,&mut refs,true);

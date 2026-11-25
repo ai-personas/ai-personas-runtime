@@ -1,5 +1,7 @@
 //! Operator measurements from immutable requests, provider receipts and local tool results.
+mod receipts;
 use super::{context, failure, store, Result};
+use receipts::Call;
 use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -94,8 +96,8 @@ struct Input {
     mode: &'static str,
 }
 
-fn frozen_input(db: &Connection, digest: &str) -> Result<Input> {
-    let mut value: Value = store::object(db, digest)?;
+fn frozen_input(db: &Connection, call: &Call) -> Result<Input> {
+    let mut value: Value = store::object(db, &call.snapshot)?;
     if value["purpose"] == "isolated_character_assessment" {
         let prompt = value["prompt"]
             .as_str()
@@ -120,6 +122,12 @@ fn frozen_input(db: &Connection, digest: &str) -> Result<Input> {
         });
     }
     let snapshot: context::Snapshot = serde_json::from_value(value)?;
+    if snapshot.invocation != call.id || snapshot.work != call.work || snapshot.actor != call.actor
+    {
+        return Err(failure(
+            "The indexed input belongs to another call, activity or persona",
+        ));
+    }
     let digest = crate::store::sha256_bytes(context::prompt(db, &snapshot)?.as_bytes());
     let mode = if snapshot.model.is_none() {
         "initialization"
@@ -233,9 +241,16 @@ fn tool_results(db: &Connection, work: &str) -> Result<BTreeMap<String, ToolUse>
 /// are in preparation order: keep the last matching receipt as a drill-down.
 fn reasoning_receipts(calls: &[Value]) -> Vec<Value> {
     let mut groups = BTreeMap::new();
-    for call in calls.iter().filter(|c| c["state"] == "accepted" && c["input_evidence"] == "verified_completed_input") {
-        let key = (call["actor"].as_str(), call["transport_profile"].as_str(),
-                   call["reported_model"].as_str(), call["reported_effort"].as_str());
+    for call in calls
+        .iter()
+        .filter(|c| c["state"] == "accepted" && c["input_evidence"] == "verified_completed_input")
+    {
+        let key = (
+            call["actor"].as_str(),
+            call["transport_profile"].as_str(),
+            call["reported_model"].as_str(),
+            call["reported_effort"].as_str(),
+        );
         let entry = groups.entry(key).or_insert((0usize, call));
         entry.0 += 1;
         entry.1 = call;
@@ -246,12 +261,104 @@ fn reasoning_receipts(calls: &[Value]) -> Vec<Value> {
     })).collect()
 }
 
+pub(super) fn previous_usage(db: &Connection, actor: &str) -> Result<Option<Value>> {
+    Call::previous_usage(db, actor)
+}
+
+/// All-society audit and activity views must attribute the same provider report
+/// (or the same absence) to the same invocation.
+pub(super) fn workspace_calls(db: &Connection) -> Result<Vec<Value>> {
+    Ok(Call::list(db, None)?
+        .into_iter()
+        .map(|call| {
+            let (mut row, _) = call.measure(db);
+            row["work"] = json!(call.work);
+            row
+        })
+        .collect())
+}
+
+#[derive(Default)]
+struct Supplied {
+    sources: Vec<Value>,
+    images: Vec<Value>,
+    coverage: BTreeMap<String, Coverage>,
+    components: BTreeMap<String, u64>,
+    image_bytes: u64,
+}
+
+/// Accumulate a call in isolation. A failed reconstruction must not contribute
+/// partial source ranges or discard independently attributable measurements.
+fn supplied(
+    db: &Connection,
+    input: Input,
+    attempt: &Value,
+    out: &mut Supplied,
+) -> Result<&'static str> {
+    if attempt["response_completed"] != true {
+        return Ok("completion_unconfirmed");
+    }
+    let audit = &attempt["audit"];
+    if audit["prompt_sha256"] != input.digest {
+        return Ok("prompt_mismatch");
+    }
+    let expected = context::retained_images(db, &input.images)?
+        .iter()
+        .map(crate::provider::ImageInput::audit)
+        .collect::<Vec<_>>();
+    if audit
+        .get("image_inputs")
+        .cloned()
+        .unwrap_or_else(|| json!([]))
+        != json!(expected)
+    {
+        return Ok("image_mismatch");
+    }
+    let data = &input.data;
+    for source in context::supplied_resources(data) {
+        out.sources.extend(resource_row(
+            source.value,
+            source.via,
+            source.shared_metadata,
+            &mut out.coverage,
+        )?);
+    }
+    if input.mode == "assessment" {
+        for value in data["resources"].as_array().into_iter().flatten() {
+            out.sources
+                .extend(resource_row(value, "assessment", None, &mut out.coverage)?);
+        }
+    }
+    for (digest, mime) in input.images {
+        let bytes: i64 = db.query_row(
+            "SELECT length(bytes) FROM objects WHERE digest=?1",
+            [&digest],
+            |r| r.get(0),
+        )?;
+        out.image_bytes += u64::try_from(bytes)?;
+        out.images
+            .push(json!({"reference":format!("object:{digest}"),"mime":mime,"bytes":bytes}));
+    }
+    for key in [
+        "available_tools",
+        "selected_resources",
+        "new_events",
+        "baseline_character",
+        "last_contextual_evaluation",
+        "resources",
+    ] {
+        if let Some(value) = data.get(key) {
+            out.components
+                .insert(key.to_owned(), serde_json::to_vec(value)?.len() as u64);
+        }
+    }
+    Ok("verified_completed_input")
+}
+
 /// One activity, including rejected decisions and assessment arms. Only receipt-bound
 /// completed inputs contribute to the observed source-body and context figures.
 pub fn activity(db: &Connection, work: &str) -> Result<Value> {
     let activity = store::required(db, "work", work)?;
-    let mut query=db.prepare("SELECT id,actor,state,snapshot,receipt,created,updated FROM invocations WHERE work=?1 ORDER BY created,rowid")?;
-    let mut rows = query.query([work])?;
     let mut measures = BTreeMap::<&str, Measure>::new();
     for key in [
         "prompt_bytes",
@@ -270,25 +377,13 @@ pub fn activity(db: &Connection, work: &str) -> Result<Value> {
     let mut raw_image_bytes = 0u64;
     let mut first: Option<i64> = None;
     let mut last: Option<i64> = None;
-    while let Some(row) = rows.next()? {
-        let id: String = row.get(0)?;
-        let actor: String = row.get(1)?;
-        let state: String = row.get(2)?;
-        let digest: String = row.get(3)?;
-        let receipt: Option<String> = row.get(4)?;
-        let created: i64 = row.get(5)?;
-        let updated: i64 = row.get(6)?;
-        first.get_or_insert(created);
-        last = Some(last.map_or(updated, |n| n.max(updated)));
-        *states.entry(state.clone()).or_default() += 1;
-        *actors.entry(actor.clone()).or_default() += 1;
-        let attempt = receipt
-            .as_deref()
-            .map(|d| store::object::<Value>(db, d))
-            .transpose()?
-            .unwrap_or(Value::Null);
-        let audit = attempt.get("audit").unwrap_or(&attempt);
-        let usage = &attempt["usage"];
+    for call in Call::list(db, Some(work))? {
+        first.get_or_insert(call.created);
+        last = Some(last.map_or(call.updated, |n| n.max(call.updated)));
+        *states.entry(call.state.clone()).or_default() += 1;
+        *actors.entry(call.actor.clone()).or_default() += 1;
+        let (mut row, attempt) = call.measure(db);
+        let audit = &attempt["audit"];
         for (field, source) in [
             ("prompt_bytes", &audit["prompt_bytes"]),
             ("request_bytes", &audit["request_bytes"]),
@@ -297,76 +392,47 @@ pub fn activity(db: &Connection, work: &str) -> Result<Value> {
         ] {
             measures.get_mut(field).unwrap().observe(source.as_u64());
         }
-        let input = frozen_input(db, &digest)?;
-        let mut observed = Vec::new();
-        let mut images = Vec::new();
-        let evidence = if attempt["response_completed"] != true {
-            "completion_unconfirmed"
-        } else if audit["invocation_id"] != id || audit["prompt_sha256"] != input.digest {
-            "prompt_mismatch"
-        } else {
-            let expected = context::retained_images(db, &input.images)?
-                .iter()
-                .map(crate::provider::ImageInput::audit)
-                .collect::<Vec<_>>();
-            if audit
-                .get("image_inputs")
-                .cloned()
-                .unwrap_or_else(|| json!([]))
-                != json!(expected)
-            {
-                "image_mismatch"
+        row["created"] = json!(call.created);
+        row["updated"] = json!(call.updated);
+        row["transport_profile"] = audit["transport_profile"].clone();
+        let mut observed = Supplied::default();
+        let check = frozen_input(db, &call).and_then(|input| {
+            row["mode"] = json!(input.mode);
+            if row["receipt_problem"].is_string() {
+                Ok("receipt_unavailable")
             } else {
-                verified += 1;
-                let data = &input.data;
-                for source in context::supplied_resources(data) {
-                    observed.extend(resource_row(
-                        source.value,
-                        source.via,
-                        source.shared_metadata,
-                        &mut coverage,
-                    )?);
-                }
-                if input.mode == "assessment" {
-                    for value in data["resources"].as_array().into_iter().flatten() {
-                        observed.extend(resource_row(value, "assessment", None, &mut coverage)?);
-                    }
-                }
-                for (digest, mime) in input.images {
-                    let bytes: i64 = db.query_row(
-                        "SELECT length(bytes) FROM objects WHERE digest=?1",
-                        [&digest],
-                        |r| r.get(0),
-                    )?;
-                    raw_image_bytes += u64::try_from(bytes)?;
-                    images.push(
-                        json!({"reference":format!("object:{digest}"),"mime":mime,"bytes":bytes}),
-                    );
-                }
-                for key in [
-                    "available_tools",
-                    "selected_resources",
-                    "new_events",
-                    "baseline_character",
-                    "last_contextual_evaluation",
-                    "resources",
-                ] {
-                    if let Some(value) = data.get(key) {
-                        *component_bytes.entry(key.into()).or_default() +=
-                            serde_json::to_vec(value)?.len() as u64;
-                    }
-                }
-                "verified_completed_input"
+                supplied(db, input, &attempt, &mut observed)
+            }
+        });
+        let evidence = match check {
+            Ok(label) => label,
+            Err(e) => {
+                row["input_problem"] = json!(e.to_string());
+                "input_unavailable"
             }
         };
-        let same_call = audit["invocation_id"] == id;
-        calls.push(json!({"id":id,"actor":actor,"state":state,"mode":input.mode,"input_evidence":evidence,
-            "created":created,"updated":updated,"snapshot":format!("object:{digest}"),"receipt":receipt.map(|r|format!("object:{r}")),
-            "transport_profile":audit["transport_profile"].as_str().filter(|_|same_call),
-            "reported_model":attempt["reported_model"].as_str().filter(|_|same_call),
-            "reported_effort":attempt["reported_effort"].as_str().filter(|_|same_call),"usage":usage,
-            "prompt_bytes":audit["prompt_bytes"],"request_bytes":audit["request_bytes"],"elapsed_ms":attempt["elapsed_ms"],
-            "sources":observed,"images":images}));
+        row["input_evidence"] = json!(evidence);
+        if evidence == "verified_completed_input" {
+            verified += 1;
+            raw_image_bytes += observed.image_bytes;
+            for (key, bytes) in observed.components {
+                *component_bytes.entry(key).or_default() += bytes;
+            }
+            for (reference, local) in observed.coverage {
+                let total = coverage.entry(reference).or_default();
+                total.path = total.path.take().or(local.path);
+                total.appearances += local.appearances;
+                total.supplied += local.supplied;
+                total.whole += local.whole;
+                total.ranges.extend(local.ranges);
+            }
+            row["sources"] = json!(observed.sources);
+            row["images"] = json!(observed.images);
+        } else {
+            row["sources"] = json!([]);
+            row["images"] = json!([]);
+        }
+        calls.push(row);
     }
     let count_rows = |sql: &str| -> Result<BTreeMap<String, i64>> {
         let mut statement = db.prepare(sql)?;
