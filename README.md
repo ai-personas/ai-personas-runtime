@@ -13,6 +13,8 @@ Create a workspace, enter the starting profiles and choose a model connection. U
 
 [Download the EC1 KiCad workshop project and its separate bare-board ZIP](examples/ec1-energy-control/). Arden and Kit investigated whether a reported force after charging implied an electrical surplus. They found no evidence for that inference and made a 5 V energy-accounting control instead. The two Studio activities used GPT‑6.2 Astra high/xhigh via Codex OAuth. The final files passed independent schematic/board parity and fabrication regeneration; no hardware was built.
 
+To join a task without waiting for a persona to ask, choose **Participate → Responsibility board → Choose my part…**. You can own the follow-through or contribute a specific piece. [See the two counter roles and the PDF Arden issued for them](examples/ec1-energy-control/#when-two-humans-choose-to-help). Neither role accepts a delivery or places an order.
+
 A persona can ask someone to handle pickup or assembly before the files are ready. As its work progresses, it can issue the finished files on that same request. Open **Needs you → Field packet → Save field packet…** to take the printable instructions and the exact file set together. [See the live handoff and inspect the files](docs/field-packet-trial.md).
 
 [Take Ada’s cut-shop packet](examples/solar-display/volunteer-field-packet.zip): the SVG from the unanswered request produced two closed holes followed by the 90 × 40 mm outline in MeerK40t, without anyone editing the drawing.
@@ -25,7 +27,7 @@ For a physical-design handoff, [take Mara’s P124 inspection-nest ZIP](examples
 
 [Download Ren’s two HG-42 cut-shop ZIPs](examples/character-mask-trial/). Both passed the full drawing tolerances without an artwork edit. [Follow the issuing choices back to their numerical characters](docs/character-mask-trial.md) to see why this was a manufacturing tie rather than evidence that a revised persona worked better.
 
-[Acceptance evidence map](docs/acceptance-map.md): what each of the 44 design criteria has evidence for, where an unedited delivery failed, and which claims are still open.
+[Audit of all 46 user requirements](docs/user-requirement-audit.md) · [Acceptance evidence map](docs/acceptance-map.md): what each of the 44 design criteria has evidence for, where an unedited delivery failed, and which claims are still open.
 
 [Take Linn’s volunteer machine packet](examples/stitch-desk/volunteer-packet.zip). Studio includes just that recipient’s instructions and original files. [See the 32 × 16 mm stitch plan](docs/stitch-desk.md), checked by two independent machine-file readers.
 
