@@ -660,19 +660,23 @@ impl App {
                 let closed = detail["disposition"] == "closed";
                 let follow_ups = body["follow_ups"].as_array().map_or(0, Vec::len);
                 if follow_ups > 0 { heading.push_str(&format!(" · {}", counted(follow_ups as u64, "follow-up", "follow-ups"))); }
-                if let Some(disposition) = detail["disposition"].as_str() {
-                    heading.push_str(&format!(" · {}", title(disposition)));
-                }
+                let practice = body["disposition_subject"]["kind"] == "practice_application";
+                let disposition = detail["disposition"].as_str().map(|s| match (practice, s) {
+                    (true, "supported") => "Practice supported".to_owned(),
+                    (true, _) => "Practice observed".to_owned(),
+                    _ => title(s),
+                });
+                if let Some(status) = &disposition { heading.push_str(&format!(" · {status}")); }
                 if pending > 0 { heading.push_str(&format!(" · {pending} returns without a recorded finding")); }
                 // CollapsingHeader's default single-line text otherwise widens the entire scroll area.
                 let wrap = (ui.available_width() - ui.spacing().indent - 2. * ui.spacing().button_padding.x).max(1.);
                 let heading = egui::WidgetText::from(heading).into_galley(ui, Some(egui::TextWrapMode::Wrap), wrap, egui::TextStyle::Button);
                 egui::CollapsingHeader::new(heading).id_salt("question").show(ui,|ui|{
                     ui.add(egui::Label::new(RichText::new(text).strong()).wrap());
-                    if let Some(disposition) = detail["disposition"].as_str() {
+                    if let Some(status) = &disposition {
                         ui.horizontal_wrapped(|ui| {
-                            ui.small("Current disposition");
-                            theme::badge(ui, &title(disposition), theme::palette(ui).muted);
+                            ui.small("Recorded disposition");
+                            theme::badge(ui, status, theme::palette(ui).muted);
                             if let Some(call) = body["origin_decision"].as_str() {
                                 if ui.link("Opening decision").clicked() {
                                     self.open_resource(ui.ctx(), format!("experience:{call}@1"));
@@ -688,6 +692,7 @@ impl App {
                             }
                         }
                     }
+                    if practice { ui.weak("This verdict is about one use of a practice, not changed weights. Trace the question history to check its evidence."); }
                     self.development_follow_ups(ui, &reference, body);
                     if let Some(text)=detail["interpretation"].as_str(){ui.label(text);}
                     if let Some(text)=detail["prediction"].as_str(){ui.small(format!("Prediction · {text}"));}

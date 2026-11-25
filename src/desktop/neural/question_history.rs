@@ -90,6 +90,7 @@ impl History {
                     }
                     Some(Ok(report)) => {
                         ui.horizontal_wrapped(|ui| {
+                            ui.strong(persona_label(status, s(report, "owner")));
                             theme::badge(
                                 ui,
                                 &format!("Supplied in {} decisions", report["decisions_supplied"]),
@@ -107,7 +108,7 @@ impl History {
                             let trail = ui.selectable_value(&mut self.trail_only, true, "Practice trail").changed();
                             if all || trail { self.page = 0; }
                         });
-                        if self.trail_only { ui.weak("Question revisions, explicit uses and later full reads of an application."); }
+                        if self.trail_only { ui.weak("Newest first · What was tried, what came back, and what the owner concluded."); }
                         let rows: Vec<_> = report["decisions"].as_array().into_iter().flatten().filter(|r| {
                             !self.trail_only || r["application"].is_string() || ["application_reads", "revisions_written"].iter()
                                 .any(|key| r[*key].as_array().is_some_and(|v| !v.is_empty()))
@@ -149,13 +150,18 @@ impl History {
                                         .map(|w| activity_title(&w["body"]))
                                         .unwrap_or(s(row, "work"));
                                     card(ui).show(ui, |ui| {
-                                        ui.add(
-                                            egui::Label::new(
-                                                RichText::new(excerpt(activity, 92)).strong(),
-                                            )
-                                            .wrap(),
-                                        )
-                                        .on_hover_text(activity);
+                                        if self.trail_only {
+                                            let phase = if row["findings_recorded"].as_array().is_some_and(|v| !v.is_empty()) { "Judged the outcome" }
+                                                else if row["application_detail"]["action"].is_object() { "Tried a practice" }
+                                                else if row["application"].is_string() { "Applied the question" }
+                                                else if row["application_reads"].as_array().is_some_and(|v| !v.is_empty()) { "Read an earlier application" }
+                                                else if row["revisions_written"].as_array().is_some_and(|v| v.iter().any(|r| r.as_str().is_some_and(|s| s.ends_with("@1")))) { "Opened the question" }
+                                                else { "Revised the question" };
+                                            ui.strong(phase);
+                                            ui.small(excerpt(activity, 92)).on_hover_text(activity);
+                                        } else {
+                                            ui.add(egui::Label::new(RichText::new(excerpt(activity, 92)).strong()).wrap()).on_hover_text(activity);
+                                        }
                                         if let Some(utc) = row["accepted_utc"].as_str() { ui.small(utc); }
                                         ui.horizontal_wrapped(|ui| {
                                             for item in
@@ -166,6 +172,7 @@ impl History {
                                                     Some("revisit_cue") => "Revisit cue supplied",
                                                     Some("interpreted_prediction") => "Own prediction supplied",
                                                     Some("search_result") => "Found in search",
+                                                    Some("practice_receipt") => "Full practice plan supplied",
                                                     Some("selected_record") => {
                                                         "Selected full record"
                                                     }
@@ -225,12 +232,22 @@ impl History {
                                             ui.strong("Received an earlier application record");
                                             ui.horizontal_wrapped(|ui| {
                                                 if ui.small_button("Open application ↗").clicked() { inspect = Some(s(read, "reference").into()); }
-                                                for reply in read["replies_supplied"].as_array().into_iter().flatten().filter_map(Value::as_str) {
-                                                    let number = reply.strip_prefix("experience:event-").and_then(|r| r.strip_suffix("@1")).unwrap_or(reply);
-                                                    if ui.small_button(format!("Reply #{number} also supplied ↗")).clicked() { inspect = Some(reply.into()); }
+                                                for ret in read["returns_supplied"].as_array().into_iter().flatten() {
+                                                    let addr = s(ret, "experience");
+                                                    let number = addr.strip_prefix("experience:event-").and_then(|r| r.strip_suffix("@1")).unwrap_or(addr);
+                                                    let label = match ret["relation"].as_str() {
+                                                        Some("operation_result") => "Operation receipt", Some("direct_reply") => "Reply", _ => "Return",
+                                                    };
+                                                    if ui.small_button(format!("{label} #{number} also supplied ↗")).clicked() { inspect = Some(addr.into()); }
                                                 }
                                             });
-                                            ui.weak("Receiving the records is not a finding or a character change.");
+                                            if row["findings_recorded"].as_array().is_none_or(Vec::is_empty) {
+                                                ui.weak("Receiving the records is not a finding or a character change.");
+                                            }
+                                        }
+                                        for finding in row["findings_recorded"].as_array().into_iter().flatten() {
+                                            ui.strong(format!("Finding on this application · {}", s(finding, "finding")));
+                                            ui.add(egui::Label::new(s(finding, "interpretation")).wrap());
                                         }
                                         if let Some(reason) = row["reason"].as_str() {
                                             ui.add(egui::Label::new(reason).wrap());
