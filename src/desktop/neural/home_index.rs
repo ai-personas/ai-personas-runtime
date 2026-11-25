@@ -35,6 +35,8 @@ pub(super) struct Index {
     pub requests: Vec<usize>,
     pub deliveries: Vec<usize>,
     positions: BTreeMap<String, usize>,
+    roles_by_operator: BTreeMap<String, Vec<(usize, usize)>>,
+    steps_by_holder: BTreeMap<String, Vec<usize>>,
     last_event: BTreeMap<String, (i64, Option<String>)>,
     tool_results: BTreeMap<String, BTreeMap<String, i64>>,
     issued: BTreeMap<String, i64>,
@@ -66,6 +68,14 @@ impl Index {
 
     pub(super) fn latest_tool_event(&self, work: &str, person: &str) -> Option<i64> {
         self.tool_results.get(work)?.get(person).copied()
+    }
+
+    pub fn roles_for(&self, operator: &str) -> &[(usize, usize)] {
+        self.roles_by_operator.get(operator).map(Vec::as_slice).unwrap_or_default()
+    }
+
+    pub fn steps_for(&self, operator: &str) -> &[usize] {
+        self.steps_by_holder.get(operator).map(Vec::as_slice).unwrap_or_default()
     }
 
     pub fn activity(&self, id: &str) -> Option<&Activity> {
@@ -169,6 +179,15 @@ impl Index {
                 self.request_events.get(&inbox::handle(r)).copied(),
             ))
         });
+        self.steps_by_holder.clear();
+        for &i in &self.requests {
+            let b = &requests[i]["body"];
+            if b["state"] == "in_progress" {
+                if let Some(holder) = b["claimed_by"].as_str() {
+                    self.steps_by_holder.entry(holder.into()).or_default().push(i);
+                }
+            }
+        }
         let deliveries = rows("deliveries");
         self.deliveries = (0..deliveries.len()).collect();
         self.deliveries.sort_by_cached_key(|i| {
@@ -228,6 +247,12 @@ impl Index {
             })
             .collect();
         self.activities.sort_by_key(|row| Reverse(recency(&row.id)));
+        self.roles_by_operator.clear();
+        for (i, activity) in self.activities.iter().enumerate() {
+            for (j, role) in activity.roles.iter().enumerate() {
+                self.roles_by_operator.entry(role.operator.clone()).or_default().push((i, j));
+            }
+        }
         self.positions = self
             .activities
             .iter()

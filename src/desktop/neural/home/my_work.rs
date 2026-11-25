@@ -13,7 +13,7 @@ const PER_PAGE: usize = 5;
 
 enum Open {
     Board(String),
-    Role(String, String),
+    Receipts(String),
     Edition(String, String),
     Request(String),
     FieldDesk,
@@ -40,23 +40,8 @@ impl App {
         ui.label("Your declared roles and the requests you’re following through on. Taking a role does not accept a delivery.");
         ui.add_space(9.);
 
-        let tasks: Vec<_> = self
-            .home_index
-            .activities
-            .iter()
-            .filter_map(|a| Some((a, a.roles.iter().find(|r| r.operator == operator)?)))
-            .collect();
-        let requests = self.records("human_requests");
-        let steps: Vec<_> = self
-            .home_index
-            .requests
-            .iter()
-            .map(|&i| &requests[i])
-            .filter(|r| {
-                let b = &r["body"];
-                b["state"] == "in_progress" && b["claimed_by"].as_str() == Some(operator)
-            })
-            .collect();
+        let tasks = self.home_index.roles_for(operator);
+        let steps = self.home_index.steps_for(operator);
         let mut pages = self.home.my_work;
         let mut open = None;
         let show_tasks = |ui: &mut Ui, page: &mut usize, open: &mut Option<Open>| {
@@ -64,8 +49,10 @@ impl App {
                 ui.set_width(ui.available_width());
                 panel_heading(ui, Icon::Task, TEAL, "My task roles", tasks.len());
                 *page = (*page).min(last_page(tasks.len(), PER_PAGE));
-                for (i, &(activity, role)) in tasks.iter().skip(*page * PER_PAGE).take(PER_PAGE).enumerate() {
+                for (i, &(a, j)) in tasks.iter().skip(*page * PER_PAGE).take(PER_PAGE).enumerate() {
                     if i > 0 { divider(ui); }
+                    let activity = &self.home_index.activities[a];
+                    let role = &activity.roles[j];
                     ui.push_id(&role.reference, |ui| self.my_task(ui, activity, role, open));
                 }
                 if tasks.is_empty() {
@@ -81,8 +68,9 @@ impl App {
                 ui.set_width(ui.available_width());
                 panel_heading(ui, Icon::Questions, PURPLE, "Outside steps I hold", steps.len());
                 *page = (*page).min(last_page(steps.len(), PER_PAGE));
-                for (i, &r) in steps.iter().skip(*page * PER_PAGE).take(PER_PAGE).enumerate() {
+                for (i, &idx) in steps.iter().skip(*page * PER_PAGE).take(PER_PAGE).enumerate() {
                     if i > 0 { divider(ui); }
+                    let r = &self.records("human_requests")[idx];
                     let b = &r["body"];
                     ui.push_id(inbox::handle(r), |ui| {
                         ui.horizontal(|ui| theme::badge(ui, "In progress", PURPLE));
@@ -115,10 +103,7 @@ impl App {
         self.home.my_work = pages;
         match open {
             Some(Open::Board(work)) => self.open_task_board(&work),
-            Some(Open::Role(r, work)) => {
-                self.select_activity(&work);
-                self.open_resource(ui.ctx(), r);
-            }
+            Some(Open::Receipts(r)) => self.open_role_receipts(ui.ctx(), r),
             Some(Open::Edition(r, work)) => self.open_home_delivery(&r, &work),
             Some(Open::Request(id)) => self.show_human_request(&id),
             Some(Open::FieldDesk) => {
@@ -145,11 +130,11 @@ impl App {
                 *open = Some(Open::Board(activity.id.clone()));
             }
             if ui
-                .small_button("Role record ↗")
+                .small_button("Who received this?")
                 .on_hover_text(&role.reference)
                 .clicked()
             {
-                *open = Some(Open::Role(role.reference.clone(), activity.id.clone()));
+                *open = Some(Open::Receipts(role.reference.clone()));
             }
         });
         if activity.deliveries.is_empty() {
@@ -160,11 +145,15 @@ impl App {
             "Deliveries on this task · {}",
             activity.deliveries.len()
         ))
+        .id_salt("task-deliveries")
         .default_open(activity.deliveries.len() == 1)
         .show(ui, |ui| {
             // These are this activity’s editions, not assignments inferred from
             // recipient prose. Opening a title never substitutes a later issue.
-            for &i in &activity.deliveries {
+            let key = ui.make_persistent_id("edition-page");
+            let total = activity.deliveries.len();
+            let mut page = ui.data(|d| d.get_temp::<usize>(key)).unwrap_or(0).min(last_page(total, PER_PAGE));
+            for &i in activity.deliveries.iter().skip(page * PER_PAGE).take(PER_PAGE) {
                 let r = &self.records("deliveries")[i];
                 let reference = inbox::handle(r);
                 ui.push_id(&reference, |ui| {
@@ -183,6 +172,8 @@ impl App {
                     ));
                 });
             }
+            pager(ui, &mut page, total, PER_PAGE, "deliveries");
+            ui.data_mut(|d| d.insert_temp(key, page));
         });
     }
 }
