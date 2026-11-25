@@ -194,6 +194,7 @@ pub struct App {
     responsibilities: responsibilities::Board,
     agreement_book: agreements::Book,
     preview_generation: u64,
+    preview_package: Option<String>,
     preview_zip_member: Option<(usize, String)>,
     preview_pending: bool,
     preview_metadata: Value,
@@ -310,6 +311,7 @@ impl App {
             responsibilities: Default::default(),
             agreement_book: Default::default(),
             preview_generation: 0,
+            preview_package: None,
             preview_zip_member: None,
             preview_pending: false,
             preview_metadata: Value::Null,
@@ -427,6 +429,8 @@ impl App {
     fn open_named_resource(&mut self, ctx: &egui::Context, reference: String, output: Option<(String,String)>) {
         self.print_preview = None;
         self.delivery_desk.record_origin(self.layout.editor == Editor::Delivery, &self.layout.delivery, &self.work, &reference);
+        self.preview_package = output.as_ref().filter(|(source, _)| reference.starts_with("asset:")
+            && (source.starts_with("delivery:") || source.starts_with("human_request:"))).map(|(source, _)| source.clone());
         if let Some(asset) = self.snapshot.assets.iter().find(|a| a["reference"] == reference) {
             self.artifact_folders.directory = ai_personas::library_folders::split(s(&asset["body"], "path")).0.to_owned();
         }

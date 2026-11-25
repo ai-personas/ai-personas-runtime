@@ -492,7 +492,7 @@ impl App {
             }
             Some(SelectedDelivery::File { file, delivery, work }) => {
                 self.open_home_delivery(&delivery, &work);
-                self.open_resource(ui.ctx(), file);
+                self.open_package_file(ui.ctx(), &delivery, &file);
             }
             Some(SelectedDelivery::SaveZip(reference, title)) => {
                 self.export_package(&reference, &title)

@@ -3,12 +3,12 @@
 mod inspection;
 mod paths;
 mod retained;
-use super::{activity_sources::delivery, failure, store, tools, Result};
+use super::{failure, issued_files::{Edition, Source}, Result};
 pub use inspection::{MemberText, Members};
 pub use paths::Contents;
 pub use retained::{compare_registered, RegisteredQuery};
 use rusqlite::Connection;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
@@ -42,79 +42,10 @@ pub fn directory(bytes: &[u8]) -> Result<ZipArchive<Cursor<&[u8]>>> {
     Ok(zip)
 }
 
-/// Notes belong to this exact registration, not to the blob shared by other
-/// names. Linked sources are addresses, never implicitly read here.
-#[derive(Deserialize, Serialize)]
-pub struct RegistrationNotes {
-    pub owner: String,
-    pub qualifications: Vec<String>,
-    pub retired: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub organized_by: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub organization_reason: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub resource: Option<tools::Resource>,
-}
-
-/// The issuer's statement at publication, not later acceptance or a verdict
-/// about any individual ZIP member. Two issues may use identical files.
-#[derive(Deserialize, Serialize)]
-pub struct IssueTerms {
-    #[serde(rename(deserialize = "owner"))]
-    pub issuer: String,
-    pub scope: tools::DeliveryScope,
-    pub supported_use: String,
-    pub remaining: Vec<String>,
-}
-
-#[derive(Serialize)]
-pub struct Source {
-    pub edition: String,
-    pub title: String,
-    pub file: String,
-    pub content_revision: String,
-    pub content_decision: String,
-    pub registration: RegistrationNotes,
-    pub at_issue: IssueTerms,
-    pub path: String,
-    pub sha256: String,
-}
-impl Source {
-    fn load(db: &Connection, edition: &str, file: &str) -> Result<Self> {
-        let issued = delivery::edition(db, edition)?;
-        let asset = issued.verified_member(db, file)?;
-        Ok(Self {
-            edition: edition.into(),
-            title: issued.issue.record.body["title"]
-                .as_str()
-                .ok_or_else(|| failure("Missing issue title"))?
-                .into(),
-            file: file.into(),
-            registration: RegistrationNotes::deserialize(&store::exact(db, file)?.body)?,
-            at_issue: IssueTerms::deserialize(&issued.issue.record.body)?,
-            content_revision: asset.content_revision,
-            content_decision: format!("experience:{}@1", asset.call),
-            path: asset.path,
-            sha256: asset.blob,
-        })
-    }
-    fn members(&self, db: &Connection) -> Result<BTreeMap<String, Fingerprint>> {
-        fingerprint(&store::bytes(db, &self.sha256)?).map_err(|e| {
-            failure(format!(
-                "Cannot compare {} in {}: {e}",
-                self.path, self.edition
-            ))
-        })
-    }
-}
-
-/// The exact file from the original issuing operation, not a similarly named
-/// file in the current project or another edition of the registration.
-pub fn issued_bytes(db: &Connection, edition: &str, file: &str) -> Result<(Source, Vec<u8>)> {
-    let source = Source::load(db, edition, file)?;
-    let bytes = store::bytes(db, &source.sha256)?;
-    Ok((source, bytes))
+fn members(db: &Connection, source: &Source) -> Result<BTreeMap<String, Fingerprint>> {
+    fingerprint(&source.read_bytes(db)?).map_err(|e| {
+        failure(format!("Cannot compare {} in {}: {e}", source.path, source.edition))
+    })
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize)]
@@ -183,13 +114,13 @@ pub fn compare(
     selected_root: &str,
 ) -> Result<Comparison> {
     // Verify both memberships even when the registrations or byte addresses coincide.
-    let baseline = Source::load(db, baseline_edition, baseline_file)?;
-    let selected = Source::load(db, selected_edition, selected_file)?;
-    let left = baseline.members(db)?;
+    let baseline = Edition::open(db, baseline_edition)?.source(baseline_file)?;
+    let selected = Edition::open(db, selected_edition)?.source(selected_file)?;
+    let left = members(db, &baseline)?;
     let right = if baseline.sha256 == selected.sha256 {
         left.clone()
     } else {
-        selected.members(db)?
+        members(db, &selected)?
     };
     let contents = paths::compare(left, right, baseline_root, selected_root)?;
     Ok(Comparison {

@@ -1,6 +1,6 @@
 //! Export exact issued files with a recipient-facing delivery or request sheet.
-use super::{attachments, files, SheetDelivery};
-use crate::neural::{archive, delivery_feedback, failure, store, Result};
+use super::{attachments, files, files_at_issue::Selection, Materials, SheetDelivery};
+use crate::neural::{archive, failure, issued_files::Edition, store, Result};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -76,12 +76,12 @@ fn state_label(state: &str) -> &str {
     }
 }
 
-fn file_contents(db: &Connection, (path, reference): (String, String)) -> Result<(SheetFile, Vec<u8>)> {
+fn file_contents(db: &Connection, materials: &Materials<'_>, (path, reference): (String, String)) -> Result<(SheetFile, Vec<u8>)> {
     let asset = store::exact(db, &reference)?.body;
-    let blob = asset["blob"].as_str().ok_or_else(|| failure(format!("Missing bytes for {path} ({reference})")))?;
-    let bytes = store::bytes(db, blob).map_err(|e| failure(format!("Cannot export {path} ({reference}): {e}")))?;
+    let file = materials.read(&reference).map_err(|e| failure(format!("Cannot export {path}: {e}")))?;
+    let bytes = file.bytes;
     let entry = SheetFile {
-        path, reference, sha256: blob.to_owned(), bytes: bytes.len() as u64,
+        path, reference, sha256: file.digest, bytes: bytes.len() as u64,
         author: asset["last_content_author"].as_str().or_else(|| asset["owner"].as_str()).map(str::to_owned),
         qualifications: asset.get("qualifications").filter(|v| !v.is_null())
             .map(|v| serde_json::from_value(v.clone())).transpose()?.unwrap_or_default(),
@@ -89,11 +89,11 @@ fn file_contents(db: &Connection, (path, reference): (String, String)) -> Result
     Ok((entry, bytes))
 }
 
-fn package_files(db: &Connection, refs: &[String], writer: &mut File) -> Result<Vec<SheetFile>> {
+fn package_files(db: &Connection, materials: &Materials<'_>, refs: &[String], writer: &mut File) -> Result<Vec<SheetFile>> {
     let mut zip = zip::ZipWriter::new(writer);
     let mut entries = Vec::new();
     for member in files(db, refs)? {
-        let (entry, bytes) = file_contents(db, member)?;
+        let (entry, bytes) = file_contents(db, materials, member)?;
         zip.start_file(&entry.path, zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated).large_file(entry.bytes >= u32::MAX as u64))?;
         zip.write_all(&bytes)?;
@@ -115,8 +115,10 @@ pub fn export_dispatch_packet(db: &Connection, reference: &str, number: usize, d
 }
 
 fn save_dispatch(db: &Connection, reference: &str, number: usize, destination: &Path, packet: bool) -> Result<Value> {
-    let edition = crate::neural::activity_sources::delivery::edition(db, reference)?;
-    let package: SheetDelivery = serde_json::from_value(edition.issue.record.body)?;
+    let edition = Edition::open(db, reference)?;
+    let package = SheetDelivery::deserialize(&edition.verified.issue.record.body)?;
+    let issuer = edition.verified.issuer_label.clone();
+    let materials = Materials(Selection::Delivery(edition));
     let slip = package.dispatch(number)?;
     let parent = archive::parent(destination);
     let mut temp = tempfile::NamedTempFile::new_in(parent)?;
@@ -125,12 +127,12 @@ fn save_dispatch(db: &Connection, reference: &str, number: usize, destination: &
         let mut entries = Vec::new();
         let options = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
         for member in files(db, &slip.artifacts)? {
-            let (entry, bytes) = file_contents(db, member)?;
+            let (entry, bytes) = file_contents(db, &materials, member)?;
             zip.start_file(format!("Files/{}", entry.path), options.large_file(entry.bytes >= u32::MAX as u64))?;
             zip.write_all(&bytes)?;
             entries.push(entry);
         }
-        let html = sheet::recipient(&package, edition.issuer_label.as_deref().unwrap_or(&package.owner),
+        let html = sheet::recipient(&package, issuer.as_deref().unwrap_or(&package.owner),
             number, slip, reference, &entries);
         zip.start_file("Dispatch.html", options.large_file(html.len() as u64 >= u32::MAX as u64))?;
         zip.write_all(html.as_bytes())?;
@@ -138,11 +140,11 @@ fn save_dispatch(db: &Connection, reference: &str, number: usize, destination: &
         ("recipient_packet", entries)
     } else if slip.artifacts.len() == 1 {
         let member = files(db, &slip.artifacts)?.pop().ok_or_else(|| failure("Missing dispatch file"))?;
-        let (entry, bytes) = file_contents(db, member)?;
+        let (entry, bytes) = file_contents(db, &materials, member)?;
         temp.write_all(&bytes)?;
         ("original_file", vec![entry])
     } else {
-        ("files_zip", package_files(db, &slip.artifacts, temp.as_file_mut())?)
+        ("files_zip", package_files(db, &materials, &slip.artifacts, temp.as_file_mut())?)
     };
     temp.as_file().sync_all()?;
     temp.persist_noclobber(destination)?;
@@ -153,26 +155,14 @@ fn save_dispatch(db: &Connection, reference: &str, number: usize, destination: &
 }
 
 pub fn export_package(db: &Connection, reference: &str, destination: &Path) -> Result<Value> {
-    let record = store::exact(db, reference)?;
-    if !matches!(record.reference.kind.as_str(), "human_request" | "delivery")
-        || record.reference.handle() != reference
-    {
-        return Err(failure(
-            "Select an exact delivery or human request to export",
-        ));
-    }
-    if record.reference.kind == "human_request" {
-        super::correspondence::issued_origin(db, &record)?;
-    } else {
-        crate::neural::activity_sources::delivery::edition(db, reference)?;
-    }
-    let refs: Vec<String> = serde_json::from_value(record.body["artifacts"].clone())?;
+    let materials = Materials::open(db, reference)?;
+    let refs = materials.members()?;
     if refs.is_empty() {
         return Err(failure("This request has no attached files"));
     }
     let parent = archive::parent(destination);
     let mut temp = tempfile::NamedTempFile::new_in(parent)?;
-    let entries = package_files(db, &refs, temp.as_file_mut())?;
+    let entries = package_files(db, &materials, &refs, temp.as_file_mut())?;
     temp.as_file().sync_all()?;
     temp.persist_noclobber(destination)?;
     #[cfg(unix)]
@@ -183,6 +173,7 @@ pub fn export_package(db: &Connection, reference: &str, destination: &Path) -> R
 fn request_sheet(
     db: &Connection,
     record: store::Record,
+    origin: Option<Value>,
     files: &[SheetFile],
 ) -> Result<(String, Value)> {
     let reference = record.reference.handle();
@@ -193,7 +184,6 @@ fn request_sheet(
         ));
     }
     let newer_packet = !super::same_materials(&record.body, &latest.body);
-    let origin = super::correspondence::issued_origin(db, &record)?;
     if newer_packet { super::correspondence::issued_origin(db, &latest)?; }
     let latest_reference = latest.reference.handle();
     let latest_state = latest.body["state"]
@@ -208,9 +198,6 @@ fn request_sheet(
         return Err(failure(
             "Attached deliveries differ from the retained human request",
         ));
-    }
-    for delivery in &deliveries {
-        crate::neural::activity_sources::delivery::edition(db, &delivery.reference)?;
     }
     let name = store::head(db, "persona", &request.requester)?
         .and_then(|p| p.body["label"].as_str().map(str::to_owned));
@@ -249,24 +236,8 @@ fn request_sheet(
 /// Publish the same printable sheet and exact attachments in either transport.
 /// In ZIP form the sheet's relative link to Files.zip still works after unpacking.
 pub fn export_handoff(db: &Connection, reference: &str, destination: &Path, format: HandoffFormat) -> Result<Value> {
-    enum Handoff {
-        Delivery(delivery_feedback::Issued),
-        Request(store::Record),
-    }
-    let selected = match reference.split_once(':').map(|(kind, _)| kind) {
-        Some("delivery") => Handoff::Delivery(crate::neural::activity_sources::delivery::edition(db, reference)?.issue),
-        Some("human_request") => Handoff::Request(super::exact(db, reference)?),
-        _ => {
-            return Err(failure(
-                "Select an exact issued delivery or human request revision",
-            ))
-        }
-    };
-    let record = match &selected {
-        Handoff::Delivery(issued) => &issued.record,
-        Handoff::Request(request) => request,
-    };
-    let refs: Vec<String> = serde_json::from_value(record.body["artifacts"].clone())?;
+    let selected = Materials::open(db, reference)?;
+    let refs = selected.members()?;
     let parent = archive::parent(destination);
     let stage = tempfile::Builder::new()
         .prefix(".personas-handoff-")
@@ -275,16 +246,13 @@ pub fn export_handoff(db: &Connection, reference: &str, destination: &Path, form
     let mut archive = None;
     if !refs.is_empty() {
         let mut zip = File::create_new(stage.path().join("Files.zip"))?;
-        files = package_files(db, &refs, &mut zip)?;
+        files = package_files(db, &selected, &refs, &mut zip)?;
         zip.sync_all()?;
         archive = Some("Files.zip");
     }
-    let (name, (html, mut receipt)) = match selected {
-        Handoff::Delivery(issued) => (
-            "Delivery.html",
-            delivery_sheet::render(db, &issued, &files)?,
-        ),
-        Handoff::Request(request) => ("Request.html", request_sheet(db, request, &files)?),
+    let (name, (html, mut receipt)) = match selected.0 {
+        Selection::Delivery(edition) => ("Delivery.html", delivery_sheet::render(db, &edition.verified.issue, &files)?),
+        Selection::Request { record, origin, .. } => ("Request.html", request_sheet(db, record, origin, &files)?),
     };
     let mut document = File::create_new(stage.path().join(name))?;
     document.write_all(html.as_bytes())?;

@@ -26,6 +26,10 @@ impl Axis {
 #[derive(Clone, Debug, Args, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Profile {
+    /// Optional delivery or request revision. Checks membership and the original file write.
+    #[arg(long)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edition: Option<String>,
     /// Exact STL asset revision or byte object, or the retained ZIP containing it.
     pub reference: String,
     /// Case-sensitive member path in the referenced ZIP; omit for a standalone STL.
@@ -212,7 +216,7 @@ pub async fn run(
             if let Some(work) = &work {
                 store::required(db, "work", work)?;
             }
-            super::member::MeshInput::read(db, &query.reference, query.member.as_deref())
+            super::member::MeshInput::read(db, &query.reference, query.member.as_deref(), query.edition.as_deref())
         })?;
         let profile = analyze(&source.bytes, &query)?;
         let mut result = json!({
@@ -221,6 +225,7 @@ pub async fn run(
             "work":work, "invocation":call, "source":query.reference,
             "mesh":format!("object:{}", source.digest), "profile":profile
         });
+        if let Some(edition) = query.edition { result["package_edition"] = json!(edition); }
         let digest = store.transaction(|db| {
             source.retain(db, &mut result)?;
             store::put(db, &result)

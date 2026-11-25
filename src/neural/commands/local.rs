@@ -205,11 +205,11 @@ pub(crate) fn run(
     mut stop: impl FnMut() -> bool,
 ) -> Result<Value> {
     let mut workspace = store::Store::open(root)?;
-    let inputs = input.validated_inputs(&workspace.db)?;
-    if let Some(subject) = &input.receiving {
-        // At dispatch, including a same-decision issue, the issuing decision is committed.
-        crate::neural::activity_sources::delivery::edition(&workspace.db, &subject.delivery)?;
-    }
+    // At dispatch even a same-decision issue is committed. Resolve names and
+    // verify the issuing decision, writing decisions and bytes in one snapshot.
+    let db = store::open_inspection(root)?;
+    let inputs = input.validated_inputs(&db)?;
+    let edition = input.receiving.as_ref().map(|s| crate::neural::issued_files::Edition::open(&db, &s.delivery)).transpose()?;
     let scratch = input
         .directory
         .is_scratch()
@@ -225,7 +225,7 @@ pub(crate) fn run(
     let mut files = BTreeMap::new();
     let mut stdin = tempfile::tempfile()?;
     let stdin_source = if let Some(reference) = &input.stdin {
-        let (digest, bytes) = content(&workspace.db, reference)?;
+        let (digest, bytes) = content(&db, reference)?;
         stdin.write_all(&bytes)?;
         stdin.rewind()?;
         json!({"reference":reference,"object":format!("object:{digest}"),"bytes":bytes.len()})
@@ -250,10 +250,8 @@ pub(crate) fn run(
             host["receiving_launcher"] = json!({"path":path.to_string_lossy()});
         }
     }
-    let mut process_started = false;
     let mut cancelled = false;
-    let mut timed_out = false;
-    let terminal = (|| -> Result<_> {
+    let staged = (|| -> Result<()> {
         if !project.is_dir() {
             return Err(failure(format!(
                 "Working directory is unavailable: {}",
@@ -264,12 +262,23 @@ pub(crate) fn run(
             let project_root = File::open(project)?;
             for (path, reference) in &inputs {
                 if stop() { cancelled = true; return Err(failure("Stopped before staging all inputs")); }
-                let (digest, bytes) = content(&workspace.db, reference)?;
+                let (digest, bytes) = if let Some(issue) = &edition {
+                    let (source, bytes) = issue.read(reference, None)?;
+                    (source.sha256, bytes)
+                } else { content(&db, reference)? };
                 let state = workspace::stage::input(&project_root, path, &digest, &bytes)
                     .map_err(|e| failure(format!("Cannot stage {path:?}: {e}")))?;
                 files.insert(path, json!({"reference":reference,"object":format!("object:{digest}"),"bytes":bytes.len(),"staging":state}));
             }
         }
+        Ok(())
+    })();
+    drop(edition);
+    drop(db);
+    let mut process_started = false;
+    let mut timed_out = false;
+    let terminal = (|| -> Result<_> {
+        staged?;
         let mut command = launch::prepare(&input.program, project, launcher.as_deref(), receiver.as_deref(), &mut host)?;
         if stop() {
             cancelled = true;

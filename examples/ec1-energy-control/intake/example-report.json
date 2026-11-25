@@ -1,0 +1,213 @@
+[
+  {
+    "file": "log-14.csv",
+    "disposition": "HOLD",
+    "sha256": "5cc62432e03e787b0fe65f29b9bb95df8f1d1f361274158928157faaf3999c22",
+    "samples": 1802,
+    "runs": [
+      {
+        "phase": "isolation",
+        "span_s": [
+          0.0,
+          1.0
+        ],
+        "samples": 201
+      },
+      {
+        "phase": "discharge",
+        "span_s": [
+          1.0,
+          9.0
+        ],
+        "samples": 1601
+      }
+    ],
+    "zero_time_switches": 1,
+    "max_dt_s": 0.005000000000000782,
+    "breaks": [],
+    "covered_intervals": [
+      {
+        "span_s": [
+          0.0,
+          9.0
+        ],
+        "samples": 1802,
+        "mJ": {
+          "port_signed": 0.0,
+          "port_inward": 0.0,
+          "port_outward": 0.0,
+          "R2_load": 12.438210249218047,
+          "R1_heat": 0.0,
+          "C1_initial": 12.43810799765586,
+          "C1_final": 1.399724656897503e-06,
+          "C1_change": -12.438106597931204,
+          "load_minus_inward": 12.438210249218047,
+          "residual": -0.00010365128684242109
+        }
+      }
+    ],
+    "reasons": [
+      "precharged start; charge input before record unknown",
+      "ordered empty, charge, isolation, discharge signature not fully observed",
+      "no resolved STORE rise from initial state",
+      "STORE endpoints not both near empty and matched within 50 mV"
+    ]
+  },
+  {
+    "file": "log-27.csv",
+    "disposition": "USABLE_COMPLETE_SYNTHETIC_CYCLE",
+    "sha256": "73feecfcfe5a5ade00fda15c3d802c6817e6e2bfb0eef4e7505cd01bb2743af2",
+    "samples": 3204,
+    "runs": [
+      {
+        "phase": "empty",
+        "span_s": [
+          0.0,
+          0.0
+        ],
+        "samples": 1
+      },
+      {
+        "phase": "charge",
+        "span_s": [
+          0.0,
+          6.0
+        ],
+        "samples": 1201
+      },
+      {
+        "phase": "isolation",
+        "span_s": [
+          6.0,
+          8.0
+        ],
+        "samples": 401
+      },
+      {
+        "phase": "discharge",
+        "span_s": [
+          8.0,
+          16.0
+        ],
+        "samples": 1601
+      }
+    ],
+    "zero_time_switches": 3,
+    "max_dt_s": 0.005000000000000782,
+    "breaks": [],
+    "covered_intervals": [
+      {
+        "span_s": [
+          0.0,
+          16.0
+        ],
+        "samples": 3204,
+        "mJ": {
+          "port_signed": 24.938083149821455,
+          "port_inward": 24.938083149821455,
+          "port_outward": 0.0,
+          "R2_load": 12.438210249218033,
+          "R1_heat": 12.500027363159958,
+          "C1_initial": 0.0,
+          "C1_final": 1.399724656897503e-06,
+          "C1_change": 1.399724656897503e-06,
+          "load_minus_inward": -12.499872900603423,
+          "residual": -0.00015586228119240372
+        }
+      }
+    ],
+    "reasons": []
+  },
+  {
+    "file": "log-83.csv",
+    "disposition": "HOLD",
+    "sha256": "6068205cb926227b96d4faf100281c9213ad2806d28921a7722b20c5793b53f4",
+    "samples": 2705,
+    "runs": [
+      {
+        "phase": "empty",
+        "span_s": [
+          0.0,
+          0.0
+        ],
+        "samples": 1
+      },
+      {
+        "phase": "charge",
+        "span_s": [
+          0.0,
+          6.0
+        ],
+        "samples": 702
+      },
+      {
+        "phase": "isolation",
+        "span_s": [
+          6.0,
+          8.0
+        ],
+        "samples": 401
+      },
+      {
+        "phase": "discharge",
+        "span_s": [
+          8.0,
+          16.0
+        ],
+        "samples": 1601
+      }
+    ],
+    "zero_time_switches": 3,
+    "max_dt_s": 2.5,
+    "breaks": [
+      {
+        "from_s": 0.25,
+        "to_s": 2.75,
+        "dt_s": 2.5
+      }
+    ],
+    "covered_intervals": [
+      {
+        "span_s": [
+          0.0,
+          0.25
+        ],
+        "samples": 52,
+        "mJ": {
+          "port_signed": 5.529991943996501,
+          "port_inward": 5.529991943996501,
+          "port_outward": 0.0,
+          "R2_load": 0.0,
+          "R1_heat": 4.918407739903231,
+          "C1_initial": 0.0,
+          "C1_final": 0.6116136700176635,
+          "C1_change": 0.6116136700176635,
+          "load_minus_inward": -5.529991943996501,
+          "residual": -2.9465924393567988e-05
+        }
+      },
+      {
+        "span_s": [
+          2.75,
+          16.0
+        ],
+        "samples": 2653,
+        "mJ": {
+          "port_signed": 1.536230926337499,
+          "port_inward": 1.536230926337499,
+          "port_outward": 0.0,
+          "R2_load": 12.438210249218033,
+          "R1_heat": 0.05100826539795234,
+          "C1_initial": 10.952888112970081,
+          "C1_final": 1.399724656897503e-06,
+          "C1_change": -10.952886713245425,
+          "load_minus_inward": 10.901979322880534,
+          "residual": -0.00010087503306088763
+        }
+      }
+    ],
+    "reasons": [
+      "cadence break; excluded every off-cadence interval, no interpolation or cycle total"
+    ]
+  }
+]

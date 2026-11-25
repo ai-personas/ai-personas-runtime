@@ -66,41 +66,27 @@ fn public_bytes(db: &Connection, digest: &str) -> neural::Result<Vec<u8>> {
 fn print(root: &Path, source: &Source, stopped: &AtomicBool) -> neural::Result<Document> {
     let cancelled = || stopped.load(Ordering::Relaxed);
     let db = data::open(root)?;
-    let digest = if let Some(blob) = source.reference.strip_prefix("object:") {
-        blob.into()
+    let edition = source.package.as_deref().map(|r| neural::human_requests::Materials::open(&db, r)).transpose()?;
+    let bytes = if let Some(edition) = &edition {
+        let file = edition.read(&source.reference)?;
+        if file.path != source.path { return Err(failure("The filename differs from the selected issued file.")); }
+        file.bytes
+    } else if let Some(blob) = source.reference.strip_prefix("object:") {
+        public_bytes(&db, blob)?
     } else {
         let (path, blob) = asset(&db, &source.reference)?;
-        if path != source.path {
-            return Err(failure(
-                "The selected filename differs from its exact revision.",
-            ));
-        }
-        blob
+        if path != source.path { return Err(failure("The selected filename differs from its exact revision.")); }
+        public_bytes(&db, &blob)?
     };
-    let bytes = public_bytes(&db, &digest)?;
     if bytes.starts_with(b"%PDF-") {
-        return Err(failure(
-            "This revision already contains a PDF. Open the file to view its pages.",
-        ));
+        return Err(failure("This revision already contains a PDF. Open the file to view its pages."));
     }
     let mut resources = Vec::new();
-    if let Some(package) = &source.package {
-        // Check the accepted issue once. All companion references come from the
-        // same verified record in this read transaction, including superseded files.
-        neural::asset_history::verify_delivery_member(&db, package, &source.reference)?;
-        let edition = store::exact(&db, package)?;
-        let members: Vec<String> = serde_json::from_value(edition.body["artifacts"].clone())?;
-        for member in members {
-            if cancelled() {
-                return Err(failure("Print preview cancelled."));
-            }
-            if member != source.reference {
-                let (path, blob) = asset(&db, &member)?;
-                resources.push(Resource {
-                    path,
-                    bytes: public_bytes(&db, &blob)?,
-                });
-            }
+    if let Some(edition) = &edition {
+        for member in edition.members()?.iter().filter(|r| **r != source.reference) {
+            if cancelled() { return Err(failure("Print preview cancelled.")); }
+            let file = edition.read(member)?;
+            resources.push(Resource { path: file.path, bytes: file.bytes });
         }
     }
     drop(db);

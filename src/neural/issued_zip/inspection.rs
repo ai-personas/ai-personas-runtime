@@ -1,7 +1,7 @@
 //! Read a registered archive as data. A directory entry is not a file read;
 //! selected text is from the member's byte range, not that range of the ZIP.
-use super::{directory, failure, RegistrationNotes, Result};
-use crate::neural::context;
+use super::{directory, failure, Result};
+use crate::neural::{context, issued_files::RegistrationNotes};
 use clap::Args;
 use rusqlite::Connection;
 use schemars::JsonSchema;

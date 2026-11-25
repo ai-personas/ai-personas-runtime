@@ -1,7 +1,7 @@
 //! Save a collection of issued editions, each in its own directory. The
 //! collection is not a new integrated package or a review of the designs.
 use super::{
-    activity_sources::delivery, archive, failure, human_requests, package_review, store, Result,
+    archive, failure, human_requests, issued_files::Edition, package_review, store, Result,
 };
 use serde::Serialize;
 use serde_json::json;
@@ -57,9 +57,8 @@ pub fn collection(
     let mut manifest = Vec::new();
     for head in &deliveries {
         let reference = head.reference.handle();
-        let edition = delivery::edition(&db, &reference)
-            .map_err(|e| failure(format!("Cannot export {reference}: {e}")))?;
-        if head.reference != edition.issue.record.reference {
+        let edition = Edition::open(&db, &reference)?;
+        if head.reference != edition.verified.issue.record.reference {
             return Err(failure(format!(
                 "The listed delivery differs from its exact issued edition: {reference}"
             )));
@@ -67,13 +66,10 @@ pub fn collection(
         let folder = PathBuf::from(reference.replace([':', '@'], "_"));
         // Use the same validated portable member tree as a single-package
         // export. Read and verify one file at a time, even across many issues.
-        for (name, member) in human_requests::files(&db, &edition.members)? {
+        for (name, member) in human_requests::files(&db, edition.members())? {
             let relative = folder.join(name);
             let asset = store::exact(&db, &member)?;
-            let digest = asset.body["blob"]
-                .as_str()
-                .ok_or_else(|| failure(format!("No file bytes for {member}")))?;
-            let bytes = store::bytes(&db, digest)?;
+            let (source, bytes) = edition.read(&member, None)?;
             let path = stage.path().join(&relative);
             std::fs::create_dir_all(path.parent().unwrap())?;
             let mut file = File::create_new(path)?;
@@ -81,7 +77,7 @@ pub fn collection(
             file.sync_all()?;
             manifest.push(
                 json!({"delivery":reference,"reference":member,"export_path":relative,
-                "metadata":asset.body,"bytes":bytes.len(),"sha256":digest}),
+                "metadata":asset.body,"bytes":bytes.len(),"sha256":source.sha256}),
             );
         }
     }

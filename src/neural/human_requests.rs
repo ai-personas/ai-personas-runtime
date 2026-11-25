@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
+mod files_at_issue;
+pub use files_at_issue::Materials;
 mod package;
 pub use package::{export_dispatch, export_dispatch_packet, export_handoff, export_package, HandoffFormat};
 pub(super) mod packet;

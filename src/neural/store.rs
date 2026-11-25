@@ -432,7 +432,8 @@ pub fn has_arrival(db:&Connection, work:&str, actor:&str, after:i64, kinds:&[Str
         if (kinds.is_empty() && kind != "appraisal_selected") || kinds.iter().any(|requested|
             requested == &kind || (requested == "peer_message" && incoming_peer_message)
             || (requested == "result_review" && kind == "package_review")
-            || (requested == "request_status" && status) || (requested == "request_return" && returned) || (requested == "delivery" && kind == "request_delivery")) {
+            || (matches!(requested.as_str(), "delivery" | "result_delivery") && matches!(kind.as_str(), "delivery" | "request_delivery"))
+            || (requested == "request_status" && status) || (requested == "request_return" && returned)) {
             return Ok(true);
         }
     }

@@ -4,26 +4,6 @@ use rusqlite::Connection;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
-/// Confirm one exact file against one accepted delivery and its retained issue.
-pub fn verify_delivery_member(
-    db: &Connection,
-    delivery_reference: &str,
-    asset_reference: &str,
-) -> Result<()> {
-    super::address(asset_reference)?;
-    let edition = delivery::edition(db, delivery_reference)?;
-    if !edition
-        .members
-        .iter()
-        .any(|member| member == asset_reference)
-    {
-        return Err(failure(
-            "The selected issued delivery does not include this exact file revision.",
-        ));
-    }
-    Ok(())
-}
-
 pub fn deliveries(
     db: &Connection,
     reference: &str,

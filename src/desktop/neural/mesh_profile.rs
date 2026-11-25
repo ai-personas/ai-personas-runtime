@@ -17,6 +17,7 @@ pub(super) struct Window {
     visible: bool,
     reference: String,
     member: Option<String>,
+    edition: Option<String>,
     work: String,
     axis: Option<Axis>,
     coordinates: [String; 3],
@@ -35,18 +36,20 @@ impl Window {
         reference: &str,
         work: &str,
         member: Option<String>,
+        edition: Option<String>,
     ) {
         *self = Self {
             visible: true,
             reference: reference.into(),
             member: member.clone(),
+            edition: edition.clone(),
             work: work.into(),
             axis: Some(Axis::X),
             ..Default::default()
         };
         let command = Command::InspectStl {
             reference: reference.into(),
-            member,
+            member, edition,
         };
         self.start(ctx, root, operator, command, Answer::Bounds);
     }
@@ -121,6 +124,7 @@ impl Window {
                     ui.small("Member of this exact ZIP");
                 }
                 ui.monospace(&self.reference);
+                if let Some(edition) = &self.edition { ui.small(edition); }
                 if let Some(error) = &self.error {
                     ui.colored_label(ui.visuals().error_fg_color, error);
                 }
@@ -165,7 +169,7 @@ impl Window {
                         if let Some((u, v)) = line {
                             command = Some(Command::MeshProfile {
                                 work: (!self.work.is_empty()).then(|| self.work.clone()),
-                                 profile: Profile { reference: self.reference.clone(), member: self.member.clone(), axis, u, v },
+                                 profile: Profile { reference: self.reference.clone(), member: self.member.clone(), edition: self.edition.clone(), axis, u, v },
                             });
                         }
                     }

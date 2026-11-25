@@ -263,7 +263,8 @@ pub enum Command {
         parameters: String,
     },
     /// Measure a retained STL, standalone or at an exact path inside a ZIP.
-    InspectStl { reference:String, #[arg(long)] #[serde(skip_serializing_if="Option::is_none")] member:Option<String> },
+    InspectStl { reference:String, #[arg(long)] #[serde(skip_serializing_if="Option::is_none")] member:Option<String>,
+        #[arg(long)] #[serde(skip_serializing_if="Option::is_none")] edition:Option<String> },
     /// Measure a line of surface crossings and spacings on an exact retained STL.
     MeshProfile {#[arg(long)] work:Option<String>,#[command(flatten)] profile:super::geometry::profile::Profile},
     /// Find recorded renders of an exact source or mesh across activities.
@@ -671,7 +672,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
             })
         }
         Command::MeshProfile{work,profile}=>super::geometry::profile::run(root,profile,operator,work.as_deref(),None).await,
-        Command::InspectStl{reference,member}=>super::geometry::inspect(root,super::geometry::Inspect{reference,member}).await,
+        Command::InspectStl{reference,member,edition}=>super::geometry::inspect(root,super::geometry::Inspect{reference,member,edition}).await,
         Command::InstallCommand{package,from_file}=>{
             let control = Store::open(root)?;
             super::commands::install(root,operator,None,&package,from_file.as_deref(),|| workspace_command_paused(&control)).await

@@ -194,12 +194,19 @@ fn revision(reference: &str) -> Option<&str> {
 }
 
 impl App {
-    pub(super) fn print_package_for(&self, inspected: &str) -> Option<String> {
-        let target = self.delivery_desk.return_for(inspected)?;
-        // Overview can open an exact package member directly, before the desk
-        // has ever laid out that package. Use the recorded edition in either route.
-        let edition = self.records("deliveries").iter().find(|d| inbox::handle(d) == target.package)?;
-        strings(&edition["body"]["artifacts"]).any(|r| r == inspected).then_some(target.package)
+    pub(super) fn issued_selection(&self, edition: String, file: &str) -> (String, String) {
+        let path = self.snapshot.assets.iter().find(|a| a["reference"] == file)
+            .and_then(|a| a["body"]["path"].as_str()).unwrap_or_default();
+        (edition, path.into())
+    }
+
+    pub(super) fn open_package_file(&mut self, ctx: &egui::Context, edition: &str, file: &str) {
+        if !file.starts_with("asset:") {
+            self.error = Some(format!("Not a registered file revision of {edition}: {file}"));
+            return;
+        }
+        let selection = self.issued_selection(edition.into(), file);
+        self.open_named_resource(ctx, file.into(), Some(selection));
     }
 
     pub(super) fn delivery_return_link(&mut self, ui: &mut Ui) {
@@ -565,7 +572,7 @@ impl App {
                     }
                     ui.add_space(3.);
                 }
-                desk.inline.show(ui, &self.root, file);
+                desk.inline.show(ui, &self.root, &p.reference, file);
                 ui.add_space(4.);
                 ui.horizontal_wrapped(|ui| {
                     if let Some(entry) = desk.inline.selected_member() {
@@ -617,13 +624,13 @@ impl App {
                 desk.cam = Some(cam::Window::new(ui.ctx(), &self.root, p, file));
             }
             Some(Action::Measure(member)) => self.mesh_profile.open(
-                ui.ctx(), &self.root, &self.operator, &file.reference, s(&p.body, "work"), member,
+                ui.ctx(), &self.root, &self.operator, &file.reference, s(&p.body, "work"), member, Some(p.reference.clone()),
             ),
             Some(Action::InspectEntry(entry)) => {
-                self.open_resource(ui.ctx(), file.reference.clone());
+                self.open_package_file(ui.ctx(), &p.reference, &file.reference);
                 self.preview_zip_member = Some((entry.index,entry.path));
             }
-            Some(Action::Open) => self.open_resource(ui.ctx(), file.reference.clone()),
+            Some(Action::Open) => self.open_package_file(ui.ctx(), &p.reference, &file.reference),
             Some(Action::History) => self.open_file_history(ui.ctx(), &file.reference),
             Some(Action::Print(id)) => self.open_print_preview(
                 ui.ctx(), &file.reference, &file.path, Some(p.reference.clone()), Some(id),
@@ -793,7 +800,7 @@ impl App {
             }
         });
         if let Some(r) = open {
-            self.open_resource(ui.ctx(), r);
+            self.open_package_file(ui.ctx(), &p.reference, &r);
         } else if let Some((file, id)) = print {
             self.open_print_preview(ui.ctx(), &file.reference, &file.path, Some(p.reference.clone()), Some(id));
         }

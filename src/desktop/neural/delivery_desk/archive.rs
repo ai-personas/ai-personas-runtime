@@ -40,7 +40,8 @@ impl Member {
         if entry.name() != self.path
             || entry.size() != self.bytes
             || entry.crc32() != self.crc
-            || entry.is_dir()
+            || !entry.is_file()
+            || !matches!(entry.unix_mode().unwrap_or(0) & 0o170000, 0 | 0o100000)
         {
             return Err(ai_personas::neural::failure(
                 "The ZIP entry differs from the selected member.",
@@ -71,6 +72,9 @@ impl Listing {
         for index in 0..zip.len() {
             let member = zip.by_index_raw(index)?;
             if !member.is_dir() {
+                if !member.is_file() || !matches!(member.unix_mode().unwrap_or(0) & 0o170000, 0 | 0o100000) {
+                    return Err(ai_personas::neural::failure(format!("Not a regular ZIP member: {}", member.name())));
+                }
                 entries.push(Member {
                     index,
                     path: member.name().into(),

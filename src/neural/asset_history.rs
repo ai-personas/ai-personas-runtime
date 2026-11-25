@@ -3,7 +3,7 @@
 mod authors;
 mod memberships;
 pub use authors::{author_catalog, authored, AuthoredCatalog};
-pub use memberships::{deliveries, verify_delivery_member};
+pub use memberships::deliveries;
 pub(super) mod proof;
 
 use super::{accepted_choice::Choice, activity_sources::resources, failure, store, Result};
