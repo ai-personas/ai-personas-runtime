@@ -285,7 +285,11 @@ pub(in crate::neural) fn previous_observation(input: &Snapshot, event: &str) -> 
 pub(in crate::neural) fn contains_event(s: &Snapshot, record: &Value) -> bool {
     let Some(reference) = record["reference"].as_str() else { return false };
     if !s.data["context_recovery"].is_null() { return false; }
-    let Some(observed) = previous_observation(s, reference) else { return false };
+    previous_observation(s, reference).is_some_and(|obs| matches_event(&obs, record))
+}
+
+pub(in crate::neural) fn matches_event(observed: &Value, record: &Value) -> bool {
+    let Some(reference) = record["reference"].as_str() else { return false };
     if let Some(read) = observed.get("record") {
         return read == record;
     }

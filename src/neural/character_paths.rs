@@ -6,6 +6,7 @@ use rusqlite::Connection;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+mod returns;
 
 #[derive(Clone, Debug, clap::Args, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -274,6 +275,9 @@ pub fn inspect(db: &Connection, actor: Option<&str>, query: &Query) -> Result<Va
         }).collect::<Vec<_>>();
         report["received_pause"] = json!({"decision":source,"reason":frame["reason"],
             "alternatives":frame["alternatives"],"appraisal":appraisal,"different_from_baseline":differences});
+        if let Some(events) = frame["evidence_then"].as_array() {
+            returns::attach(db, &mut report["received_pause"], &appraisal, events);
+        }
         if frame["reselected_images"].is_array() {
             report["images_from_pause"] = frame["reselected_images"].clone();
         }
@@ -287,6 +291,7 @@ pub fn inspect(db: &Connection, actor: Option<&str>, query: &Query) -> Result<Va
         let grounds = super::development::deliberation::evidence(db, &accepted.snapshot, &appraisal, &selection)?;
         report["requested_pause"] = json!({"reason":next["appraisal"]["reason"],
             "alternatives":next["appraisal"]["alternatives"],"appraisal":appraisal});
+        returns::attach(db, &mut report["requested_pause"], &appraisal, &grounds.events);
         if !grounds.images.is_empty() {
             report["images_selected_for_next_choice"] = serde_json::to_value(grounds.images)?;
         }
