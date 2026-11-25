@@ -1,4 +1,5 @@
 use super::*;
+mod returns;
 use ai_personas::neural::character_paths::{inspect, Query};
 use std::{
     path::Path,
@@ -238,7 +239,7 @@ impl Window {
                                 for (field, received) in [("received_pause", true), ("requested_pause", false)] {
                                     if report[field].is_object() {
                                         ui.push_id((s(report, "decision"), field), |ui| {
-                                            if let Some(source) = pause_card(ui, &report[field], received) {
+                                            if let Some(source) = pause_card(ui, &report[field], received, &mut refresh) {
                                                 open = Some(source);
                                             }
                                         });
@@ -407,7 +408,7 @@ impl Window {
 
 /// Keep the decision-maker's words distinct from what the forward pass did.
 /// In particular, don't mark one of the alternatives as the numerical winner.
-fn pause_card(ui: &mut Ui, frame: &Value, received: bool) -> Option<String> {
+fn pause_card(ui: &mut Ui, frame: &Value, received: bool, refresh: &mut bool) -> Option<String> {
     let mut open = None;
     egui::Frame::group(ui.style()).show(ui, |ui| {
         eyebrow(ui, if received { "Appraisal received before acting" } else { "Decision to pause" });
@@ -423,6 +424,7 @@ fn pause_card(ui: &mut Ui, frame: &Value, received: bool) -> Option<String> {
                 }
             }
         });
+        returns::show(ui, frame, &mut open, refresh);
         if received {
             let differences = frame["different_from_baseline"].as_array().map(Vec::as_slice).unwrap_or_default();
             if differences.is_empty() {

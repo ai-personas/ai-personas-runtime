@@ -3,7 +3,6 @@
 use crate::{
     neural::{
         context::Snapshot,
-        experience::recall,
         failure,
         protocol::{ContextResource, Persona},
         provider_evidence, Result,
@@ -13,11 +12,12 @@ use crate::{
 use rusqlite::Connection;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
+mod actions;
 mod images;
 mod text;
 
 pub(in crate::neural) struct Grounds {
-    events: Vec<Value>,
+    pub(in crate::neural) events: Vec<Value>,
     pub(in crate::neural) text: Vec<text::TextRange>,
     pub(in crate::neural) images: Vec<images::Selection>,
 }
@@ -51,38 +51,11 @@ pub(in crate::neural) fn evidence(
             }
             continue;
         }
-        let Some(body) =
-            recall::previous_observation(s, r).filter(|_| r.starts_with("experience:event-"))
-        else {
-            return Err(failure("For before_action, cite the current work, an observed event body, or supplied text or images you choose to keep for the next decision."));
-        };
-        let mut item = json!({"experience":r,"observation":body});
-        // Keep the acting choice with its consequence if they were both on the owner's desk.
-        let live = s.data["development"]["action_results"]
-            .as_array()
-            .into_iter()
-            .flatten();
-        let selected = s.data["selected_resources"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|v| v["considered"] == *r && recall::authentic_selection(s, v))
-            .map(|v| &v["action_before_observation"]);
-        let retained = s.data["decision_continuity"]["before_action"]["evidence_then"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|v| v["experience"] == *r && observed(s, r).is_some())
-            .map(|v| &v["action_before_observation"]);
-        if let Some(action) = live
-            .chain(selected)
-            .chain(retained)
-            .find(|v| v["outcome"] == *r && v["owner"] == s.actor && v["performed"].is_object())
-        {
-            item["action_before_observation"] = action.clone()
+        if !r.starts_with("experience:call-") {
+            out.events.push(actions::observation(db, s, r)?);
         }
-        out.events.push(item);
     }
+    actions::check_citations(a, &out.events)?;
     Ok(out)
 }
 

@@ -132,12 +132,10 @@ pub(super) fn select_appraisal(
                 || !matches!(&decision.continuation,super::protocol::Continuation::Ready{..}) || reason.trim().is_empty() || alternatives.iter().any(|s|s.trim().is_empty()) || alternatives[0].trim()==alternatives[1].trim() {
                 return Err(failure("Before acting, appraise two distinct alternatives on an ordinary input, keep the model, choose ready and hold the actual operations and reply for the fresh decision. Use evaluate if acting independently now."));
             }
-            let grounds = super::development::deliberation::evidence(db, snapshot, appraisal, &decision.next_context.references)?;
-            if !grounds.images.is_empty() {
-                // A read envelope or prepared image list alone isn't a provider receipt.
-                let receipt: String = db.query_row("SELECT receipt FROM invocations WHERE id=?1", [&snapshot.invocation], |r| r.get(0))?;
-                verify_input(db, snapshot, &snapshot.invocation, &store::object(db, &receipt)?)?;
-            }
+            // Ground the pause in the actual completed input, not just the prepared desk.
+            let receipt: String = db.query_row("SELECT receipt FROM invocations WHERE id=?1", [&snapshot.invocation], |r| r.get(0))?;
+            verify_input(db, snapshot, &snapshot.invocation, &store::object(db, &receipt)?)?;
+            super::development::deliberation::evidence(db, snapshot, appraisal, &decision.next_context.references)?;
             let result=super::operations::evaluate_appraisal(db,snapshot,persona,part,appraisal)?;
             let digest=store::put(db,&result)?;
             store::event(db,&snapshot.work,&snapshot.actor,&snapshot.actor,"appraisal_selected",&json!({"method":"before_action","result":format!("object:{digest}"),"reason":reason}),Some(&snapshot.invocation))?;
