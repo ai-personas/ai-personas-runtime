@@ -1,0 +1,11 @@
+EC1 rest | Digital fit record (all dimensions mm)
+
+Basis: the issued EC1-Edge_Cuts.gbr rectangular profile spans X=0..54, Y=-34..0. EC1.drl contains ten plated component drills. In fabrication axes about the outline center (27,-17), their centers are (0,-5), (5,-5), (-20,7), (-20,4), (0,7), (0,4), (19,7), (19,4), (19,-9), (19,-12). The rest is symmetric end-to-end and side-to-side.
+
+Square seat: The STL stop faces are at X=±27.5 and Y=±17.5, giving 55 × 35 between stops. For overall board sizes 53.8..54.2 by 33.8..34.2 about the fixed pattern, seat minus board gives 0.8..1.2 total free travel on each axis (limit 2.0). At the loosest fit the pattern center can move ±0.6 on X and Y. Each end still has at least 2.7 of bearing: 53.8/2 - 0.6 - 23.6. The 47.2 opening between end ledges exposes both long edges for lifting. The stops rise 1.2 above the ledges without an overhanging lip.
+
+Lead clearance: For each listed center, sweep a disk of radius 1.5 over the full ±0.6 translation box on both axes. On the end closest to any drill, the combined swept disks reach at most |X| = 20 + 0.6 + 1.5 = 22.1. The full-height end material begins at |X| = 23.6: at least 1.5 lateral clearance. Within the swept regions the only possible material below a lead is the low tie, top Z=1.6. The underside rests at Z=8.0; a 3.0 projecting tip ends at Z=5.0, leaving at least 3.4 to the tie and 5.0 to the table (required: 0.5 or more).
+
+Mesh: one watertight, consistently wound shell, 92 triangles; flat base at Z=0. At each of the 46 midlayer planes spaced 0.20 apart the footprint lies within that of the layer below or on the bed. The upright walls and receding ledges need no supports. Bounds 61 × 41 × 9.2, within 160 × 160 × 120.
+
+Scope: nominal digital rest, square board, and requested board/lead tolerances only. Printer dimensional error, board warp and actual assembly fit were not measured. No print or board modification was performed.
