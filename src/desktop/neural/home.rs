@@ -1,11 +1,21 @@
 use super::*;
 mod loom;
+mod my_work;
+
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
+enum View {
+    #[default]
+    Society,
+    WorkDesk,
+    MyWork,
+}
 
 #[derive(Default)]
 pub(super) struct Home {
     pub(super) loom: loom::Loom,
     pub(super) society: society::Society,
-    work_desk: bool,
+    view: View,
+    my_work: my_work::Pages,
     pub(super) focused_person: String,
     pub(super) all_people: Option<bool>,
     query: String,
@@ -55,25 +65,27 @@ const ACTIVITY_ROWS: usize = 6;
 
 impl App {
     pub(super) fn viewing_society(&self) -> bool {
-        self.layout.editor == Editor::Home && !self.home.work_desk
+        self.layout.editor == Editor::Home && self.home.view == View::Society
     }
 
     pub(super) fn workspace_home(&mut self, ui: &mut Ui) {
         self.overview_composer(ui);
         egui::ScrollArea::vertical()
-            .id_salt(("workspace-overview", self.home.work_desk, !self.home.work_desk && self.society_reading()))
+            .id_salt(("workspace-overview", self.home.view, self.viewing_society() && self.society_reading()))
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 self.home_heading(ui);
                 ui.add_space(10.);
                 ui.horizontal_wrapped(|ui| {
-                    ui.selectable_value(&mut self.home.work_desk, false, "Society");
-                    ui.selectable_value(&mut self.home.work_desk, true, "Work desk");
-                    if !self.home.work_desk && !self.home_index.activities.is_empty() {
+                    ui.selectable_value(&mut self.home.view, View::Society, "Society");
+                    ui.selectable_value(&mut self.home.view, View::WorkDesk, "Work desk");
+                    ui.selectable_value(&mut self.home.view, View::MyWork, "My work")
+                        .on_hover_text("Your declared task roles and the outside steps you hold");
+                    if self.viewing_society() && !self.home_index.activities.is_empty() {
                         ui.separator();
                         self.society_activity_picker(ui);
                     }
-                    if !self.home.work_desk && !self.home_index.requests.is_empty() {
+                    if self.viewing_society() && !self.home_index.requests.is_empty() {
                         let requests = counted(self.home_index.requests.len() as u64, "active outside step", "active outside steps");
                         if ui.link(requests).clicked() {
                             self.inbox.active_list();
@@ -82,9 +94,10 @@ impl App {
                     }
                 });
                 ui.separator();
-                if !self.home.work_desk {
-                    self.society_view(ui);
-                    return;
+                match self.home.view {
+                    View::Society => return self.society_view(ui),
+                    View::MyWork => return self.my_work(ui),
+                    View::WorkDesk => {}
                 }
                 ui.add_space(6.);
                 let jump = self.home_sections(ui);
@@ -580,6 +593,7 @@ impl App {
                             && (query.is_empty()
                                 || activity.title.to_lowercase().contains(&query)
                                 || activity.id.to_lowercase().contains(&query)
+                                || activity.roles.iter().any(|r| r.operator.to_lowercase().contains(&query))
                                 || activity.members.iter().any(|id| {
                                     people.contains(id.as_str())
                                         || id.to_lowercase().contains(&query)
@@ -663,6 +677,11 @@ impl App {
                             ui.weak(short_text(&people, row_limit(ui, 1.)))
                                 .on_hover_text(people);
                         });
+                    }
+                    if !activity.roles.is_empty() {
+                        let humans = activity.roles.iter().map(|r| format!("{} · {}", r.operator, r.label))
+                            .collect::<Vec<_>>().join("   /   ");
+                        ui.small(short_text(&humans, row_limit(ui, 1.5))).on_hover_text(humans);
                     }
                 });
             }

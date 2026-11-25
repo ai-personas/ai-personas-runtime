@@ -1,12 +1,25 @@
 use super::{activity_title, inbox, s, BTreeMap, Value};
 use std::cmp::Reverse;
 
+/// A current self-declaration, not a persona membership or an outside-step claim.
+/// Keep the operator's literal name; display search may fold it, identity must not.
+pub(super) struct HumanRole {
+    pub operator: String,
+    pub label: &'static str,
+    pub note: String,
+    pub reference: String,
+    pub brief: String,
+}
+
 pub(super) struct Activity {
     pub id: String,
     pub title: String,
     pub kind: String,
     pub phase: String,
     pub members: Vec<String>,
+    pub brief: String,
+    pub roles: Vec<HumanRole>,
+    pub deliveries: Vec<usize>,
     pub latest_utc: Option<String>,
     pub open_requests: usize,
 }
@@ -161,13 +174,50 @@ impl Index {
         self.deliveries.sort_by_cached_key(|i| {
             Reverse(self.issued.get(&inbox::handle(&deliveries[*i])).copied())
         });
+        let mut by_work = BTreeMap::<&str, Vec<usize>>::new();
+        for &i in &self.deliveries {
+            by_work
+                .entry(s(&deliveries[i]["body"], "work"))
+                .or_default()
+                .push(i);
+        }
+        let mut roles = BTreeMap::<&str, Vec<HumanRole>>::new();
+        for record in rows("human_task_roles") {
+            let b = &record["body"];
+            if b["state"] != "active" {
+                continue;
+            }
+            let label = match b["role"].as_str() {
+                Some("owner") => "Task owner",
+                Some("contributor") => "Contributor",
+                _ => continue,
+            };
+            roles.entry(s(b, "work")).or_default().push(HumanRole {
+                operator: s(b, "operator").into(),
+                label,
+                note: s(b, "note").into(),
+                reference: inbox::handle(record),
+                brief: s(b, "brief").into(),
+            });
+        }
         self.activities = rows("work")
             .iter()
             .map(|r| {
                 let body = &r["body"];
                 let id = s(body, "id");
+                let mut people = roles.remove(id).unwrap_or_default();
+                if body["phase"] != "open" || body["kind"] == "social" {
+                    people.clear();
+                }
+                people.sort_by(|a, b| {
+                    (a.label != "Task owner", &a.operator)
+                        .cmp(&(b.label != "Task owner", &b.operator))
+                });
                 Activity {
                     id: id.into(),
+                    brief: inbox::handle(r),
+                    roles: people,
+                    deliveries: by_work.remove(id).unwrap_or_default(),
                     title: activity_title(body).into(),
                     kind: body["kind"].as_str().unwrap_or("task").into(),
                     phase: s(body, "phase").into(),

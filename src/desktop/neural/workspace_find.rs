@@ -59,6 +59,11 @@ impl App {
         ctx.memory_mut(|m| m.request_focus(egui::Id::new(QUERY)));
     }
 
+    pub(super) fn find_activities(&mut self, ctx: &egui::Context) {
+        self.open_workspace_find(ctx);
+        self.workspace_find.kind = Some(Kind::Activity);
+    }
+
     pub(super) fn workspace_find_window(&mut self, ctx: &egui::Context) {
         if !self.workspace_find.open {
             return;
@@ -76,6 +81,7 @@ impl App {
                 self.profile_view = people::ProfileView::Overview;
             }
             Kind::Activity => self.open_home_activity(&reference),
+            Kind::TaskRole => self.open_task_board(&work),
             Kind::Delivery => self.open_home_delivery(&reference, &work),
             Kind::Request => {
                 if let Some((id, _)) = reference
