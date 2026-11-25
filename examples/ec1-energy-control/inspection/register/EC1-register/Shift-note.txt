@@ -1,0 +1,10 @@
+EC1 Rev A | Digital hole register — shift note
+
+Sort the whole CSV numerically, largest first. For centre displacement use centre_offset_mm; for size use max_abs_size_delta_mm (the larger absolute width or height difference). Both sorts put hole-10, C1.2 negative, at nominal (32, 22) mm first:
+
+  Centre: 0.001782319 mm from nominal (dx -0.001760199 mm, dy +0.000279931 mm).
+  Size: 0.984375000 × 1.000000000 mm painted versus a 1.00 mm drill. Width is 0.015625 mm smaller; height matches. For height alone sort abs_height_delta_mm: holes 1–8 (all four loop pairs) tie at 0.006250 mm smaller.
+
+Read component side up from the upper-left outline: X right, Y down. Each row matches an issued drawing feature to one bench row by nominal X, Y and drill diameter, not by row order. Upper/lower distinguishes the two holes of each loop. Signed deltas are painted minus nominal; centre_offset_mm is √(dx² + dy²). Width and height are each compared to the nominal drill diameter, not pad size.
+
+Source: Bench desk’s EC1-digital-disc-measurements.csv returned with finding review-731734ea576d3054504a0d3576e43213 on edition delivery-2511ac2649b4ef8ac2f69c7dcc331d71. The contributor compared PDF paint at 64 pixels/mm with plated-drill coordinates, without reflection or scale fitting. No new raster measurement was used. All ten centre offsets and both extents’ absolute differences are below the finding’s 0.10 mm digital criterion. One raster pixel spans 0.015625 mm; the retained decimals aid comparison, not a claim of physical precision. These numbers do not establish print scale, physical fit, finished bore, plating, electrical function or acceptance.

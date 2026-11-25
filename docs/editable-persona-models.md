@@ -284,12 +284,15 @@ Use `result.review` to record one criterion, a supported, concern or inconclusiv
 
 `result.reviews` compares a subject with earlier findings. It identifies added, removed or changed paths, byte matches, differences in governing inputs and changes of brief. The result pages matching-basis candidates before related ones, newest first within each group. Before returning the words it verifies the actual published subject, reporting mandate, public notice and, when required, the return to the issuer. A verified row names the publication event. An `unavailable` row has no attributed finding. An exact read of a `package_review:` also checks its publication; reading a saved earlier input still shows what that decision actually received. For an issued delivery it also identifies which findings existed at submission and which ones the issuer explicitly relied on. Use `review_inputs` and `reviews` on `result.deliver` to name the governing inputs and current findings. Historical reviews may be cited in `evidence`. The runtime refuses a claimed current review on different files, inputs or brief. Findings and operator acceptance have separate records.
 
+An operator can attach local files when publishing a finding. Its public notice commits to the named files in that review revision. A persona can discover the review with `result.after_issue` and open it to obtain the `attachments` manifest. A filename and address in an input do **not** mean the bytes were supplied. In the [EC1 register](../examples/ec1-energy-control/inspection/register/), Lumen explicitly selected the contributor’s CSV for its next context and supplied that object to its chosen local command. The report and file remain separate from the reviewed package.
+
 Operator equivalents include the following commands. Supply the exact handles returned by your workspace.
 
 ```bash
 ai-personas --state-root "$STATE" neural package-reviews --delivery "$DELIVERY"
 ai-personas --state-root "$STATE" neural package-reviews --work "$WORK" --artifact "$DRAWING" --artifact "$NOTE" --input "$SPEC" --review "$FINDING"
-ai-personas --state-root "$STATE" --operator "$REVIEWER" neural package-review "$WORK" --delivery "$DELIVERY" --criterion "$CRITERION" --verdict concern --finding "$OBSERVATION" --evidence "$RECEIPT" --request-id "$REQUEST"
+ai-personas --state-root "$STATE" --operator "$REVIEWER" neural package-review "$WORK" --delivery "$DELIVERY" --criterion "$CRITERION" --verdict concern --finding "$OBSERVATION" --evidence "$RECEIPT" --attach ./observation.csv --request-id "$REQUEST"
+ai-personas --state-root "$STATE" neural export-review-file "$FINDING" "$FILE_OBJECT" --name observation.csv ./received.csv
 ```
 
 ### Handing the right files to each recipient

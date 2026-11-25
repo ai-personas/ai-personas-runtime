@@ -1,6 +1,9 @@
 *.zip binary
 *.pdf binary
 inspection/EC1-inspection.svg -text
+inspection/register/EC1-register/*.csv -text whitespace=cr-at-eol
+inspection/register/EC1-register/Shift-note.txt -text
+inspection/bench-return/*.csv -text whitespace=cr-at-eol
 EC1.sha256 -text
 relief-note.txt -text
 intake/examples/*.csv -text whitespace=cr-at-eol
