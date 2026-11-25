@@ -242,7 +242,7 @@ pub enum Continuation {
         /// Empty receives any new event. A chosen wake time is an independent trigger.
         /// To wait for one outside action, include your exact open human_request:id@revision
         /// (or $id of a human.request made here). A later human status change or report on that request wakes you.
-        /// Use delivery_check for a receiving run on one of your editions. All triggers are alternatives.
+        /// Use delivery_check for a receiving run on one of your editions, package_review (also result_review) for a published package finding in this activity. A finding is not a delivery acceptance. All triggers are alternatives.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         on_events: Vec<String>,
     },

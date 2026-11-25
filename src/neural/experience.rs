@@ -247,9 +247,31 @@ pub(super) fn responses_to_call(
                 "checking_work":body["checking_work"],"receipt":body["receipt"]}));
         }
     }
+    // Multiple reviews or deliveries from one decision still name separate editions.
+    let sql = format!("{EVENTS} WHERE {VISIBLE} AND e.work=?2 AND e.kind='package_review' AND e.target='*'
+        AND e.actor<>?1 AND e.invocation IN (SELECT v.invocation FROM versions v JOIN objects r ON r.digest=v.digest
+        WHERE v.kind='package_review' AND json_extract(CAST(r.bytes AS TEXT),'$.subject.delivery') IN (
+        SELECT 'delivery:'||d.id||'@'||d.revision FROM versions d WHERE d.kind='delivery' AND d.invocation=?3))");
+    let mut reviews = db.prepare_cached(&sql)?;
+    for row in reviews.query_map(params![actor, work, call], Experience::row)? {
+        let e = row?;
+        let body: Value = store::object(db, &e.digest)?;
+        if let Ok(Some(edition)) = peer_review(db, actor, &e, &body) {
+            if edition.issue.invocation == call {
+                replies.push(json!({"experience":e.metadata()["reference"],"sequence":e.id[6..].parse::<i64>()?,
+                    "author":e.actor,"kind":e.kind,"relation":"peer_package_review","target":edition.issue.record.reference.handle(),"review":body["reference"]}));
+            }
+        }
+    }
     replies.extend(super::asset_feedback::responses(db, actor, call)?);
     replies.sort_by_key(|r|r["sequence"].as_i64());
     Ok(replies)
+}
+
+fn peer_review(db: &Connection, owner: &str, event: &Experience, body: &Value) -> Result<Option<super::activity_sources::delivery::Edition>> {
+    let Some(call) = event.invocation.as_deref().filter(|_| event.kind == "package_review" && event.target == "*" && event.actor != owner) else { return Ok(None) };
+    let seq = event.id.strip_prefix("event-").ok_or_else(|| failure("Missing review event"))?.parse()?;
+    super::package_review::peer::reviewed_issue(db,owner,&event.work,&event.actor,call,seq,body).map(Some)
 }
 
 /// A compact invitation to deliberate retrieval. Other activities contribute
