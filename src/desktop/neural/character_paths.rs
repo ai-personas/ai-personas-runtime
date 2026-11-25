@@ -85,13 +85,18 @@ impl Window {
         let mut refresh = false;
         let mut open = None;
         let contract = FeatureContract::standard();
+        let bounds = (ctx.content_rect().size() - egui::vec2(46., 92.)).max(egui::vec2(1., 1.));
+        let compact = bounds.y < 400. || bounds.x < 360.;
         egui::Window::new("Decision paths")
             .id(egui::Id::new("decision-paths"))
             .open(&mut visible)
-            .default_width(710.)
-            .default_height(530.)
+            .min_size(egui::vec2(1., 1.))
+            .max_size(bounds)
+            .default_size(egui::vec2(710., 530.).min(bounds))
+            .vscroll(compact)
             .resizable(true)
             .show(ctx, |ui| {
+                if compact { ui.set_max_width(ui.available_width().min(bounds.x)); }
                 ui.horizontal_wrapped(|ui| {
                     let name = self.result.as_ref().and_then(|r| r.as_ref().ok())
                         .and_then(|r| r["owner_label"].as_str()).filter(|s| !s.trim().is_empty());
@@ -102,9 +107,11 @@ impl Window {
                         ui.small(format!("Epoch {}", report["epoch"]));
                     }
                 });
+                let width = ui.available_width();
                 ui.horizontal_wrapped(|ui| {
                     egui::ComboBox::from_id_salt("paths-axis")
-                        .width(168.)
+                        .width(width.min(168.))
+                        .truncate()
                         .selected_text(
                             query
                                 .axis
@@ -151,7 +158,8 @@ impl Window {
                             .is_some_and(|v| c["body"]["model"] == v)
                     });
                     egui::ComboBox::from_id_salt("paths-package")
-                        .width(236.)
+                        .width(width.min(236.))
+                        .truncate()
                         .selected_text(
                             if comparison == Some("previous-epoch") {
                                 "Previous active epoch".into()
@@ -214,18 +222,17 @@ impl Window {
                                 contract.outputs.len()
                             ));
                         }
-                        egui::ScrollArea::vertical()
-                            .id_salt(("paths-body", &query.decision))
-                            .show(ui, |ui| {
+                        let decision = query.decision.clone();
+                        let mut body = |ui: &mut Ui| {
                                 let choice = &report["choice"];
                                 let judgment = s(&choice["judgment"], "reason");
                                 let caption = choice["reply"].as_str().unwrap_or(judgment);
-                                ui.collapsing(
-                                    format!(
-                                        "Recorded choice · {}",
-                                        excerpt(caption.lines().next().unwrap_or(""), 58)
-                                    ),
-                                    |ui| {
+                                // A collapsing header doesn't wrap. In a narrow pane keep the
+                                // full judgment inside rather than pushing Close off screen.
+                                let label = if ui.available_width() < 650. { "Recorded choice".into() } else {
+                                    format!("Recorded choice · {}", excerpt(caption.lines().next().unwrap_or(""), 58))
+                                };
+                                egui::CollapsingHeader::new(label).id_salt(("paths-choice", &decision)).show(ui, |ui| {
                                         if let Some(reply) = choice["reply"].as_str() {
                                             ui.label(reply);
                                         }
@@ -334,14 +341,15 @@ impl Window {
                                         );
                                     }
                                 } else {
+                                    let bars = ui.available_width() >= if alternate.is_null() { 280. } else { 365. };
                                     egui::Grid::new("paths-outputs")
-                                        .num_columns(if alternate.is_null() { 3 } else { 4 })
+                                        .num_columns(2 + usize::from(bars) + usize::from(!alternate.is_null()))
                                         .striped(true)
                                         .min_col_width(60.)
                                         .show(ui, |ui| {
                                             ui.strong("Inclination");
                                             ui.strong("Supplied");
-                                            ui.label("");
+                                            if bars { ui.label(""); }
                                             if !alternate.is_null() {
                                                 ui.strong("Compared");
                                             }
@@ -359,7 +367,7 @@ impl Window {
                                                     .as_f64()
                                                     .unwrap_or_default();
                                                 ui.monospace(format!("{value:+.4}"));
-                                                inclination_bar(ui, value);
+                                                if bars { inclination_bar(ui, value); }
                                                 if !alternate.is_null() {
                                                     let other = alternate["outputs"][&axis.id]
                                                         .as_f64()
@@ -392,7 +400,10 @@ impl Window {
                                         }
                                     }
                                 });
-                            });
+                        };
+                        if compact { body(ui); } else {
+                            egui::ScrollArea::vertical().id_salt(("paths-body", &decision)).show(ui, body);
+                        }
                     }
                 }
             });
