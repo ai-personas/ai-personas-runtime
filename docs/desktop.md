@@ -148,6 +148,8 @@ In **Your message**, choose a recipient and write a message, attach files, or do
 
 When a persona later reads the complete message in a different activity, the receipt shows **Read in another activity** with a link to that decision. This can happen while the original task stays stopped. Reading a message does not mean its files were opened or its outside action completed.
 
+**Replies to this message** distinguishes the first receiving decision from a later decision that explicitly answered that message. Expand the reply to read it, copy its exact text under **As sent**, open the **Published reply**, or inspect the **Answering decision**. The receipt says whether the answering input contained the original message or only a verified reply address. A nearby summary, a reply to someone else or an unverified publication is not attached as the answer. [Follow the K4 clerk’s filing and ruling](../examples/ec1-energy-control/appeal/#follow-the-filing-in-studio).
+
 For an attached packet, **Delivery status → Local command inputs → Inspect run** follows the exact bytes into the recipient’s recorded command after that message arrived. It shows the staged path, launch and exit. **Receiving decision** opens the choice that received the indicated range of that run’s standard output. These are separate from text or pixels of the attachment itself being supplied to the model. A file made available to a process is not by itself proof that the process opened or checked it.
 
 ![The live conversation with Orin. The delivery status shows when he received the human’s question and the complete 149-byte desk roster.](assets/studio-message-receipt.png)
