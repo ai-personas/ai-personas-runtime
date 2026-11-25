@@ -258,8 +258,23 @@ pub fn inspect(db: &Connection, actor: Option<&str>, query: &Query) -> Result<Va
         "scope":"Verified supplied inclinations and local forward arithmetic. Any alternate is evaluated on this decision's recorded appraisal."});
     if !accepted.snapshot.image_blobs.is_empty() {
         report["ordered_image_inputs"] = serde_json::to_value(super::development::deliberation::ordered_images(db, &accepted.snapshot.image_blobs)?)?;
-        let frame = &accepted.snapshot.data["decision_continuity"]["before_action"];
-        if frame["reselected_images"].is_array() && pre_action_source(db, owner, &accepted.snapshot.work, call)?.is_some() {
+    }
+    let frame = &accepted.snapshot.data["decision_continuity"]["before_action"];
+    if !frame.is_null() {
+        let source = pre_action_source(db, owner, &accepted.snapshot.work, call)?
+            .ok_or_else(|| failure("Cannot identify the pause behind this choice"))?;
+        // Both columns are from this frozen input. This is not a comparison
+        // with another decision or with an earlier set of weights.
+        let baseline = &verified["baseline"]["outputs"];
+        let differences = contract.outputs.iter().filter_map(|axis| {
+            let id = &axis.id;
+            (baseline[id] != supply["outputs"][id]).then(|| json!({
+                "axis":id,"baseline":baseline[id],"contextual":supply["outputs"][id]
+            }))
+        }).collect::<Vec<_>>();
+        report["received_pause"] = json!({"decision":source,"reason":frame["reason"],
+            "alternatives":frame["alternatives"],"appraisal":appraisal,"different_from_baseline":differences});
+        if frame["reselected_images"].is_array() {
             report["images_from_pause"] = frame["reselected_images"].clone();
         }
     }
@@ -270,6 +285,8 @@ pub fn inspect(db: &Connection, actor: Option<&str>, query: &Query) -> Result<Va
         let appraisal = serde_json::from_value(next["appraisal"]["appraisal"].clone())?;
         let selection: Vec<_> = serde_json::from_value(next["references"].clone())?;
         let grounds = super::development::deliberation::evidence(db, &accepted.snapshot, &appraisal, &selection)?;
+        report["requested_pause"] = json!({"reason":next["appraisal"]["reason"],
+            "alternatives":next["appraisal"]["alternatives"],"appraisal":appraisal});
         if !grounds.images.is_empty() {
             report["images_selected_for_next_choice"] = serde_json::to_value(grounds.images)?;
         }

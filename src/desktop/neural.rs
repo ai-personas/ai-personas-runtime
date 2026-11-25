@@ -861,7 +861,7 @@ impl eframe::App for App {
             self.open_resource(ctx, reference);
         }
         if let Some(reference) = self.character_paths.show(ctx, &self.root, &self.snapshot.candidates) {
-            self.open_resource(ctx, reference);
+            self.open_choice_or_record(ctx, reference);
         }
     }
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {

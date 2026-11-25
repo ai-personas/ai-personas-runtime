@@ -93,7 +93,7 @@ impl Window {
                 ui.horizontal_wrapped(|ui| {
                     let name = self.result.as_ref().and_then(|r| r.as_ref().ok())
                         .and_then(|r| r["owner_label"].as_str()).filter(|s| !s.trim().is_empty());
-                    ui.heading(name.unwrap_or(&self.owner)).on_hover_text(&self.owner);
+                    ui.heading(name.unwrap_or("Decision record")).on_hover_text(&self.owner);
                     ui.weak(&self.accepted);
                     if let Some(Ok(report)) = &self.result {
                         theme::badge(ui, &title(s(report, "basis")), TEAL);
@@ -189,6 +189,7 @@ impl Window {
                         });
                     }
                     Some(Err(error)) => {
+                        ui.strong("Cannot verify this decision");
                         ui.colored_label(theme::ACCENT, error);
                         refresh |= ui.button("Retry").clicked();
                     }
@@ -212,7 +213,7 @@ impl Window {
                             ));
                         }
                         egui::ScrollArea::vertical()
-                            .id_salt("paths-body")
+                            .id_salt(("paths-body", &query.decision))
                             .show(ui, |ui| {
                                 let choice = &report["choice"];
                                 let judgment = s(&choice["judgment"], "reason");
@@ -234,6 +235,15 @@ impl Window {
                                         }
                                     },
                                 );
+                                for (field, received) in [("received_pause", true), ("requested_pause", false)] {
+                                    if report[field].is_object() {
+                                        ui.push_id((s(report, "decision"), field), |ui| {
+                                            if let Some(source) = pause_card(ui, &report[field], received) {
+                                                open = Some(source);
+                                            }
+                                        });
+                                    }
+                                }
                                 if let Some(images) = report["ordered_image_inputs"].as_array() {
                                     ui.collapsing(format!("Image inputs to this choice · {}", images.len()), |ui| {
                                         ui.weak("In provider input order. Receiving an image does not establish what the persona inferred from it.");
@@ -393,6 +403,46 @@ impl Window {
         }
         open
     }
+}
+
+/// Keep the decision-maker's words distinct from what the forward pass did.
+/// In particular, don't mark one of the alternatives as the numerical winner.
+fn pause_card(ui: &mut Ui, frame: &Value, received: bool) -> Option<String> {
+    let mut open = None;
+    egui::Frame::group(ui.style()).show(ui, |ui| {
+        eyebrow(ui, if received { "Appraisal received before acting" } else { "Decision to pause" });
+        ui.add(egui::Label::new(s(frame, "reason")).wrap());
+        ui.collapsing("What the persona weighed", |ui| {
+            for alternative in frame["alternatives"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+                ui.add(egui::Label::new(format!("•  {alternative}")).wrap());
+            }
+            for (axis, feature) in frame["appraisal"]["features"].as_object().into_iter().flatten() {
+                if let Some(value) = feature["value"].as_f64() {
+                    ui.strong(format!("{}  {value:+.2}", title(axis)));
+                    ui.add(egui::Label::new(s(feature, "interpretation")).wrap());
+                }
+            }
+        });
+        if received {
+            let differences = frame["different_from_baseline"].as_array().map(Vec::as_slice).unwrap_or_default();
+            if differences.is_empty() {
+                ui.small("Same outputs as the supplied baseline.");
+            } else {
+                ui.small("Same model · supplied baseline → appraised output");
+                for difference in differences {
+                    if let (Some(a), Some(b)) = (difference["baseline"].as_f64(), difference["contextual"].as_f64()) {
+                        ui.strong(format!("{}   {a:+.4} → {b:+.4}", title(s(difference, "axis"))));
+                    }
+                }
+            }
+            if ui.link("Read earlier pause ↗").clicked() {
+                open = frame["decision"].as_str().map(str::to_owned);
+            }
+        } else {
+            ui.small("Chosen for a fresh decision, not used to compute the values on this one.");
+        }
+    });
+    open
 }
 
 fn inclination_bar(ui: &mut Ui, value: f64) {
