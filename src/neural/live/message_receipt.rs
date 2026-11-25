@@ -6,7 +6,9 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 mod pdf_pages;
 mod command_inputs;
-mod peer;
+mod exchange;
+mod answers;
+pub(in crate::neural) use answers::operator_answer;
 
 struct Event {
     seq: i64,
@@ -353,7 +355,7 @@ fn receipt(db: &Connection, event: i64) -> Result<Value> {
     if update.kind == "message" && update.invocation.is_some() && update.actor != update.target
         && update.target != "user" && store::head(db, "persona", &update.target)?.is_some()
     {
-        return peer::exchange(db, &update);
+        return exchange::exchange(db, &update);
     }
     if update.invocation.is_some() || !matches!(update.kind.as_str(), "user_message" | "human_request_progress") {
         return Err(invalid());
@@ -483,6 +485,11 @@ fn receipt(db: &Connection, event: i64) -> Result<Value> {
         "received":received,"read_elsewhere":read_elsewhere,"attachments":files,
         "unverified_candidates":unverified,"unverified_elsewhere":unverified_elsewhere,
         "unverified_command_inputs":mounts.unverified});
+    if update.kind == "user_message" {
+        let (answers, gaps) = answers::list(db, &update)?;
+        report["replies"] = json!(answers);
+        report["unverified_replies"] = json!(gaps);
+    }
     if let Some((reference,title)) = delivery {
         report["delivery"] = json!(reference);
         report["delivery_title"] = title;

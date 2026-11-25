@@ -1,6 +1,5 @@
 //! Follow the physical request itself across editions. A human return and an
 //! accepted reply explicitly addressed to it are independently verified facts.
-mod choices;
 mod operator;
 
 use super::{attachments, exact, packet, same_materials, same_terms, Request};
@@ -131,7 +130,7 @@ struct Entry {
     event: Event,
     request: String,
     kind: &'static str,
-    binding: &'static str,
+    binding: String,
     action: &'static str,
 }
 
@@ -388,7 +387,7 @@ pub fn correspondence(
             let seq = packet::verify(db, &previous, &edition)?;
             if seq <= previous_event { return Err(failure("Field packet is out of order")); }
             let event = db.query_row(&format!("SELECT {FIELDS} FROM events e WHERE e.seq=?1"), [seq], Event::load)?;
-            entries.push(Entry { event, request:handle, kind:"field_packet", binding:"accepted_packet_issue", action:"issue" });
+            entries.push(Entry { event, request:handle, kind:"field_packet", binding:"accepted_packet_issue".into(), action:"issue" });
             packets += 1;
             previous_event = seq;
         } else if let Some(call) = writer {
@@ -432,7 +431,7 @@ pub fn correspondence(
                     request: handle,
                     kind: data.kind,
                     action: data.action,
-                    binding: data.binding,
+                    binding: data.binding.into(),
                 });
             } else {
                 unverified += 1;
@@ -460,12 +459,8 @@ pub fn correspondence(
         while let Some(r) = rows.next()? {
             let event = Event::load(r)?;
             let parent = &entries[parents[&r.get::<_, String>(7)?]];
-            let checked = Choice::load(db, requester, work, event.call.as_deref().unwrap())
-                .and_then(|choice| {
-                    choice.response(db, &event, &parent.event, &event.body(db)?)?;
-                    Ok(choice.accepted.binding)
-                });
-            let Ok(binding) = checked else {
+            let checked = crate::neural::live::operator_answer(db, parent.event.seq, event.seq);
+            let Ok(answer) = checked else {
                 unverified_replies += 1;
                 continue;
             };
@@ -478,7 +473,7 @@ pub fn correspondence(
                 request: parent.request.clone(),
                 event,
                 kind,
-                binding,
+                binding: answer["sent"]["binding"].as_str().ok_or_else(|| failure("Missing sending decision binding"))?.to_owned(),
                 action: "reply",
             });
             reply_count += 1;

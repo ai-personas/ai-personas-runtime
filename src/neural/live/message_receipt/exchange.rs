@@ -1,4 +1,4 @@
-//! One addressed exchange, not a conversation inferred from nearby messages.
+//! Publication, receipt and direct response are three separate facts.
 use super::{supplied, Event};
 use crate::neural::{
     accepted_choice::Choice, context::Snapshot, development::deliberation, experience::recall,
@@ -12,15 +12,36 @@ fn published(db: &Connection, event: &Event) -> Result<(Choice, Value)> {
     let call = event
         .invocation
         .as_deref()
-        .ok_or_else(|| failure("Peer message has no sending decision"))?;
+        .ok_or_else(|| failure("Message has no sending decision"))?;
     let choice = Choice::recorded(db, &event.actor, call)?;
     let s = &choice.accepted.snapshot;
-    if s.model.is_none()
-        || s.work != event.work
-        || !choice.contains(event.seq)
-        || event.kind != "message"
-    {
+    if s.model.is_none() || s.work != event.work || !choice.contains(event.seq) {
         return Err(failure("Message is outside the sending persona’s decision"));
+    }
+    let mut sent =
+        json!({"decision":format!("experience:{call}@1"),"binding":choice.accepted.binding});
+    if event.kind == "reply" {
+        let answer = &choice.accepted.response;
+        let unique: i64 = db.query_row(
+            "SELECT count(*) FROM events WHERE invocation=?1 AND kind='reply'",
+            [call],
+            |r| r.get(0),
+        )?;
+        if unique != 1
+            || event.target != "user"
+            || !answer["reply"].is_string()
+            || !answer["reply_to"].is_string()
+            || event.body
+                != json!({"operational_persona":true,"text":answer["reply"],"reply_to":answer["reply_to"]})
+        {
+            return Err(failure(
+                "The published reply differs from the accepted answer",
+            ));
+        }
+        return Ok((choice, sent));
+    }
+    if event.kind != "message" {
+        return Err(failure("Not a published message"));
     }
     let (op, result, seq) = choice.operation(db, "peer.message", "event", &json!(event.seq))?;
     let message: tools::Message = serde_json::from_value(op.input)?;
@@ -34,8 +55,8 @@ fn published(db: &Connection, event: &Event) -> Result<(Choice, Value)> {
             "Peer message differs from its accepted operation or inbox result",
         ));
     }
-    let sent = json!({"decision":format!("experience:{call}@1"),"operation":op.id,
-        "receipt":format!("experience:event-{seq}@1"),"binding":choice.accepted.binding});
+    sent["operation"] = json!(op.id);
+    sent["receipt"] = json!(format!("experience:event-{seq}@1"));
     Ok((choice, sent))
 }
 
@@ -63,9 +84,7 @@ fn full_input(
         .find(|e| e["experience"] == handle)
     {
         if !event.incoming_matches(incoming) {
-            return Err(failure(
-                "Incoming peer message differs from its publication",
-            ));
+            return Err(failure("Incoming message differs from its publication"));
         }
         return Ok(Some("incoming_event"));
     }
@@ -74,9 +93,7 @@ fn full_input(
             && matches!(r.via, "selection" | "asset.read" | "persona.read")
         {
             if !event.experience_matches(r.value) {
-                return Err(failure(
-                    "Selected peer exchange differs from its publication",
-                ));
+                return Err(failure("Selected exchange differs from its publication"));
             }
             return Ok(Some(if r.via == "selection" {
                 "selection"
@@ -155,11 +172,30 @@ fn first_receipt(
     Ok((None, gaps))
 }
 
-fn direct(db: &Connection, event: &Event, parent: &Event, handle: &str) -> Result<Value> {
+pub(super) fn direct(db: &Connection, event: &Event, parent: &Event) -> Result<Value> {
+    let handle = parent.reference();
+    let to = match parent.kind.as_str() {
+        "user_message" if parent.invocation.is_none() => "user",
+        "message" if parent.invocation.is_some() => parent.actor.as_str(),
+        _ => return Err(failure("Not an addressed parent message")),
+    };
+    if event.work != parent.work
+        || event.actor != parent.target
+        || event.target != to
+        || event.seq <= parent.seq
+        || event.body["reply_to"] != handle
+    {
+        return Err(failure(
+            "Reply is not addressed to this message in its activity",
+        ));
+    }
     let (choice, sent) = published(db, event)?;
     let s = &choice.accepted.snapshot;
-    operations::check_observed_reply(db, s, &parent.actor, handle)?;
-    let via = if let Some(via) = full_input(db, s, parent, handle)? {
+    if parent.seq > s.observation_through.unwrap_or(s.cursor) {
+        return Err(failure("Parent message is later than the answering input"));
+    }
+    operations::check_observed_reply(db, s, to, &handle)?;
+    let via = if let Some(via) = full_input(db, s, parent, &handle)? {
         via
     } else if s.data["reply_targets"]
         .as_array()
@@ -170,7 +206,7 @@ fn direct(db: &Connection, event: &Event, parent: &Event, handle: &str) -> Resul
                 && r["author"] == parent.actor
                 && r["kind"] == parent.kind
                 && r["received_at"] == parent.created
-                && r["recipient_for_reply"] == parent.actor
+                && r["recipient_for_reply"] == to
         })
     {
         "reply_address"
@@ -180,7 +216,8 @@ fn direct(db: &Connection, event: &Event, parent: &Event, handle: &str) -> Resul
         ));
     };
     Ok(
-        json!({"event":event.seq,"message":event.reference(),"text":event.body["text"],"sent":sent,"parent_via":via}),
+        json!({"event":event.seq,"message":event.reference(),"kind":event.kind,"sent_at":event.created,
+            "text":event.body["text"],"sent":sent,"parent_via":via}),
     )
 }
 
@@ -225,7 +262,6 @@ pub(super) fn exchange(db: &Connection, event: &Event) -> Result<Value> {
                 db,
                 &reply.ok_or_else(|| failure("Missing reply event"))?,
                 event,
-                &handle,
             )
         });
         match result {

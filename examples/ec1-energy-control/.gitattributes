@@ -13,3 +13,4 @@ exhibit/EC1.html -text
 exhibit/bezel.png binary
 stores/EC1-C1/*.md -text
 stores/operator-input/*.txt -text
+appeal/EC1-C1/**/*.md -text

@@ -118,7 +118,12 @@ impl App {
                 }
                 ui.add_space(6.);
                 if let Some(text) = report["text"].as_str().filter(|text| !text.trim().is_empty()) {
-                    ui.label(excerpt(text, 360));
+                    let preview = excerpt(text, 600);
+                    if preview != text {
+                        let full = egui::CollapsingHeader::new("Full message").id_salt((event,"original-text"))
+                            .show(ui, |ui| document::message_edition(ui, ui.id().with("original"), text, false));
+                        if full.body_returned.is_none() { ui.label(preview); }
+                    } else { ui.label(text); }
                 }
                 ui.add_space(8.);
                 ui.separator();
@@ -133,6 +138,33 @@ impl App {
                     if !self.running && !self.snapshot.status.is_null() && matches!(self.runner_observation, RunnerObservation::Unobserved) {
                         ui.weak("No activity runner is currently observed in this workspace.");
                     }
+                }
+                if let Some(answers) = report["replies"].as_array() {
+                    ui.add_space(8.);
+                    ui.separator();
+                    ui.strong("Replies to this message");
+                    let gaps = report["unverified_replies"].as_array().map(Vec::as_slice).unwrap_or_default();
+                    if answers.is_empty() && gaps.is_empty() {
+                        ui.weak("No explicitly addressed reply recorded.");
+                    }
+                    for answer in answers {
+                        ui.push_id(answer["event"].as_i64(), |ui| {
+                            let stamp = time_label(answer["sent_at"].as_i64().unwrap_or_default());
+                            egui::CollapsingHeader::new(format!("{recipient} · {stamp}"))
+                                .default_open(answers.len() == 1).show(ui, |ui| {
+                                    document::message_edition(ui, ui.id().with("answer"), s(answer,"text"), false);
+                                    ui.small(if answer["parent_via"] == "reply_address" {
+                                        "Reply address verified. This does not establish a full read in the answering decision."
+                                    } else { "The answering decision also received the original message text." });
+                                    ui.horizontal_wrapped(|ui| {
+                                        if ui.small_button("Published reply").clicked() { inspect = Some(s(answer,"message").to_owned()); }
+                                        if ui.small_button("Answering decision").clicked() { inspect = Some(s(&answer["sent"],"decision").to_owned()); }
+                                    });
+                                });
+                        });
+                    }
+                    for gap in gaps { ui.weak(format!("Reply evidence unavailable: {}",s(gap,"reason"))); }
+                    if !gaps.is_empty() && ui.small_button("Check again").clicked() { refresh = true; }
                 }
                 let elsewhere = &report["read_elsewhere"];
                 if let Some(call) = elsewhere["decision"].as_str() {
@@ -229,7 +261,11 @@ impl App {
                     .take_while(|e| e["event"].as_i64().is_some_and(|seq| seq > since))
                     .any(|e| e["work"] == report["work"] && e["actor"] == report["recipient"]
                         && e["kind"] == "tool_result" && e["body"]["tool"] == "command.local");
-                refresh = (pending && self.message_receipt.decisions != self.known_decisions.len()) || new_command
+                let new_answer = self.cursor != since && self.events.iter().rev()
+                    .take_while(|e| e["event"].as_i64().is_some_and(|seq| seq > since))
+                    .any(|e| e["work"] == report["work"] && e["actor"] == report["recipient"]
+                        && e["target"] == "user" && e["body"]["reply_to"] == source);
+                refresh |= (pending && self.message_receipt.decisions != self.known_decisions.len()) || new_command || new_answer
                     || (self.message_receipt.cursor != self.cursor && files.iter().any(|f|f["pdf_pages"].is_array()));
             });
         if !visible {
