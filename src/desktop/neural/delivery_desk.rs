@@ -532,7 +532,8 @@ impl App {
             Print(egui::Id),
             Save,
             SaveEntry(ZipFile),
-            InspectEntry(ZipFile),
+            SaveViewed(artifacts::ViewedMember),
+            InspectEntry(artifacts::MemberTarget),
             Measure(Option<String>),
             Overlay,
         }
@@ -590,13 +591,24 @@ impl App {
                 desk.inline.show(ui, &self.root, &p.reference, file);
                 ui.add_space(4.);
                 ui.horizontal_wrapped(|ui| {
-                    if let Some(entry) = desk.inline.selected_member() {
+                    let inner = desk.inline.viewed_member();
+                    let inside = !matches!(&inner, Ok(None));
+                    if let Ok(Some(entry)) = inner {
+                        if ui.link("Inspect member ↗").on_hover_text(entry.name()).clicked() {
+                            action = Some(Action::InspectEntry(artifacts::MemberTarget::Viewed(entry.clone())));
+                        }
+                        if ui.link("Save member…").on_hover_text(entry.name()).clicked() {
+                            action = Some(Action::SaveViewed(entry));
+                        }
+                    } else if let Err(reason) = inner {
+                        ui.colored_label(ui.visuals().error_fg_color, reason);
+                    } else if let Some(entry) = desk.inline.selected_member() {
                         if entry.path.to_ascii_lowercase().ends_with(".stl") && ui.link("Measure mesh…")
                             .on_hover_text("Measure this STL at its original path in the issued ZIP").clicked() {
                             action = Some(Action::Measure(Some(entry.path.clone())));
                         }
                         if ui.link("Inspect selected file ↗").clicked() {
-                            action = Some(Action::InspectEntry(entry.clone()));
+                            action = Some(Action::InspectEntry(artifacts::MemberTarget::Zip(entry.index, entry.path.clone())));
                         }
                         if ui.add_enabled(file.digest.is_some(), egui::Link::new("Save selected file…"))
                             .on_hover_text(format!("Save {} from the issued ZIP", entry.path)).clicked() {
@@ -606,7 +618,7 @@ impl App {
                         action = Some(Action::Measure(None));
                     }
                     if ui
-                        .link(if desk.inline.selected_member().is_some() { "Open full ZIP ↗" } else { "Open full file ↗" })
+                        .link(if inside { "Open original archive ↗" } else if desk.inline.selected_member().is_some() { "Open full ZIP ↗" } else { "Open full file ↗" })
                         .on_hover_text(format!("{}\n{}", file.path, file.reference))
                         .clicked()
                     {
@@ -620,7 +632,7 @@ impl App {
                         action = Some(Action::History);
                     }
                     if ui
-                        .add_enabled(file.digest.is_some(), egui::Link::new(if file.format.archive() { "Save this ZIP unchanged…" } else { "Save this file…" }))
+                        .add_enabled(file.digest.is_some(), egui::Link::new(if file.format.archive() { "Save this ZIP unchanged…" } else if inside { "Save original archive…" } else { "Save this file…" }))
                         .on_hover_text(format!("Save {} from this delivery", file.path))
                         .on_disabled_hover_text("This edition’s byte reference is unavailable.")
                         .clicked()
@@ -643,7 +655,7 @@ impl App {
             ),
             Some(Action::InspectEntry(entry)) => {
                 self.open_package_file(ui.ctx(), &p.reference, &file.reference);
-                self.preview_zip_member = Some((entry.index,entry.path));
+                self.preview_member = Some(entry);
             }
             Some(Action::Open) => self.open_package_file(ui.ctx(), &p.reference, &file.reference),
             Some(Action::History) => self.open_file_history(ui.ctx(), &file.reference),
@@ -653,6 +665,11 @@ impl App {
             Some(Action::Save) => {
                 if let Some(digest) = &file.digest {
                     self.save_package_member(&p.reference, &file.reference, &file.path, digest, None);
+                }
+            }
+            Some(Action::SaveViewed(entry)) => {
+                if let Some(digest) = &file.digest {
+                    self.save_viewed_member(file.reference.clone(), Some((p.reference.clone(), file.path.clone())), digest.clone(), entry);
                 }
             }
             Some(Action::SaveEntry(entry)) => {

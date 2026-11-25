@@ -8,6 +8,8 @@ To inspect the print file, import `EC1-rest.stl` **in millimetres at 100%, flat 
 
 ![Studio displaying Kit’s issued STL alongside the editable source and two notes, with the measured envelope above the mesh.](../../../../docs/assets/studio-ec1-inspection-rest.jpg)
 
+In Studio, choose `EC1-inspection-rest/EC1-rest.stl` under **Delivery → File preview** to orbit the mesh beside Kit’s supported use and open items. **Open full file ↗** gives it more room. The envelope is in file coordinates; Kit’s placement note supplies the millimetre unit.
+
 ## What fits in the digital model
 
 A separate receiver took the actual files saved from Studio and the original [fabrication ZIP](../../EC1-fabrication.zip). The reference rectangle was the **centreline** of the outline Gerber, not its painted stroke. The ten lead positions came from the plated drill file, not from a rendering of the board.

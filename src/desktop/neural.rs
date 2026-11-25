@@ -199,7 +199,7 @@ pub struct App {
     agreement_book: agreements::Book,
     preview_generation: u64,
     preview_package: Option<String>,
-    preview_zip_member: Option<(usize, String)>,
+    preview_member: Option<artifacts::MemberTarget>,
     preview_pending: bool,
     preview_metadata: Value,
     print_preview: Option<print_preview::Preview>,
@@ -322,7 +322,7 @@ impl App {
             agreement_book: Default::default(),
             preview_generation: 0,
             preview_package: None,
-            preview_zip_member: None,
+            preview_member: None,
             preview_pending: false,
             preview_metadata: Value::Null,
             print_preview: None,
@@ -450,7 +450,7 @@ impl App {
         self.layout.editor = Editor::Artifacts;
         self.artifact_mode = 0;
         self.preview_generation += 1;
-        self.preview_zip_member = None;
+        self.preview_member = None;
         self.preview_pending = true;
         self.preview_metadata = Value::Null;
         self.viewer.clear_selection();
@@ -547,13 +547,10 @@ impl App {
                     self.preview_pending = false;
                     match result {
                         Ok(preview) => {
-                            self.preview_metadata = preview.metadata;
-                            self.viewer.open_snapshot(
-                                preview.directory,
-                                preview.path,
-                                preview.digest,
-                                self.preview_zip_member.take(),
-                            );
+                            match self.viewer.open_snapshot(preview.directory, preview.path, preview.digest, self.preview_member.take()) {
+                                Ok(()) => self.preview_metadata = preview.metadata,
+                                Err(error) => { self.preview_metadata = Value::Null; self.error = Some(error); }
+                            }
                         }
                         Err(e) => self.error = Some(e),
                     }

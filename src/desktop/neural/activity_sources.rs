@@ -330,7 +330,7 @@ fn file_row(
             if let Some(index) = detail["member_index"].as_u64().and_then(|n| usize::try_from(n).ok()) {
                 if ui.link("Open whole member ↗").on_hover_text("View this member of the exact archive, not just the range supplied to the persona.").clicked() {
                     app.open_resource(ui.ctx(), reference.into());
-                    app.preview_zip_member = Some((index, member.into()));
+                    app.preview_member = Some(artifacts::MemberTarget::Zip(index, member.into()));
                 }
             }
         });

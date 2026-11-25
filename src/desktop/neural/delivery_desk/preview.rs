@@ -74,6 +74,9 @@ impl Format {
                 | "py" | "rs" | "sh" | "js" | "ts" | "toml" | "sha256",
                 _,
             ) => Kind::Text,
+            // ASCII STL, OBJ and JSON glTF are still models. Give the full
+            // file decoder the same original bytes as the retained viewer.
+            ("stl" | "obj" | "gltf" | "glb", _) => Kind::Other,
             (_, mime) if mime.starts_with("text/") || mime == "application/json" => Kind::Text,
             _ => Kind::Other,
         };
@@ -142,9 +145,9 @@ struct Identity {
     member: Option<(String, usize, String)>,
 }
 impl Identity {
-    fn show(&self, ui: &mut Ui) {
+    fn show(&self, ui: &mut Ui, inner_open: bool) {
         let s = &self.source;
-        egui::CollapsingHeader::new("Verified file identity")
+        egui::CollapsingHeader::new(if inner_open { "Verified enclosing archive" } else { "Verified file identity" })
             .id_salt(("issued-file-identity", &s.edition, &s.file))
             .show(ui, |ui| {
                 ui.weak("Checked against the issuing decision, the original file write and the retained bytes. Not a quality verdict or physical receipt.");
@@ -257,6 +260,21 @@ impl Inline {
         self.member.as_ref()
     }
 
+    /// The embedded reader can descend farther than the delivery’s first
+    /// ZIP listing. Its actions must follow the visible file at every depth.
+    pub fn viewed_member(&self) -> Result<Option<artifacts::ViewedMember>, String> {
+        if !matches!(self.view, View::Studio) { return Ok(None); }
+        let Some(entry) = self.studio.as_ref().and_then(|viewer| viewer.viewed_member()) else { return Ok(None) };
+        let identity = self.identity.as_ref().ok_or("Missing verified archive identity.")?;
+        let original = &identity.source;
+        match (&identity.member, &self.member) {
+            (Some((path, _, digest)), Some(parent)) if path == &parent.path =>
+                entry.in_issued_zip(digest, &original.sha256, &original.path, parent.index, path).map(Some),
+            (None, None) => { entry.check_archive(&original.sha256)?; Ok(Some(entry)) }
+            _ => Err("The selected archive changed. Reopen the member.".into()),
+        }
+    }
+
     fn request(&mut self, ui: &Ui, root: &Path, file: &File) {
         let serial = self.latest.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
         ui.ctx().request_repaint();
@@ -350,8 +368,10 @@ impl Inline {
                     Ok(Content::Text(body, truncated)) => View::Text(body, truncated),
                     Ok(Content::Studio(directory, path, sha256)) => {
                         let viewer = self.studio.get_or_insert_with(|| artifacts::Viewer::new(ui.ctx(), self.gl.as_ref()));
-                        viewer.open_snapshot(directory, path, sha256, None);
-                        View::Studio
+                        match viewer.open_snapshot(directory, path, sha256, None) {
+                            Ok(()) => View::Studio,
+                            Err(e) => View::Note(format!("Preview unavailable. {e}")),
+                        }
                     }
                     Err(e) => {
                         if let Some(total) = e
@@ -365,7 +385,10 @@ impl Inline {
                 };
             }
         }
-        if let Some(identity) = &self.identity { identity.show(ui); }
+        if let Some(identity) = &self.identity {
+            let inner_open = matches!(self.view, View::Studio) && self.studio.as_ref().is_some_and(|v| v.inside_archive());
+            identity.show(ui, inner_open);
+        }
         let document = matches!(kind, Kind::Pdf) || self.pages.count.is_some();
         if document && self.pages.navigation(ui, reference) {
             self.request(ui, root, file);

@@ -175,9 +175,11 @@ impl App {
             .map(|record| (record.to_owned(), path.to_owned()));
         let file = &self.preview_metadata["preview_file"];
         let metadata_view = self.preview_metadata["view"] == "provider_receipt_metadata";
-        let name = if let Some(entry) = &entry {
-            basename(entry.name()).to_owned()
-        } else if metadata_view {
+        if let Some(entry) = entry {
+            self.save_viewed_member(self.selected_reference.clone(), source, s(file, "sha256").to_owned(), entry);
+            return;
+        }
+        let name = if metadata_view {
             "provider-receipt-metadata.json".to_owned()
         } else {
             basename(s(file, "name")).to_owned()
@@ -185,9 +187,16 @@ impl App {
         self.export_generation += 1;
         self.export_dialog = Some(Dialog::new(
             self.export_generation,
-            Contents::Artifact { reference: self.selected_reference.clone(), digest: s(file, "sha256").to_owned(), metadata_view, source, entry },
+            Contents::Artifact { reference: self.selected_reference.clone(), digest: s(file, "sha256").to_owned(), metadata_view, source, entry: None },
             name,
         ));
+    }
+    pub(super) fn save_viewed_member(&mut self, reference: String, source: Option<(String, String)>, digest: String, entry: artifacts::ViewedMember) {
+        let name = basename(entry.name()).to_owned();
+        self.export_generation += 1;
+        self.export_dialog = Some(Dialog::new(self.export_generation, Contents::Artifact {
+            reference, digest, metadata_view: false, source, entry: Some(entry),
+        }, name));
     }
     pub(super) fn save_package_member(&mut self, edition: &str, reference: &str, path: &str, digest: &str, entry: Option<delivery_desk::ZipFile>) {
         self.export_generation += 1;
