@@ -97,7 +97,7 @@ const MATCHES: &str = "FROM versions v JOIN objects o ON o.digest=v.digest
     WHEN 'delivery' THEN EXISTS (SELECT 1 FROM json_each(CAST(o.bytes AS TEXT),'$.evidence') WHERE value=?1)
     OR EXISTS (SELECT 1 FROM json_each(CAST(o.bytes AS TEXT),'$.review_inputs') WHERE value=?1) END END";
 
-pub(super) fn public_issue(db: &Connection, reference: &str) -> Result<Edition> {
+pub(in crate::neural) fn public_issue(db: &Connection, reference: &str) -> Result<Edition> {
     let edition = delivery::edition(db, reference)?;
     check_public(db, &edition)?;
     Ok(edition)

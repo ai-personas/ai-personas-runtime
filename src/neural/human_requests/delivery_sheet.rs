@@ -76,6 +76,7 @@ struct Disposition {
     accepted: bool,
     reason: String,
     created: i64,
+    reviewed_brief: Option<String>,
     brief_at_review: Option<String>,
 }
 
@@ -318,12 +319,13 @@ pub(super) fn render(
     );
     field(
         &mut html,
-        "Operator disposition at export",
-        match dispositions.last() {
-            Some(d) if d.accepted => "Accepted",
-            Some(_) => "Rejected",
-            None => "None recorded for this edition",
-        },
+        "Latest operator decision at export",
+        &dispositions.last().map(|d| {
+            let basis = d.reviewed_brief.as_deref().and_then(|r| r.rsplit_once('@'))
+                .map(|(_, n)| format!("brief {n}")).unwrap_or_else(|| "review basis not recorded".into());
+            format!("{} · {} · {basis} ({} recorded)", if d.accepted { "Accepted" } else { "Changes requested" }, d.reviewer, dispositions.len())
+        })
+            .unwrap_or_else(|| "None recorded for this edition".into()),
     );
     html.push_str("</dl></header>");
     notice.render(&mut html, true);
@@ -429,7 +431,7 @@ pub(super) fn render(
             html.push_str(if disposition.accepted {
                 "Accepted"
             } else {
-                "Rejected"
+                "Changes requested"
             });
             html.push_str("</h3><p class=\"verbatim\" dir=\"auto\">");
             append_text(&mut html, &disposition.reason);
@@ -438,7 +440,12 @@ pub(super) fn render(
             field(&mut html, "Recorded", &utc(db, disposition.created)?);
             field(
                 &mut html,
-                "Brief at review",
+                "Reviewed against",
+                disposition.reviewed_brief.as_deref().unwrap_or("Not recorded"),
+            );
+            field(
+                &mut html,
+                "Current brief when recorded",
                 disposition
                     .brief_at_review
                     .as_deref()
@@ -449,7 +456,7 @@ pub(super) fn render(
                 .as_ref()
                 .is_some_and(|r| r != &mandate)
             {
-                field(&mut html, "Brief comparison", "Changed since issue");
+                field(&mut html, "Activity at recording", "Brief changed since issue");
             }
             field(&mut html, "Disposition record", &disposition.reference);
             html.push_str("</dl></li>");

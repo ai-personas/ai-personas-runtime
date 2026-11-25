@@ -451,7 +451,7 @@ impl Desk {
                     .show(ui, |ui| {
                         egui::CollapsingHeader::new("Selected files and inputs")
                             .id_salt("selected-review-files")
-                            .default_open(page["total"] == 0)
+                            .default_open(page["total"] == 0 && page["operator_review_history"].as_array().is_none_or(Vec::is_empty))
                             .show(ui, |ui| {
                                 for (path, m) in
                                     package["members"].as_object().into_iter().flatten()
@@ -482,15 +482,11 @@ impl Desk {
                                 history.len()
                             ))
                             .id_salt(("package-disposition", &self.selection.delivery))
+                            .default_open(history.len() > 1)
                             .show(ui, |ui| {
                                 for review in history.iter().rev() {
                                     ui.horizontal_wrapped(|ui| {
-                                        ui.strong(if review["accepted"] == true {
-                                            "Accepted"
-                                        } else {
-                                            "Changes requested"
-                                        });
-                                        ui.label(s(review, "reviewer"));
+                                        super::edition_review::summary(ui, review);
                                         ref_button(
                                             ui,
                                             s(review, "reference"),
@@ -499,6 +495,12 @@ impl Desk {
                                         );
                                     });
                                     ui.label(s(review, "reason"));
+                                    if let Some(basis) = review["reviewed_brief"].as_str() {
+                                        ref_button(ui, basis, format!("Reviewed brief · {}", version(basis)), &mut inspect);
+                                    }
+                                    if let Some(head) = review["brief_at_review"].as_str().filter(|h| review["reviewed_brief"].as_str() != Some(*h)) {
+                                        ref_button(ui, head, format!("Current when recorded · {}", version(head)), &mut inspect);
+                                    }
                                 }
                             });
                         }
