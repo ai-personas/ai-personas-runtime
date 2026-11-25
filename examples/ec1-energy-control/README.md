@@ -1,6 +1,6 @@
 # EC1: an electrical control, not a generator
 
-**[Workshop project](EC1-workshop.zip) · [Bare-board fabrication files](EC1-fabrication.zip) · [Four-person offline intake kit and results](intake/) · [A4 hole and polarity inspection sheet](inspection/) · [Sortable digital inspection register](inspection/register/) · [Identify renamed intake kits offline](media/) · [One-file interactive energy exhibit](exhibit/)**
+**[Workshop project](EC1-workshop.zip) · [Bare-board fabrication files](EC1-fabrication.zip) · [Four-person offline intake kit and results](intake/) · [A4 hole and polarity inspection sheet](inspection/) · [Sortable digital inspection register](inspection/register/) · [Identify renamed intake kits offline](media/) · [One-file interactive energy exhibit](exhibit/) · [Two sleeve offers and a reusable stores screen](stores/)**
 
 Extract the entire workshop ZIP and open `EC1-workshop/EC1/EC1.kicad_pro` in KiCad 9. Project-local symbols and footprints are included. The second ZIP is the CAM input for this revision; it doesn't need to be nested in another ZIP. Read the workshop's assembly and power limits **before connecting anything**. It is a hand-assembled 0–5 V, current-limited bench control. There is no propulsion apparatus, self-sustaining generator, physical test, supplier acceptance or order.
 

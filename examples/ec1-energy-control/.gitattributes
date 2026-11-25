@@ -11,3 +11,5 @@ media/READ-FIRST.txt -text
 media/identify.py -text
 exhibit/EC1.html -text
 exhibit/bezel.png binary
+stores/EC1-C1/*.md -text
+stores/operator-input/*.txt -text
