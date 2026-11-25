@@ -4,4 +4,4 @@ The exhibit team needs a one-page A4 PDF for its opening count. There are four c
 
 A volunteer will arrive later to open the issued file in a PDF reader outside Studio and check whether all four rows are legible. You need someone to be able to take responsibility for that check. File preparation can go ahead without the volunteer’s answer.
 
-Give the brief in your own words and choose whom to invite. Leave the outside step unanswered. Later, use your own Studio window to find who took it, what they reported, and what is still outstanding. If you get stuck, tell the observer what you were trying to do.
+Give the brief in your own words and choose whom to invite. You want the team to know that you are responsible for following up on the task, not for performing the volunteer’s check. Try to make that distinction in Studio. Leave the outside step unanswered. Later, use your own Studio window to find who took it, what they reported, and what is still outstanding. If you get stuck, tell the observer what you were trying to do.

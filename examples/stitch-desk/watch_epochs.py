@@ -38,6 +38,20 @@ class Snapshot:
             exists(select id from invocations where state in ('prepared','dispatched','responded','probe_prepared','probe_dispatched','uncertain'))
             or exists(select id from outbox where state in ('pending','dispatched','uncertain'))""").fetchone()
 
+    def configured_reasoning(self):
+        # Saved selections at this read pin, not model/effort reports from calls.
+        # Do not copy credential references or account data into the summary.
+        selections = {}
+        for actor, revision, address, blob in self.db.execute(
+                "select id,revision,digest,bytes from heads join objects using(digest) where kind='persona' order by id"):
+            person = json.loads(blob)
+            if sha256(blob).hexdigest() != address or person['id'] != actor:
+                raise ValueError("Cannot bind the configured reasoning selection to its resident")
+            provider = person['provider']
+            selections[actor] = {"edition": f"persona:{actor}@{revision}",
+                                 **{k: provider.get(k) for k in ('mode', 'model', 'effort')}}
+        return selections
+
     def archive(self, dst):
         dst.touch(mode=0o600, exist_ok=False)
         try:
@@ -60,19 +74,42 @@ class Snapshot:
 
 class Recorder:
     def __init__(self, root, dest):
-        self.uri = (root.resolve() / "neural.sqlite").as_uri() + "?mode=ro"
-        self.prior = Snapshot(self.uri)
+        self.database = root.resolve() / 'neural.sqlite'
+        self.source = self.database.stat()
+        self.uri = self.database.as_uri() + '?mode=ro'
+        self.prior = self.pin()
         if self.prior.unsettled:
             raise ValueError("Arm on a settled workspace before starting the observed work.")
         cfg, = self.prior.db.execute("select bytes from heads join objects using(digest) where kind='config' and id='runtime'").fetchone()
         self.dest = dest.resolve()
         if any(self.dest.is_relative_to(p) for p in (root.resolve(), Path(json.loads(cfg)["working_directory"]).resolve())):
             raise ValueError("Keep private archives outside the workspace and its shared project.")
+        selections = self.prior.configured_reasoning()
         self.dest.mkdir(mode=0o700, exist_ok=False)
         self.seen = self.prior.through
         self.batches = []
         self.armed = self.prior.archive(self.dest / "armed.sqlite")
+        self.armed['configured_reasoning'] = selections
+        self.check_database()
         note(self.dest / "armed.json", self.armed)
+
+    def check_database(self):
+        try:
+            same = os.path.samestat(self.source, self.database.stat())
+        except FileNotFoundError:
+            same = False
+        if not same:
+            raise ValueError('The observed workspace database was moved or replaced. Keep the capture as incomplete.')
+
+    def pin(self):
+        self.check_database()
+        snapshot = Snapshot(self.uri)
+        try:
+            self.check_database()
+            return snapshot
+        except BaseException:
+            snapshot.db.close()
+            raise
 
     def keep_package(self, snapshot, actor, handle):
         row = snapshot.db.execute("select bytes from objects where digest=?", [handle]).fetchone()
@@ -94,8 +131,10 @@ class Recorder:
         return {"file": str(path.relative_to(self.dest)), "sha256": handle, "bytes": len(row[0])}
 
     def step(self, final_archive=None):
-        cur = Snapshot(self.uri)
+        cur = self.pin()
         try:
+            if cur.through < self.seen:
+                raise ValueError('The observed journal moved backwards. Keep the capture as incomplete.')
             changes = []
             for seq, actor, work, call, digest_, blob in cur.db.execute(
                 """select seq,actor,work,invocation,digest,bytes from events join objects using(digest)
@@ -145,28 +184,88 @@ class Recorder:
             self.prior.db.close()
 
 
+def observing(root, dest, until_file):
+    """Linux desk preflight, not a guarantee that observation will continue."""
+    root, dest = root.resolve(), dest.resolve()
+    if (dest / 'observation.json').exists() or (until_file and until_file.exists()):
+        return False
+    try:
+        # The observer holds BOTH the private marker and the database open.
+        # A dead/reused PID, copied marker or replaced workspace is not enough.
+        with (dest / 'observer.json').open('rb') as file:
+            ready = json.load(file)
+            marker = os.fstat(file.fileno())
+        armed = json.loads((dest / 'armed.json').read_bytes())
+        if (ready['workspace'] != str(root) or ready['capture'] != str(dest)
+                or ready['until_file'] != (str(until_file.resolve()) if until_file else None)
+                or ready['armed_sha256'] != armed['sha256'] or armed['unsettled_calls_or_effects'] is not False
+                or armed['archive'] != 'armed.sqlite' or not (dest / 'armed.sqlite').is_file()):
+            return False
+        pid = ready['pid']
+        if type(pid) is not int or pid <= 0:
+            return False
+        proc = Path('/proc') / str(pid)
+        if (proc / 'stat').read_bytes().rsplit(b') ', 1)[1][:1] in (b'T', b't', b'Z', b'X'):
+            return False
+        source = (root / 'neural.sqlite').stat()
+        if ready['database_file'] != [source.st_dev, source.st_ino]:
+            return False
+        needed = {(s.st_dev, s.st_ino) for s in (marker, source)}
+        for fd in (proc / 'fd').iterdir():
+            try:
+                s = fd.stat()
+                needed.discard((s.st_dev, s.st_ino))
+            except FileNotFoundError:  # SQLite may have finished a read.
+                continue
+        return not needed
+    except (OSError, ValueError, KeyError, IndexError, TypeError):
+        return False
+
+
+def watch(workspace, private_directory, until_file):
+    watcher = Recorder(workspace, private_directory)
+    # Compare data_version on ONE separate read connection. Opening/closing
+    # snapshot connections is not a signal that the workspace has progressed.
+    signal = sqlite3.connect(watcher.uri, uri=True)
+    version = None
+    marker = watcher.dest / "observer.json"
+    with marker.open('x') as file:
+        json.dump({"pid": os.getpid(), "workspace": str(workspace.resolve()), "capture": str(watcher.dest),
+                   "until_file": str(until_file.resolve()) if until_file else None,
+                   "armed_sha256": watcher.armed['sha256'],
+                   "database_file": [watcher.source.st_dev, watcher.source.st_ino]}, file)
+        file.flush()
+        try:
+            print("Selected for future calls (not provider receipts):", json.dumps(watcher.armed['configured_reasoning']))
+            print("Armed at event", watcher.seen, flush=True)
+            while not (until_file and until_file.exists()):
+                watcher.check_database()
+                current, = signal.execute("pragma data_version").fetchone()
+                if current != version:
+                    watcher.step()
+                    version = current
+                time.sleep(0.12)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            marker.unlink(missing_ok=True)
+            signal.close()
+    print(json.dumps(watcher.close(), ensure_ascii=False))
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("workspace", type=Path)
     parser.add_argument("private_directory", type=Path)
     parser.add_argument("--until-file", type=Path, help="End observation when this file exists (or press Ctrl+C)")
+    parser.add_argument("--check-live", action="store_true", help="Linux: check this exact live observation without starting one")
     args = parser.parse_args()
+    if args.check_live:
+        if not observing(args.workspace, args.private_directory, args.until_file):
+            parser.exit(1, "No live observer verified for this workspace and capture. Ask the facilitator before opening a desk.\n")
+        parser.exit(0)
     os.umask(0o077)
-    watcher = Recorder(args.workspace, args.private_directory)
-    # Compare data_version on ONE separate read connection. Opening/closing
-    # snapshot connections is not a signal that the workspace has progressed.
-    signal = sqlite3.connect(watcher.uri, uri=True)
-    version = None
-    print("Armed at event", watcher.seen, flush=True)
     try:
-        while not (args.until_file and args.until_file.exists()):
-            current, = signal.execute("pragma data_version").fetchone()
-            if current != version:
-                watcher.step()
-                version = current
-            time.sleep(0.12)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        signal.close()
-    print(json.dumps(watcher.close(), ensure_ascii=False))
+        watch(args.workspace, args.private_directory, args.until_file)
+    except (ValueError, OSError, sqlite3.Error) as err:
+        parser.exit(1, f"Observation incomplete: {err}\n")
