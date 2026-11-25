@@ -14,6 +14,7 @@ pub mod asset_feedback;
 pub mod asset_history;
 pub mod delivery_feedback;
 pub mod delivery_export;
+mod image_inputs;
 pub mod issued_files;
 pub mod issued_zip;
 pub(crate) mod pdf_evidence;

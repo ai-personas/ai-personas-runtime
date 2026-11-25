@@ -257,7 +257,7 @@ pub fn inspect(db: &Connection, actor: Option<&str>, query: &Query) -> Result<Va
         "coordinates":"Direct terms use direct[row,column]. Hidden inputs use hidden[unit,column], hidden_bias[unit,0] and output[row,unit]. Unlisted weights are zero. By default only hidden units with a nonzero output weight appear.",
         "scope":"Verified supplied inclinations and local forward arithmetic. Any alternate is evaluated on this decision's recorded appraisal."});
     if !accepted.snapshot.image_blobs.is_empty() {
-        report["ordered_image_inputs"] = serde_json::to_value(super::development::deliberation::ordered_images(db, &accepted.snapshot.image_blobs)?)?;
+        report["ordered_image_inputs"] = serde_json::to_value(super::image_inputs::ordered(db, &accepted.snapshot.image_blobs)?)?;
     }
     let frame = &accepted.snapshot.data["decision_continuity"]["before_action"];
     if !frame.is_null() {

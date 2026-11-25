@@ -152,7 +152,12 @@ impl VisualHistory {
         }
         let (page, pictures) = match self.result.as_ref()? {
             Ok(result) => result,
-            Err(error) => { ui.colored_label(theme::ACCENT, error); return None; }
+            Err(error) => {
+                ui.strong("Visual history unavailable");
+                ui.colored_label(theme::ACCENT, error);
+                ui.weak("Edit the search or use Refresh to check again.");
+                return None;
+            }
         };
         if page.items.is_empty() {
             ui.weak("No matching images in this person’s accepted decisions.");

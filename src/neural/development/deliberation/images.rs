@@ -1,39 +1,9 @@
 //! A visual appraisal needs both a named observation and the image input itself.
 //! The same pixels under a different asset revision do not identify the same read.
-use crate::neural::{context, failure, protocol::ContextResource, store, Result};
+use crate::neural::{context, failure, image_inputs::Input, protocol::ContextResource, Result};
 use rusqlite::Connection;
 use serde::Serialize;
-use serde_json::{json, Value};
-
-#[derive(Debug, PartialEq, Eq, Serialize)]
-pub(in crate::neural) struct Input {
-    object: String,
-    mime: String,
-    bytes: usize,
-}
-
-impl Input {
-    fn read(db: &Connection, digest: &str, mime: &str) -> Result<Self> {
-        let bytes = store::bytes(db, digest)?;
-        if context::image_media(&bytes) != Some(mime) {
-            return Err(failure(
-                "The retained image format differs from the recorded image input",
-            ));
-        }
-        Ok(Self {
-            object: format!("object:{digest}"),
-            mime: mime.into(),
-            bytes: bytes.len(),
-        })
-    }
-}
-
-pub(in crate::neural) fn ordered(
-    db: &Connection,
-    blobs: &[(String, String)],
-) -> Result<Vec<Input>> {
-    blobs.iter().map(|(d, m)| Input::read(db, d, m)).collect()
-}
+use serde_json::Value;
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
 pub(in crate::neural) struct Selection {
@@ -90,26 +60,8 @@ fn observed(
         if !blobs.iter().any(|(d, m)| d == digest && m == mime) {
             continue;
         }
-        if let Some(object) = reference.strip_prefix("object:") {
-            if digest != object {
-                continue;
-            }
-        } else if reference.starts_with("asset:") {
-            let asset = store::exact(db, reference)?;
-            if asset.reference.handle() != reference
-                || asset.body["blob"] != digest
-                || read["metadata"] != asset.body
-            {
-                continue;
-            }
-        } else {
-            continue;
-        }
         let image = Input::read(db, digest, mime)?;
-        if read["bytes"].as_u64() != Some(image.bytes as u64)
-            || ((needs_range || read.get("range").is_some())
-                && read["range"] != json!([0, image.bytes]))
-        {
+        if !image.matches_read(db, read, needs_range)? {
             continue;
         }
         return Ok(Some(Selection {

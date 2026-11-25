@@ -1,6 +1,6 @@
 //! Discovery by the pictures in one person's completed inputs, not by the names
 //! of today's files, a command's outputs, or the pictures in someone else's inbox.
-use super::{context::Snapshot, failure, provider_evidence, store, Result};
+use super::{context::Snapshot, failure, image_inputs::Input, provider_evidence, store, Result};
 use regex::{Regex, RegexBuilder};
 use rusqlite::{params, Connection, OptionalExtension};
 use schemars::JsonSchema;
@@ -43,7 +43,9 @@ impl Query {
         Ok(if self.regex {
             Regex::new(&self.query)?
         } else {
-            RegexBuilder::new(&regex::escape(&self.query)).case_insensitive(true).build()?
+            RegexBuilder::new(&regex::escape(&self.query))
+                .case_insensitive(true)
+                .build()?
         })
     }
 }
@@ -79,12 +81,23 @@ pub struct Image {
 
 impl Image {
     fn matches(&self, pattern: &Regex) -> bool {
-        [&self.reference, &self.decision, &self.work, &self.mime].into_iter().any(|s| pattern.is_match(s))
+        [&self.reference, &self.decision, &self.work, &self.mime]
+            .into_iter()
+            .any(|s| pattern.is_match(s))
             || self.sources_in_input.iter().any(|s| {
-                [Some(&s.via), Some(&s.reference), s.event.as_ref(), s.operation.as_ref(),
-                    s.path.as_ref(), s.rendered_from.as_ref()]
-                    .into_iter().flatten().any(|v| pattern.is_match(v))
-                    || s.page.is_some_and(|n| pattern.is_match(&format!("Page {n}")))
+                [
+                    Some(&s.via),
+                    Some(&s.reference),
+                    s.event.as_ref(),
+                    s.operation.as_ref(),
+                    s.path.as_ref(),
+                    s.rendered_from.as_ref(),
+                ]
+                .into_iter()
+                .flatten()
+                .any(|v| pattern.is_match(v))
+                    || s.page
+                        .is_some_and(|n| pattern.is_match(&format!("Page {n}")))
             })
     }
 }
@@ -102,16 +115,18 @@ pub struct Page {
 // These labels describe only the source envelopes in this frozen input. Do not
 // look up a path on the host, or borrow the name of some other file with the
 // same bytes. Multiple envelopes can refer to one wire image.
-fn sources(s: &Snapshot, digest: &str, mime: &str, bytes: u64) -> Vec<Source> {
-    let object = format!("object:{digest}");
+fn sources(db: &Connection, s: &Snapshot, input: &Input) -> Result<Vec<Source>> {
     let mut out = Vec::new();
-    let mut add = |v: &Value, via: &str, event: Option<&Value>| {
-        let Some(r) = v["reference"].as_str() else { return };
-        if v["image_blob"] != digest || v["mime"] != mime || v["bytes"].as_u64() != Some(bytes)
-            || !(r == object || (r.starts_with("asset:") && v["metadata"]["blob"] == digest))
-            || v.get("range").is_some_and(|range| range != &serde_json::json!([0, bytes]))
-        {
-            return;
+    let mut add = |v: &Value, via: &str, event: Option<&Value>| -> Result<()> {
+        let Some(r) = v["reference"].as_str() else {
+            return Ok(());
+        };
+        if !input.matches_read(
+            db,
+            v,
+            event.is_none() || matches!(via, "asset.read" | "persona.read"),
+        )? {
+            return Ok(());
         }
         let owned = |v: &Value| v.as_str().map(str::to_owned);
         out.push(Source {
@@ -119,29 +134,51 @@ fn sources(s: &Snapshot, digest: &str, mime: &str, bytes: u64) -> Vec<Source> {
             reference: r.into(),
             event: event.and_then(|e| owned(&e["experience"])),
             operation: event.and_then(|e| owned(&e["body"]["operation"])),
-            path: if via == "image.read" { owned(&v["path"]) } else { owned(&v["metadata"]["path"]) },
+            path: match via {
+                "image.read" => owned(&v["path"]),
+                "workspace.open" => owned(&v["workspace_path"]),
+                _ => owned(&v["metadata"]["path"]),
+            },
             rendered_from: match via {
                 "document.render_pdf" | "image.render_svg" => owned(&v["source"]),
                 _ => None,
             },
-            page: if via == "document.render_pdf" { v["page"].as_u64() } else { None },
+            page: if via == "document.render_pdf" {
+                v["page"].as_u64()
+            } else {
+                None
+            },
         });
+        Ok(())
     };
     for e in s.data["new_events"].as_array().into_iter().flatten() {
         if e["kind"] == "tool_result" && e["target"] == s.actor && e["actor"] == s.actor {
             if let Some(tool) = e["body"]["tool"].as_str() {
-                add(&e["supplied_result"], tool, Some(e));
+                add(&e["supplied_result"], tool, Some(e))?;
             }
         }
     }
-    for r in s.data["selected_resources"].as_array().into_iter().flatten() {
-        add(r, "selection", None);
+    for r in s.data["selected_resources"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        add(
+            r,
+            if r.get("opened_from").is_some() {
+                "workspace.open"
+            } else {
+                "selection"
+            },
+            None,
+        )?;
     }
-    out
+    Ok(out)
 }
 
-/// The page boundary is an accepted character-use write, not a wall-clock
-/// timestamp or the newest dispatched decision. No provider calls or writes.
+/// Pin pages to the accepting transaction. A provider completion and its
+/// character-use write can precede another decision but be adopted later.
+/// Reading or paging makes no provider call or state change.
 pub fn search(db: &Connection, owner: &str, q: &Query) -> Result<Page> {
     if db.is_autocommit() {
         let tx = db.unchecked_transaction()?;
@@ -153,22 +190,30 @@ pub fn search(db: &Connection, owner: &str, q: &Query) -> Result<Page> {
 }
 
 fn search_in(db: &Connection, owner: &str, q: &Query) -> Result<Page> {
-    const CHOICES: &str = "FROM invocations i JOIN versions v ON v.kind='character_use'
-        AND v.id=i.id AND v.revision=1 AND v.invocation=i.id";
+    const CHOICES: &str = "FROM invocations i LEFT JOIN versions v ON v.kind='character_use'
+        AND v.id=i.id AND v.revision=1 AND v.invocation=i.id
+        LEFT JOIN versions a ON a.kind='decision_effects' AND a.id=i.id AND a.revision=1 AND a.invocation=i.id";
     const SCOPE: &str = "i.state='accepted' AND i.actor=?1 AND (?2 IS NULL OR i.work=?2)";
     let pattern = q.expression()?;
     store::required(db, "persona", owner)?;
-    let call = q.through_decision.as_deref().map(|r| {
-        r.strip_prefix("experience:").and_then(|s| s.strip_suffix("@1"))
-            .ok_or_else(|| failure("Use the exact through_decision from this history"))
-    }).transpose()?;
+    let call = q
+        .through_decision
+        .as_deref()
+        .map(|r| {
+            r.strip_prefix("experience:")
+                .and_then(|s| s.strip_suffix("@1"))
+                .ok_or_else(|| failure("Use the exact through_decision from this history"))
+        })
+        .transpose()?;
     let bound: Option<(i64, String)> = db.query_row(
-        &format!("SELECT v.rowid,i.id {CHOICES} WHERE {SCOPE} AND (?3 IS NULL OR i.id=?3)
-            ORDER BY v.rowid DESC LIMIT 1"),
+        &format!("SELECT a.rowid,i.id {CHOICES} WHERE {SCOPE} AND a.rowid IS NOT NULL AND (?3 IS NULL OR i.id=?3)
+            ORDER BY a.rowid DESC LIMIT 1"),
         params![owner, q.work, call], |r| Ok((r.get(0)?, r.get(1)?)),
     ).optional()?;
     if call.is_some() && bound.is_none() {
-        return Err(failure("The selected decision is unavailable in this visual history"));
+        return Err(failure(
+            "The selected decision is unavailable in this visual history",
+        ));
     }
     let mut page = Page {
         owner: owner.into(),
@@ -176,27 +221,91 @@ fn search_in(db: &Connection, owner: &str, q: &Query) -> Result<Page> {
         offset: q.offset,
         next_offset: None,
         items: Vec::new(),
-        scope: "Ordered image inputs of your accepted active-character decisions, most recent decision first. Labels are from that input only. One image can have several source references. This index does not load an image or establish what anyone inferred from it.",
+        scope: "Ordered image inputs of your accepted active-character decisions, most recent decision first. Labels are from that input only. One image can have several source references. Search returns references, not pixels or a judgment about what anyone noticed.",
     };
-    let Some((through, _)) = bound else { return Ok(page) };
-    // Screen on the receipt, not every large prompt in the workspace. Filtering
-    // labels doesn't decode images. Verify matches in this same read snapshot
-    // before counting them, returning any addresses or offering another page.
+    let through = bound.map_or(0, |(n, _)| n);
+    // Screen on the small, hash-checked use and receipt, not JSON extracted
+    // from unchecked bytes. A broken audit must not become “no matching images”.
+    // Read the full snapshot for image-bearing choices (and missing writes).
     // A complete decision address opens just that input, not another input
     // with a similarly named file. Partial terms and regexes search labels.
-    let exact = q.query.strip_prefix("experience:").and_then(|s| s.strip_suffix("@1"))
+    let exact = q
+        .query
+        .strip_prefix("experience:")
+        .and_then(|s| s.strip_suffix("@1"))
         .filter(|s| !q.regex && s.starts_with("call-") && *s == s.to_ascii_lowercase());
-    let mut stmt = db.prepare(&format!("SELECT i.id,i.snapshot,v.digest,i.response,i.receipt {CHOICES} JOIN objects r ON r.digest=i.receipt
-        WHERE {SCOPE} AND v.rowid<=?3 AND (?4 IS NULL OR i.id=?4)
-        AND json_array_length(CAST(r.bytes AS TEXT),'$.audit.image_inputs')>0 ORDER BY v.rowid DESC"))?;
+    let mut stmt = db.prepare(&format!(
+        "SELECT i.id,i.snapshot,v.digest AS use_digest,i.response,i.receipt,i.work,a.digest AS adoption {CHOICES}
+        WHERE {SCOPE} AND (a.rowid<=?3 OR a.rowid IS NULL) AND (?4 IS NULL OR i.id=?4)
+        ORDER BY a.rowid IS NULL DESC, a.rowid DESC"
+    ))?;
     let mut rows = stmt.query(params![owner, q.work, through, exact])?;
     let mut matched = 0;
     while let Some(row) = rows.next()? {
-        let call: String = row.get(0)?;
-        let snapshot: String = row.get(1)?;
+        let call: String = row.get("id")?;
+        let snapshot: String = row.get("snapshot")?;
+        let Some(use_digest) = row.get::<_, Option<String>>("use_digest")? else {
+            let s: Snapshot = store::object(db, &snapshot)?;
+            if s.model.is_some() && !s.image_blobs.is_empty() {
+                return Err(failure(format!(
+                    "Missing character-use write for visual decision {call}"
+                )));
+            }
+            continue; // Initialization has no active-character use.
+        };
+        let usage: Value = store::object(db, &use_digest)?;
+        let adoption = row
+            .get::<_, Option<String>>("adoption")?
+            .ok_or_else(|| failure(format!("Missing accepting write for decision {call}")))?;
+        let effects: Value = store::object(db, &adoption)?;
+        let receipt = row.get::<_, String>("receipt")?;
+        let attempt: Value = store::object(db, &receipt)?;
+        let wire_images = attempt["audit"]
+            .get("image_inputs")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!([]));
+        let slots = usage["image_inputs"]
+            .as_array()
+            .ok_or_else(|| failure("Missing recorded image positions"))?;
+        if usage["invocation"] != call
+            || usage["owner"] != owner
+            || usage["work"] != row.get::<_, String>("work")?
+            || effects["work"] != usage["work"]
+            || effects["owner"] != owner
+            || effects["model"] != usage["package"]
+            || effects["response"] != usage["response"]
+            || usage["snapshot"] != format!("object:{snapshot}")
+            || usage["provider_receipt"] != format!("object:{receipt}")
+            || usage["response"] != format!("object:{}", row.get::<_, String>("response")?)
+            || usage["prompt_sha256"] != attempt["audit"]["prompt_sha256"]
+            || attempt["audit"]["invocation_id"] != call
+            || attempt["response_completed"] != true
+            || usage["provider_image_audit"] != wire_images
+            || wire_images.as_array().map(Vec::len) != Some(slots.len())
+        {
+            return Err(failure(format!(
+                "Image audit does not match the recorded character use for {call}"
+            )));
+        }
+        if slots.is_empty() {
+            continue;
+        }
         let s: Snapshot = store::object(db, &snapshot)?;
-        if s.model.is_none() || !s.data["context_recovery"].is_null() { continue; }
-        let accounted = s.data["context_accounting"]["images"].as_array()
+        if s.invocation != call
+            || s.actor != owner
+            || usage["work"] != s.work
+            || s.model.is_none()
+            || usage["package"].as_str() != s.model.as_deref()
+            || usage["epoch"] != s.epoch
+            || usage["image_inputs"] != serde_json::to_value(&s.image_blobs)?
+            || !s.data["context_recovery"].is_null()
+        {
+            return Err(failure(format!(
+                "Image input does not match this character-use record: {call}"
+            )));
+        }
+        let accounted = s.data["context_accounting"]["images"]
+            .as_array()
             .filter(|images| images.len() == s.image_blobs.len())
             .ok_or_else(|| failure("Missing image positions in the recorded input"))?;
         let mut verified = false;
@@ -205,36 +314,43 @@ fn search_in(db: &Connection, owner: &str, q: &Query) -> Result<Page> {
             let a = &accounted[index];
             // Filter by what the input said. Missing or damaged retained bytes
             // must not make a matching source label disappear before verification.
-            let bytes = a["bytes"].as_u64().filter(|_| a["reference"] == reference && a["mime"] == *mime)
+            let bytes = a["bytes"]
+                .as_u64()
+                .filter(|_| a["reference"] == reference && a["mime"] == *mime)
                 .ok_or_else(|| failure("Image accounting differs from the ordered input"))?;
-            let image = Image {
-                reference, mime: mime.clone(), bytes,
-                position: index + 1, image_count: s.image_blobs.len(), decision: format!("experience:{call}@1"),
-                work: s.work.clone(), observation_through: s.observation_through,
-                sources_in_input: sources(&s, digest, mime, bytes),
+            let input = Input {
+                object: reference.clone(),
+                mime: mime.clone(),
+                bytes: usize::try_from(bytes)?,
             };
-            if !image.matches(&pattern) { continue; }
+            let image = Image {
+                reference,
+                mime: mime.clone(),
+                bytes,
+                position: index + 1,
+                image_count: s.image_blobs.len(),
+                decision: format!("experience:{call}@1"),
+                work: s.work.clone(),
+                observation_through: s.observation_through,
+                sources_in_input: sources(db, &s, &input)?,
+            };
+            if !image.matches(&pattern) {
+                continue;
+            }
             if !verified {
                 provider_evidence::accepted(db, owner, &call, true)?;
-                let usage: Value = store::object(db, &row.get::<_, String>(2)?)?;
-                if usage["invocation"] != call || usage["owner"] != owner || usage["work"] != s.work
-                    || usage["package"].as_str() != s.model.as_deref()
-                    || usage["snapshot"] != format!("object:{snapshot}")
-                    || usage["response"] != format!("object:{}", row.get::<_, String>(3)?)
-                    || usage["provider_receipt"] != format!("object:{}", row.get::<_, String>(4)?)
-                    || usage["image_inputs"] != serde_json::to_value(&s.image_blobs)?
-                {
-                    return Err(failure("Image input does not match this character-use record"));
-                }
                 verified = true;
             }
-            let length: i64 = db.query_row("SELECT length(bytes) FROM objects WHERE digest=?1", [digest], |r| r.get(0))?;
-            if u64::try_from(length)? != bytes { return Err(failure("Retained image length differs from the input")); }
+            if Input::read(db, digest, mime)? != input {
+                return Err(failure("Retained image length differs from the input"));
+            }
             if page.items.len() == q.page_size {
                 page.next_offset = Some(matched);
                 return Ok(page);
             }
-            if matched >= q.offset { page.items.push(image); }
+            if matched >= q.offset {
+                page.items.push(image);
+            }
             matched += 1;
         }
     }
