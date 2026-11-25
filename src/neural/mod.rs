@@ -34,6 +34,7 @@ mod handoff;
 pub mod human_requests;
 pub mod input_files;
 pub mod briefs;
+pub mod visual_history;
 pub mod intake;
 pub mod membership;
 pub mod task_roles;

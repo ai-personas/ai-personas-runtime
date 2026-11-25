@@ -1,7 +1,9 @@
 use super::*;
 mod briefs;
 mod files;
+mod images;
 pub(super) use briefs::ReceivedBriefs;
+pub(super) use images::VisualHistory;
 mod work;
 pub(super) use files::AuthoredFiles;
 
@@ -11,6 +13,7 @@ pub(super) enum ProfileView {
     Overview,
     Packages,
     Briefs,
+    Images,
     Files,
     Connections,
     Requests,
@@ -141,6 +144,7 @@ impl App {
         let tabs = [
             (ProfileView::Overview, "Overview".to_owned()),
             (ProfileView::Briefs, "Received briefs".to_owned()),
+            (ProfileView::Images, "Visual history".to_owned()),
             (
                 ProfileView::Packages,
                 format!("Delivered packages  {packages}"),
@@ -200,6 +204,12 @@ impl App {
                     let name = self.label(id).to_owned();
                     if let Some(decision) = self.profile_briefs.show(ui, &self.root, id, &name) {
                         self.open_choice_or_record(ui.ctx(), decision);
+                    }
+                }
+                ProfileView::Images => {
+                    let name = self.label(id).to_owned();
+                    if let Some(reference) = self.profile_images.show(ui, &self.root, id, &name, &self.home_index) {
+                        self.open_choice_or_record(ui.ctx(), reference);
                     }
                 }
                 ProfileView::Connections => self.show_relationships(ui),

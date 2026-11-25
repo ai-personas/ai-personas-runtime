@@ -10,6 +10,7 @@ pub(super) struct Journal {
 
 enum Action {
     Inspect(String),
+    Images,
     Character,
     Older,
     Newer,
@@ -157,6 +158,9 @@ impl App {
                 ui.separator();
                 ui.horizontal_wrapped(|ui| {
                     if ui.button("Character at this decision…").clicked() { action = Some(Action::Character); }
+                    if selected["has_image_inputs"] == true && ui.button("Images at this decision…").clicked() {
+                        action = Some(Action::Images);
+                    }
                     if ui.button("Open decision record").clicked() {
                         action = Some(Action::Inspect(format!("experience:{}@1",s(selected,"invocation"))));
                     }
@@ -173,6 +177,12 @@ impl App {
                 }
                 match action {
                     Some(Action::Character) => self.character_paths.open(ui.ctx(), &self.root, selected),
+                    Some(Action::Images) => {
+                        self.profile_images.open_decision(ui.ctx(), &self.root, id, s(selected, "invocation"));
+                        let person = id.to_owned();
+                        self.show_person(&person);
+                        self.profile_view = people::ProfileView::Images;
+                    }
                     Some(Action::Inspect(r)) => self.open_resource(ui.ctx(), r),
                     Some(Action::Newer | Action::Older) => {
                         let target = if matches!(action, Some(Action::Older)) { older } else { newer };

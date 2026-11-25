@@ -406,6 +406,7 @@ pub const NAMES: &[(&str,&str)] = &[
     ("development.search","Find your development questions across tasks and social activity, including closed items. Read selected exact records with asset.read."),
     ("development.update","Record or revise your own behavior question with observed experience, competing explanations, a prediction, possible harms and a revisit condition. The item remains available across work and social activity."),
     ("development.close","Retire your own question after reading its current full record. Give your reason, including if the issue remains unresolved. Prior evidence and direct replies remain available."),
+    ("experience.images","Find pictures actually supplied in your accepted decisions across activities. Search recorded filenames, page labels, tools, activity IDs or exact references. Returns ordered image positions and addresses, not the images. Select an exact image object to view it again."),
     ("experience.search","Search your lifetime by keyword or regular expression. Use considered=true to find observations you explicitly considered and select them together with your choice at the time. Filter by exact work, author and event kind. For reader feedback, kind=user_message with the named operator retrieves their messages across activities. Matches return exact origin and reference. Read chosen records with asset.read or select them for context."),
     ("history.search","Rediscover authored/addressed events in this work by literal or regex search, with exact prior request, response, tool-result and provider-receipt references. Returns metadata, not replayed history. Empty query lists events; results are paginated."),
     ("persona.create","Create an attributed pending identity with a fresh own-model initialization. This does not invite or assign responsibility."),
@@ -474,6 +475,7 @@ pub fn describe(name: &str) -> Result<Value> {
     let inputs = match name {
         "tools.search" | "history.search" | "development.search" => schema::<Search>()?,
         "experience.search" => schema::<ExperienceQuery>()?,
+        "experience.images" => schema::<super::visual_history::Query>()?,
         "asset.list" => schema::<super::discovery::FolderQuery>()?,
         "asset.search" => schema::<super::discovery::Catalog>()?,
         "asset.history" | "asset.deliveries" => schema::<super::asset_history::Lookup>()?,
@@ -575,6 +577,10 @@ fn validate_input(name: &str, value: &Value) -> Result<()> {
         Ok(())
     }
     match name {
+        "experience.images" => {
+            let query: super::visual_history::Query = serde_json::from_value(value.clone())?;
+            query.expression().map(|_| ())
+        }
         "experience.search" => {
             let query: ExperienceQuery = serde_json::from_value(value.clone())?;
             query.expression()?;

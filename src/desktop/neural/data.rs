@@ -322,6 +322,7 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
                 Err(error) => json!({"error":error.to_string()}),
             }
         } else { Value::Null };
+        let has_image_inputs = usage.as_ref().is_some_and(|r| r.body["image_inputs"].as_array().is_some_and(|v| !v.is_empty()));
         let character_use = usage.map(|r|r.reference.handle());
         let deferred_questions = if decision["persona_maintenance"]["kind"] == "defer" {
             neural::development::deferred_revisions(&db,&invocation)?
@@ -330,7 +331,7 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
             let digest: Option<String> = db.query_row("SELECT digest FROM events WHERE invocation=?1 AND work=?2 AND actor=?3 AND target=actor AND kind='personal_trial_proposed'", rusqlite::params![invocation,work,actor], |r| r.get(0)).optional()?;
             digest.map(|d| store::object(&db,&d)).transpose()?
         } else { None };
-        character_decisions.push(json!({"character_use":character_use,"deferred_questions":deferred_questions,"trial":trial,
+        character_decisions.push(json!({"character_use":character_use,"has_image_inputs":has_image_inputs,"deferred_questions":deferred_questions,"trial":trial,
             "invocation":invocation,"actor":actor,"work":work,"accepted":accepted,"accepted_utc":accepted_utc,"order":order,
             "response":format!("object:{response}"),"request":format!("object:{request}"),
             "judgment":decision["work"],"continuation":decision["continuation"],
