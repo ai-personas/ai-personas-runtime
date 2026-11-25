@@ -47,6 +47,7 @@ mod package_reviews;
 mod requested_activities;
 mod inbox;
 mod input_files;
+mod operator_desk;
 mod intake;
 mod overview;
 mod live_board;
@@ -129,7 +130,8 @@ enum Update {
 }
 pub struct App {
     pub(super) show_library: bool,
-    pub(super) operator: String,
+    operator: String,
+    operator_desk: operator_desk::Launcher,
     root: PathBuf,
     snapshot: data::Snapshot,
     events: Vec<Value>,
@@ -238,6 +240,9 @@ impl App {
         gl: Option<&Arc<eframe::glow::Context>>,
         operator: String,
     ) -> Self {
+        let operator = operator.trim().to_owned();
+        let folder = root.file_name().unwrap_or_default().to_string_lossy();
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!("{operator} · {folder} — Persona Studio")));
         theme::install_fonts(ctx);
         egui_extras::install_image_loaders(ctx);
         let layout = std::fs::read(root.join("desktop-layout.json"))
@@ -249,6 +254,7 @@ impl App {
         Self {
             show_library: false,
             operator,
+            operator_desk: Default::default(),
             root,
             snapshot: Default::default(),
             events: vec![],
@@ -864,6 +870,9 @@ impl eframe::App for App {
         }
         if let Some(reference) = self.character_paths.show(ctx, &self.root, &self.snapshot.candidates, &self.snapshot.status) {
             self.open_choice_or_record(ctx, reference);
+        }
+        if let Some(name) = self.operator_desk.show(ctx, &self.root, &self.operator) {
+            self.notice = format!("Starting another desk · {name}");
         }
     }
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {

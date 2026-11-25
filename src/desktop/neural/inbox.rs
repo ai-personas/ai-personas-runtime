@@ -223,7 +223,8 @@ impl App {
             ui.add_space(14.);
             if self.inbox.tab == InboxTab::Messages {
                 let messages=messages.into_iter().cloned().collect::<Vec<_>>();
-                if messages.is_empty() { ui.weak("No persona has sent you a message yet."); }
+                ui.weak("Messages to the shared workspace inbox, not a private operator mailbox.");
+                if messages.is_empty() { ui.weak("No messages recorded here yet."); }
                 for e in messages {
                     let b=&e["body"];
                     card(ui).show(ui,|ui|{
@@ -719,7 +720,7 @@ impl App {
         let holder = body["claimed_by"].as_str();
         let may_manage = holder.is_none() || holder == Some(operator.as_str());
         eyebrow(ui, "Field desk  /  Human return");
-        ui.label(RichText::new("Your response").size(18.).strong());
+        ui.label(RichText::new(format!("Response from {operator}")).size(18.).strong());
         if let Some(name) = holder.filter(|_| !may_manage) {
             ui.label(format!("{name} holds this step. You can send evidence without changing who is responsible."));
         } else if holder.is_none() {

@@ -156,7 +156,11 @@ fn dialog_contents(ui: &mut Ui, scroll: bool, identity: egui::Id, fresh: bool, s
 
 impl App {
     pub(super) fn open_workspace_settings(&mut self) {
-        self.dialog = Some(Dialog::Settings(connection::Form::new(self)));
+        if self.dialog.is_none() {
+            self.dialog = Some(Dialog::Settings(connection::Form::new(self)));
+        } else if !matches!(self.dialog, Some(Dialog::Settings(_))) {
+            self.notice = "Close the current form before opening settings. To keep the draft, open another operator desk from + New.".into();
+        }
     }
 
     pub(super) fn resume_dialog(&self) -> Dialog {
@@ -532,9 +536,9 @@ impl App {
     }
 
     fn workspace_settings(&mut self, ui: &mut Ui, ctx: &egui::Context, connection: &mut connection::Form) -> Option<Command> {
-        ui.strong("Operator name");
-        ui.add(egui::TextEdit::singleline(&mut self.operator).desired_width(f32::INFINITY));
-        ui.small("Used for new messages, invitations, reviews and settings changes in this window.");
+        ui.strong(format!("Writing as {}", self.operator));
+        ui.small("This window keeps its operator name. To work here under another name, open a separate desk.");
+        if ui.button("Open another desk…").clicked() { self.operator_desk.open(); }
         ui.separator();
         let command = connection.show(ui, self);
         ui.separator();

@@ -404,7 +404,7 @@ impl Draft {
                             .min_size(egui::vec2(74., 32.)),
                     )
                     .on_hover_text(format!(
-                        "Send to {} ({})",
+                        "Send as {operator} to {} ({})",
                         person.name,
                         ui.ctx().format_shortcut(&shortcut)
                     ));
@@ -691,7 +691,7 @@ impl App {
                     if bound {
                         ui.strong("To");
                     } else if members.is_empty() || width >= 330. {
-                        ui.strong("Your message");
+                        ui.strong(excerpt(operator, 28)).on_hover_text(format!("Writing as {operator}"));
                         if members.is_empty() {
                             return;
                         }

@@ -262,18 +262,7 @@ fn contribution(event: &Value) -> Option<(Identity, Option<Identity>)> {
     let body = &event["body"];
     let human = event["invocation"].is_null();
     let author = if human {
-        match kind {
-            "invitation"
-            | "user_message"
-            | "human_request_progress"
-            | "user_acceptance"
-            | "requirements_amended"
-            | "explicit_resume" => Identity::Operator(actor.into()),
-            "agreement_proposed" | "agreement_response" | "package_review" | "asset_feedback" => {
-                Identity::Operator(actor.strip_prefix("operator:").unwrap_or(actor).into())
-            }
-            _ => return None,
-        }
+        Identity::Operator(super::super::operator_desk::author(event)?.into())
     } else {
         Identity::Persona(actor.into())
     };

@@ -7,19 +7,12 @@ pub(super) fn event<'a>(events: &'a [Value], reference: &str) -> Option<&'a Valu
 
 pub(super) fn sender(status: &Value, e: &Value) -> String {
     let actor = s(e, "actor");
-    match (e["invocation"].is_null(), s(e, "kind")) {
-        (
-            true,
-            "asset_feedback" | "package_review" | "agreement_proposed" | "agreement_response",
-        ) => format!(
-            "{} · operator",
-            actor.strip_prefix("operator:").unwrap_or(actor)
-        ),
-        (true, "invitation" | "user_message" | "user_acceptance" | "requirements_amended") => {
-            format!("{actor} · operator")
-        }
-        (true, _) => actor.to_owned(),
-        (false, _) => name(status, actor).to_owned(),
+    if let Some(operator) = super::super::operator_desk::author(e) {
+        format!("{operator} · operator")
+    } else if e["invocation"].is_null() {
+        actor.to_owned()
+    } else {
+        name(status, actor).to_owned()
     }
 }
 
