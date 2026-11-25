@@ -20,7 +20,14 @@ pub(super) fn attach(db: &Connection, frame: &mut Value, appraisal: &Appraisal, 
             "endpoint":action["performed"]["endpoint"],"judgment_before":action["judgment_before"],
             "author_of_return":event["actor"],"event_kind":event["kind"],"citations":citations});
         if event["kind"] == "tool_result" && event["body"]["tool"] == "command.local" {
-            row["streams"] = json!(streams(db, event));
+            let run = &event["supplied_result"]["result"];
+            if run["format"] == "local-project-run-v1" && run["invocation"] == event["invocation"]
+                && run["work"] == action["work"] && run["actor"] == action["owner"] && run["operation"] == event["body"]["operation"] {
+                if let Some(started) = run["process_started"].as_bool() {
+                    row["process_as_supplied"] = json!({"started":started,"exit_code":run["exit_code"]});
+                }
+                row["streams"] = json!(streams(db, event));
+            }
         }
         Some(row)
     }).collect();
@@ -35,9 +42,6 @@ pub(super) fn attach(db: &Connection, frame: &mut Value, appraisal: &Appraisal, 
 fn streams(db: &Connection, event: &Value) -> Vec<Value> {
     let supplied = &event["supplied_result"];
     let run = &supplied["result"];
-    if run["format"] != "local-project-run-v1" {
-        return vec![];
-    }
     let retained = event["body"]["result"]
         .as_str()
         .and_then(|r| r.strip_prefix("object:"))
@@ -71,6 +75,9 @@ fn streams(db: &Connection, event: &Value) -> Vec<Value> {
                     r.strip_prefix("object:") == Some(&crate::store::sha256_bytes(text.as_bytes()))
                 });
             let mut row = json!({"stream":name,"text_bytes":text.len(),"whole":whole});
+            if !whole && stream["excerpt"].is_string() {
+                row["excerpt"] = json!(true);
+            }
             if whole {
                 if let (Some(original), Some(reference)) = (&retained, object) {
                     let source = &original["result"][name];

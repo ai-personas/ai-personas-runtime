@@ -862,7 +862,7 @@ impl eframe::App for App {
         if let Some(reference) = self.question_history.show(ctx, &self.root, &self.snapshot.status) {
             self.open_resource(ctx, reference);
         }
-        if let Some(reference) = self.character_paths.show(ctx, &self.root, &self.snapshot.candidates) {
+        if let Some(reference) = self.character_paths.show(ctx, &self.root, &self.snapshot.candidates, &self.snapshot.status) {
             self.open_choice_or_record(ctx, reference);
         }
     }

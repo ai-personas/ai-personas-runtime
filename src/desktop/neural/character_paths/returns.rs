@@ -1,6 +1,12 @@
 use super::*;
 
-pub(super) fn show(ui: &mut Ui, frame: &Value, open: &mut Option<String>, refresh: &mut bool) {
+pub(super) fn show(
+    ui: &mut Ui,
+    frame: &Value,
+    status: &Value,
+    open: &mut Option<String>,
+    refresh: &mut bool,
+) {
     let Some(rows) = frame["action_returns"].as_array() else {
         return;
     };
@@ -17,7 +23,7 @@ pub(super) fn show(ui: &mut Ui, frame: &Value, open: &mut Option<String>, refres
                     "addressed_response" => "Addressed response",
                     "issued_edition_reviewed" => "Peer finding",
                     "issued_files_checked" => "Receiving check",
-                    "dispatched_result" => "Execution result",
+                    "dispatched_result" => "Tool return",
                     "in_transaction_receipt" => "Operation receipt",
                     _ => "Observed return",
                 };
@@ -29,7 +35,26 @@ pub(super) fn show(ui: &mut Ui, frame: &Value, open: &mut Option<String>, refres
                         ui.strong("Reply");
                     }
                     ui.weak("→");
-                    ui.label(kind);
+                    let from = s(row, "author_of_return");
+                    if matches!(
+                        s(row, "return_kind"),
+                        "addressed_response" | "issued_edition_reviewed" | "issued_files_checked"
+                    ) {
+                        ui.label(format!("{kind} from {}", persona_label(status, from)))
+                            .on_hover_text(from);
+                    } else {
+                        ui.label(kind);
+                    }
+                    let run = &row["process_as_supplied"];
+                    if run["started"] == false {
+                        ui.small("Process did not start");
+                    } else if run["started"] == true {
+                        if let Some(code) = run["exit_code"].as_i64() {
+                            ui.small(format!("Exit {code}"));
+                        } else {
+                            ui.small("No exit code reported");
+                        }
+                    }
                 });
                 ui.collapsing("Judgment before the action", |ui| {
                     ui.add(egui::Label::new(s(row, "judgment_before")).wrap());
@@ -57,7 +82,7 @@ pub(super) fn show(ui: &mut Ui, frame: &Value, open: &mut Option<String>, refres
                 });
                 if let Some(streams) = row["streams"].as_array() {
                     if streams.is_empty() {
-                        ui.small("No command stream text in this observation.");
+                        ui.small("No verified command stream text to open.");
                     }
                     for stream in streams {
                         ui.horizontal_wrapped(|ui| {
@@ -65,8 +90,10 @@ pub(super) fn show(ui: &mut Ui, frame: &Value, open: &mut Option<String>, refres
                             let n = stream["text_bytes"].as_u64().unwrap_or_default();
                             let extent = if stream["whole"] == true {
                                 "whole stream"
-                            } else {
+                            } else if stream["excerpt"] == true {
                                 "excerpt"
+                            } else {
+                                "extent unverified"
                             };
                             ui.small(format!(
                                 "{name} · {} of text supplied · {extent}",
