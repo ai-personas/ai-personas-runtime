@@ -78,6 +78,30 @@ pub(super) fn matches_document_effect(
         && serde_json::to_value(op)? == *queued)
 }
 
+/// Verify the exact arguments and position of an outbox operation, including
+/// any references resolved earlier in the accepting transaction.
+pub(super) fn matches_effect(
+    db: &Connection,
+    accepted: &provider_evidence::Accepted,
+    ordinal: usize,
+    queued: &Value,
+) -> Result<bool> {
+    let Some(raw) = accepted.response["operations"].get(ordinal) else {
+        return Ok(false);
+    };
+    let mut op: Operation = serde_json::from_value(raw.clone())?;
+    if op.id != queued["id"] || op.tool != queued["tool"] {
+        return Ok(false);
+    }
+    if operations::resolve_operation(&mut op.clone(), &BTreeMap::new()).is_err() {
+        let s = &accepted.snapshot;
+        let choice = Choice::recorded(db, &s.actor, &s.invocation)?;
+        let (_, aliases) = choice.resolve_prefix(db, ordinal, None)?;
+        operations::resolve_operation(&mut op, &aliases)?;
+    }
+    Ok(serde_json::to_value(op)? == *queued)
+}
+
 pub(super) struct Choice {
     pub accepted: provider_evidence::Accepted,
     first: i64,
@@ -153,6 +177,20 @@ impl Choice {
         field: &str,
         expected: &Value,
     ) -> Result<(Operation, Value, i64)> {
+        let (found, _) = self.resolve_prefix(db, usize::MAX, Some((tool, field, expected)))?;
+        found.ok_or_else(|| {
+            failure("The accepted operation and its retained result do not identify this event")
+        })
+    }
+
+    /// The accepting transaction replaced aliases with earlier synchronous
+    /// results. Replay that substitution, not the operation in today's outbox.
+    fn resolve_prefix(
+        &self,
+        db: &Connection,
+        count: usize,
+        wanted: Option<(&str, &str, &Value)>,
+    ) -> Result<(Option<(Operation, Value, i64)>, BTreeMap<String, String>)> {
         let s = &self.accepted.snapshot;
         let mut q = db.prepare("SELECT seq,digest FROM events WHERE invocation=?1 AND work=?2 AND actor=?3 AND target=?3 AND kind='tool_result' ORDER BY seq")?;
         let mut rows = q.query(params![s.invocation, s.work, s.actor])?;
@@ -169,7 +207,7 @@ impl Choice {
             if !event["effect"].is_null() || event["context"] != "complete" {
                 continue;
             }
-            if event["tool"] != tool
+            if !wanted.is_some_and(|(tool, _, _)| event["tool"] == tool)
                 && !event["tool"]
                     .as_str()
                     .is_some_and(operations::returns_alias)
@@ -187,7 +225,7 @@ impl Choice {
         let mut aliases = BTreeMap::new();
         let mut found = None;
         let mut preceding = self.first;
-        for raw in ops {
+        for raw in ops.iter().take(count) {
             let Some((seq, receipt)) = raw["id"]
                 .as_str()
                 .and_then(|id| results.get(id))
@@ -205,7 +243,9 @@ impl Choice {
                 .ok_or_else(|| failure("Missing immutable operation result"))?;
             let result: Value = store::object(db, digest)?;
             let mut op: Operation = serde_json::from_value(raw.clone())?;
-            let selected = op.tool == tool && result.get(field) == Some(expected);
+            let selected = wanted.is_some_and(|(tool, field, expected)| {
+                op.tool == tool && result.get(field) == Some(expected)
+            });
             if let Err(error) = operations::resolve_operation(&mut op, &aliases) {
                 if selected {
                     return Err(error);
@@ -229,9 +269,7 @@ impl Choice {
                 }
             }
         }
-        found.ok_or_else(|| {
-            failure("The accepted operation and its retained result do not identify this event")
-        })
+        Ok((found, aliases))
     }
 
     pub(super) fn issued_alias(
@@ -336,7 +374,9 @@ impl Choice {
                 declared.validate_dispatches()?;
                 let fields = serde_json::to_value(declared)?;
                 record.reference.kind == "delivery"
-                    && ["dispatches", "review_inputs", "reviews"].iter().all(|key| b.get(*key) == fields.get(*key))
+                    && ["dispatches", "review_inputs", "reviews"]
+                        .iter()
+                        .all(|key| b.get(*key) == fields.get(*key))
                     && b["owner"] == snapshot.actor
                     && b["work"] == snapshot.work
                     && fields

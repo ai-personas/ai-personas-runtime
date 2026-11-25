@@ -103,7 +103,7 @@ pub(in crate::neural) fn scope(data: &Value) -> Option<Value> {
     (!outcomes.is_empty()).then(||json!({"outcomes":outcomes,"choice":"Choose behavior independently of persona_maintenance: local if this stays here, undecided if you reserve judgment, next_time with your own scoped experiment, or practice in an actual action now. No numeric change is required or rewarded. A next_time intention is not an application."}))
 }
 
-pub(super) fn receipt<'a>(s: &'a Snapshot, reference: &str) -> Option<&'a Value> {
+pub(in crate::neural) fn receipt<'a>(s: &'a Snapshot, reference: &str) -> Option<&'a Value> {
     if s.development_version < 9 || s.model.is_none() || !s.data["context_recovery"].is_null() {
         return None;
     }
