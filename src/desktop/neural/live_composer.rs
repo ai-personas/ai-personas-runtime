@@ -796,7 +796,7 @@ impl App {
                     .iter()
                     .find(|person| person.id == activity.selected.person)?;
                 if operator.is_empty() {
-                    ui.weak("Set your operator name in Workspace settings to send.");
+                    ui.weak("Open a named window from + New → Operator desk… to send.");
                 }
                 let draft = activity.drafts.entry(activity.selected.clone()).or_default();
                 draft.editor(ui, work, &activity.selected, person, operator)

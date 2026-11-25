@@ -1380,19 +1380,21 @@ impl App {
         let body = &event["body"];
         let result = &event["tool_outcome"];
         let actor = s(event, "actor");
-        let persona = event["invocation"].is_string() && actor != "runtime";
-        let who = if let Some(name) = operator_desk::author(event) {
-            if name == self.operator { "You".into() } else { format!("Operator {name}") }
+        let operator = operator_desk::author(event);
+        let runtime = actor == "runtime" && operator.is_none();
+        let persona = event["invocation"].is_string() && !runtime;
+        let who = if let Some(name) = operator {
+            format!("Operator {name}")
         } else if persona {
             self.label(actor).to_owned()
-        } else if actor == "runtime" {
+        } else if runtime {
             "Runtime".into()
         } else {
             actor.to_owned()
         };
         let tint = if persona {
             p.ink(self.color(actor))
-        } else if actor == "runtime" {
+        } else if runtime {
             p.muted
         } else {
             p.accent
@@ -1415,7 +1417,7 @@ impl App {
                 theme::paint_icon(
                     ui.painter(),
                     r.shrink(5.),
-                    if actor == "runtime" {
+                    if runtime {
                         Icon::Activity
                     } else {
                         Icon::People

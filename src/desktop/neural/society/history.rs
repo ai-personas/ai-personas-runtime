@@ -13,7 +13,7 @@ impl Identity {
         match self {
             Self::Persona(id) => personas.get(id.as_str()).copied().unwrap_or(id),
             Self::Operator(name) => name,
-            Self::Inbox => "Human inbox",
+            Self::Inbox => "Workspace inbox",
             Self::Shared => "Shared activity",
         }
     }
@@ -319,6 +319,7 @@ fn contribution(event: &Value) -> Option<(Identity, Option<Identity>)> {
         | "human_request_packet"
         | "human_request_withdrawn"
         | "human_request_progress"
+        | "human_role_changed"
         | "delivery"
         | "user_acceptance"
         | "package_review"
