@@ -1,6 +1,8 @@
 //! A finding belongs to the constituent versions and brief the reviewer assessed.
 //! Matching those identities does not establish the truth of the finding.
+pub mod after_issue;
 pub(super) mod peer;
+mod publication;
 use super::{failure, id, operations, store, Result};
 use clap::{Args, ValueEnum};
 use rusqlite::{params, Connection};
@@ -254,13 +256,16 @@ pub(super) fn publish(
     let body = json!({"reference":reference,"subject":subject,"author":author,"author_kind":if call.is_some(){"persona"}else{"operator"},
         "work":work,"reporting_mandate":reporting.reference.handle(),"decision":call,"criterion":input.criterion,
         "finding":input.finding,"verdict":input.verdict,"evidence":input.evidence});
-    store::write(db, "package_review", &key, 0, &body, call)?;
+    let written = store::write(db, "package_review", &key, 0, &body, call)?;
     let sender = if call.is_some() {
         author.to_owned()
     } else {
         format!("operator:{author}")
     };
-    let notice = json!({"reference":reference,"criterion":input.criterion,"verdict":input.verdict});
+    let mut notice = json!({"reference":reference,"criterion":input.criterion,"verdict":input.verdict});
+    // Operators have no retained model choice against which to check the
+    // full finding. Commit its exact text and evidence to the broadcast.
+    if call.is_none() { notice["published_record"] = json!(format!("object:{}", written.digest)); }
     store::event(db, work, &sender, "*", "package_review", &notice, call)?;
     let mut result = json!({"reference":reference,"verdict":input.verdict,"reviewed_delivery":subject.delivery,"reviewed_mandate":subject.mandate});
     if let (Some(call), Some(delivery)) = (call, subject.delivery.as_deref()) {

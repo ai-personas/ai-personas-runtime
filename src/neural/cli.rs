@@ -303,6 +303,8 @@ pub enum Command {
     AssetFeedbackHistory(super::asset_feedback::History),
     /// Publish a criterion and finding on the exact delivery or proposed files.
     PackageReview {work:String,#[command(flatten)] review:super::package_review::Review},
+    /// Find later published findings on this exact edition and later packages that explicitly cite it.
+    AfterIssue(super::package_review::after_issue::Query),
     /// Compare retained findings with exact files and their brief.
     PackageReviews {#[arg(long)] work:Option<String>,#[command(flatten)] query:super::package_review::Lookup},
     /// Inspect an observer's named counterparts and relationship-note addresses.
@@ -571,6 +573,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
         Command::ConnectPlatform { platform_key_file } =>
             super::connection::change(root, operator, super::connection::Route::PlatformKeyFile(platform_key_file)).await,
         Command::Export{directory,work}=>Ok(serde_json::to_value(super::delivery_export::collection(root,&directory,work.as_deref(),None)?)?),
+        Command::AfterIssue(query)=>super::package_review::after_issue::inspect(&store::open_inspection(root)?, &query),
         Command::CompareIssuedZips{baseline_edition,baseline_file,edition,file,baseline_root,selected_root}=>Ok(serde_json::to_value(super::issued_zip::compare(&store::open_inspection(root)?,&baseline_edition,&baseline_file,&edition,&file,&baseline_root,&selected_root)?)?),
         Command::ExportPackage{reference,destination}=>super::human_requests::export_package(&store::open_inspection(root)?,&reference,&destination),
         Command::ExportDispatch{delivery,number,destination,packet}=>{

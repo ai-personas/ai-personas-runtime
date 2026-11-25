@@ -30,6 +30,7 @@ pub(in crate::neural) fn edition(db: &Connection, reference: &str) -> Result<Edi
     let supplied: Vec<String> = serde_json::from_value(op.input["artifacts"].clone())?;
     if !choice.contains(issue.sequence)
         || result_event <= issue.sequence
+        || body.get("mandate").is_some_and(|m| m != &choice.accepted.snapshot.data["work"]["reference"])
         || !choice.issued_alias(db, &op, &issue.record, &result)?
         || operations::package_paths(db, &supplied)? != operations::package_paths(db, &members)?
         || op.input["dispatches"].as_array().into_iter().flatten()

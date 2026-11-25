@@ -336,7 +336,7 @@ impl Choice {
                 declared.validate_dispatches()?;
                 let fields = serde_json::to_value(declared)?;
                 record.reference.kind == "delivery"
-                    && b.get("dispatches") == fields.get("dispatches")
+                    && ["dispatches", "review_inputs", "reviews"].iter().all(|key| b.get(*key) == fields.get(*key))
                     && b["owner"] == snapshot.actor
                     && b["work"] == snapshot.work
                     && fields

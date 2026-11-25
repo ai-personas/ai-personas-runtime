@@ -160,6 +160,7 @@ fn operation_name(tool: &str) -> &str {
         "work.respond" => "Activity reply",
         "result.review" => "Package review",
         "result.reviews" => "Package review history",
+        "result.after_issue" => "Records after issue",
         "result.deliver" => "Package delivery",
         "human.request" => "Human request",
         "human.withdraw" => "Human request withdrawal",
