@@ -466,6 +466,8 @@ pub enum Command {
         #[arg(long, default_value_t = 10)]
         page_size: usize,
     },
+    /// Inspect posted invitations and the participant's own published response and revisions.
+    ParticipationTerms { work: String, persona: String },
     /// Current membership, unowned duties, acceptances and effects awaiting resolution.
     Responsibilities { work: String },
     /// Browse proposed agreement editions or read the signed responses to one edition.
@@ -607,6 +609,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
         Command::QuestionHistory{reference}=>super::question_history::inspect(&store::open_inspection(root)?,&reference),
         Command::TaskRoleReceipts{reference,before,page_size}=>super::task_roles::received(&store::open_inspection(root)?,&reference,before,page_size),
         Command::MessageReceipt{event}=>super::live::message_receipt(&store::open_inspection(root)?,event),
+        Command::ParticipationTerms{work,persona}=>super::live::participation_terms(&store::open_inspection(root)?,&work,&persona),
         Command::Find(query)=>super::discovery::find(&store::open_inspection(root)?,None,&query),
         Command::ReceivedBriefs{persona,query}=>Ok(serde_json::to_value(super::briefs::search(&store::open_inspection(root)?,&persona,&query)?)?),
         Command::VisualHistory{persona,query}=>Ok(serde_json::to_value(super::visual_history::search(&store::open_inspection(root)?,&persona,&query)?)?),

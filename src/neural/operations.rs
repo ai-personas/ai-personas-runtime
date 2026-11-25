@@ -779,10 +779,7 @@ pub(super) fn create_activity(
     if let Some(reference) = &from_edition {
         super::activity_sources::delivery::edition(db, reference)?;
     }
-    let invitation = match kind {
-        ActivityKind::Task => "Choose whether and how to contribute to this need",
-        ActivityKind::Social => "An open social invitation. Choose whether to join, what to discuss and when to leave",
-    };
+    let invitation = kind.founding_invitation();
     let activity = Work { id: id("work")?, kind, original_need: need, from_edition, requester: requester.into(),
         phase: "open".into(), last_dissolution:None, amendments: Vec::new(), materials };
     let reference = store::write(db, "work", &activity.id, 0, &activity, invocation)?;

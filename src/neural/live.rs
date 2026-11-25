@@ -46,7 +46,7 @@ pub(super) fn remove(root: &Path, call: &str) {
 }
 
 mod message_receipt;
-pub use message_receipt::inspect as message_receipt;
+pub use message_receipt::{inspect as message_receipt, participation_terms};
 pub(super) use message_receipt::operator_answer;
 mod session;
 pub(crate) use session::{finish_requested, request_finish, SessionOwner};

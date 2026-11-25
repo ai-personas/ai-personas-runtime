@@ -21,6 +21,8 @@ pub(super) struct Origin {
     pub requester: String,
     pub decision: String,
     pub operation: String,
+    #[serde(skip)]
+    pub result_event: i64,
     pub need: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from_edition: Option<String>,
@@ -43,7 +45,7 @@ pub(super) fn origin(db: &Connection, child: &str) -> Result<Option<Origin>> {
     Ok(Some(founding_request(db, child, &choice)?))
 }
 
-fn founding_request(db: &Connection, child: &str, choice: &super::accepted_choice::Choice) -> Result<Origin> {
+pub(super) fn founding_request(db: &Connection, child: &str, choice: &super::accepted_choice::Choice) -> Result<Origin> {
     let snapshot = &choice.accepted.snapshot;
     let call = &snapshot.invocation;
     let requester = &snapshot.actor;
@@ -73,7 +75,7 @@ fn founding_request(db: &Connection, child: &str, choice: &super::accepted_choic
     }
     // Resolve project materials through the same ordered edition receipts
     // used for deliveries; a metadata-only move is not a new content write.
-    let (op, result, _) = choice.operation(db, "work.request", "reference", &json!(request))?;
+    let (op, result, result_event) = choice.operation(db, "work.request", "reference", &json!(request))?;
     let asked: tools::RequestWork = serde_json::from_value(op.input)?;
     let activity: protocol::Work = serde_json::from_value(record.body.clone())?;
     // This is inspection of the manifest already issued, not a new grant or
@@ -94,7 +96,7 @@ fn founding_request(db: &Connection, child: &str, choice: &super::accepted_choic
     }
     Ok(Origin {
         request, child: child.to_owned(), parent:parent.clone(), requester:requester.clone(), parent_brief: parent_brief.to_owned(),
-        decision: format!("experience:{call}@1"), operation: op.id, need: activity.original_need,
+        decision: format!("experience:{call}@1"), operation: op.id, result_event, need: activity.original_need,
         from_edition: activity.from_edition, materials: activity.materials, invited,
     })
 }
