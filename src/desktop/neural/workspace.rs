@@ -1829,6 +1829,8 @@ impl App {
                     if let Some(edition) = self.preview_metadata["package_edition"].as_str() {
                         ui.small(format!("Verified attachment · {edition}"));
                     }
+                    let member = self.viewer.viewed_member();
+                    let enclosing = member.is_some();
                     let actions = |ui: &mut Ui| {
                         let projected=self.preview_metadata["view"]=="provider_receipt_metadata";
                         if !projected && (self.selected_reference.starts_with("asset:") || self.selected_reference.starts_with("object:"))
@@ -1841,8 +1843,9 @@ impl App {
                                 self.open_print_preview(ui.ctx(), &reference, &path, package, Some(print.id));
                             }
                         }
-                        if ui.add_enabled(!self.preview_metadata.is_null(), egui::Button::new(if projected {"Save metadata…"} else {"Save file…"})).clicked() {
-                            self.save_artifact(ui.ctx());
+                        let label = if enclosing { "Save whole archive…" } else if projected { "Save metadata…" } else { "Save file…" };
+                        if ui.add_enabled(!self.preview_metadata.is_null(), egui::Button::new(label)).clicked() {
+                            self.save_artifact(None);
                         }
                         if ui.small_button("Copy reference").clicked() {
                             ui.ctx().copy_text(self.selected_reference.clone());
@@ -1877,7 +1880,19 @@ impl App {
                             }
                         }
                     };
-                    if compact { ui.menu_button("File actions", actions); } else { ui.horizontal_wrapped(actions); }
+                    if let Some(entry) = member {
+                        let save = ui.horizontal_wrapped(|ui| {
+                            let save = ui.button("Save member…")
+                                .on_hover_text(format!("Save the original bytes of {}", entry.name())).clicked();
+                            ui.menu_button("Original archive", actions);
+                            save
+                        }).inner;
+                        if save { self.save_artifact(Some(entry)); }
+                    } else if compact {
+                        ui.menu_button("File actions", actions);
+                    } else {
+                        ui.horizontal_wrapped(actions);
+                    }
                     ui.separator();
                     self.viewer.preview_ui(ui);
                 }

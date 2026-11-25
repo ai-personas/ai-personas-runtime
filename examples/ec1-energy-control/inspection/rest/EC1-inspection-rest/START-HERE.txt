@@ -1,0 +1,7 @@
+EC1 | Receiving bench — cold inspection only
+
+Placement: Put the rest flat on a clean, level bench, with the shallow end pockets facing up. Disconnect the board from all power. Hold it component-side up by its long edges. Align each short edge with an end pocket and lower the board straight down until both short ends sit flat on the ledges. If it rocks or binds, lift it out; don't force it or modify the board. To remove, grip the exposed long edges near the middle and lift straight up. No fasteners or clips. Do not solder on this rest or use it with an energized board.
+
+Slicing: Open EC1-rest.stl in millimetres at 100%, flat base down as supplied. Expected size: 61 × 41 × 9.2 mm. Use PLA, 0.4 mm nozzle, 0.20 mm layers, supports off. No assembly or sanding is intended.
+
+Editing: Open EC1-rest.scad in OpenSCAD, edit the named dimensions, render (F6), and export STL. No external libraries. FIT-CHECK.txt applies only to the unmodified files and the stated receiving assumptions; no physical fit test was performed.

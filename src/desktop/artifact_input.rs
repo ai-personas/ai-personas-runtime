@@ -65,15 +65,31 @@ impl Source {
                 let mut input = container.open_input(cancel)?;
                 match format {
                     ArchiveFormat::Zip => {
-                        let mut archive = zip::ZipArchive::new(input).map_err(|e| e.to_string())?;
+                        let mut archive = ai_personas::neural::issued_zip::file_directory(&input)
+                            .map_err(|e| e.to_string())?;
                         let mut member = archive.by_index(*index).map_err(|e| e.to_string())?;
                         if member.name() != name {
                             return Err(
                                 "The archive has changed. Reopen it to select this entry.".into()
                             );
                         }
+                        if !member.is_file()
+                            || !matches!(member.unix_mode().unwrap_or(0) & 0o170000, 0 | 0o100000)
+                        {
+                            return Err(
+                                "Select a regular file in the ZIP; links are not followed.".into(),
+                            );
+                        }
+                        let size = member.size();
                         let mut out = tempfile::tempfile().map_err(|e| e.to_string())?;
-                        copy(&mut member, &mut out, cancel)?;
+                        copy(&mut (&mut member).take(size), &mut out, cancel)?;
+                        if out.stream_position().map_err(|e| e.to_string())? != size
+                            || member.read(&mut [0]).map_err(|e| e.to_string())? != 0
+                        {
+                            return Err(
+                                "The ZIP member size differs from its directory entry.".into()
+                            );
+                        }
                         out.rewind().map_err(|e| e.to_string())?;
                         Ok(out)
                     }

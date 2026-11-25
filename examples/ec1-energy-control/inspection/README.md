@@ -1,6 +1,6 @@
 # EC1 bare-board inspection sheet
 
-**[One-page A4 PDF](EC1-inspection.pdf) · [Editable SVG drawing](EC1-inspection.svg) · [Ten-hole digital register and shift note](register/) · [Original KiCad project and CAM](../)**
+**[One-page A4 PDF](EC1-inspection.pdf) · [Editable SVG drawing](EC1-inspection.svg) · [Ten-hole digital register and shift note](register/) · [Removable inspection rest (OpenSCAD and STL)](rest/) · [Original KiCad project and CAM](../)**
 
 Use the PDF for the unpowered bench. Print at **Actual size / 100%**, with Fit, Shrink and borderless expansion off. Measure the **50 mm horizontal and 20 mm vertical** spans between tick centres. If either is wrong, do not use that print. The outline is the component-side view: IN at upper left, LOAD at upper right, G below LOAD. The table identifies every loop and both C1 leads. Use the SVG if you want to edit the drawing; editing is not required to use either file.
 

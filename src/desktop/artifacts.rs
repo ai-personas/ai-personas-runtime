@@ -27,6 +27,9 @@ mod sequence;
 mod database;
 #[path = "native_preview.rs"]
 mod native_preview;
+#[path = "viewed_member.rs"]
+mod viewed_member;
+pub(super) use viewed_member::{MemberTarget, ViewedMember};
 pub(super) use loader::read_file;
 pub(super) use native_preview::{cam_layers, Cancellation as PreviewCancellation};
 
@@ -246,15 +249,23 @@ impl Viewer {
     /// Open an exact retained artifact supplied by the indexed workspace's
     /// read worker. The existing decoder and native renderers stay off the UI
     /// thread; Snapshot checks the retained digest again before rendering.
-    pub fn open_snapshot(&mut self, directory: Arc<tempfile::TempDir>, path: PathBuf, sha256: String, member: Option<(usize, String)>) {
+    pub(super) fn open_snapshot(&mut self, directory: Arc<tempfile::TempDir>, path: PathBuf, sha256: String, member: Option<MemberTarget>) -> Result<(), String> {
         self.trail.clear();
         self.details = None;
         let source = Source::Snapshot { path, sha256, _directory: directory };
-        if let Some((index, name)) = member {
-            let directory = ai_personas::library_folders::split(&name).0.to_owned();
-            self.trail.push((source.clone(), super::folder_nav::Folders { directory }, String::new()));
-            self.load(Source::Member { container: Arc::new(source), format: ArchiveFormat::Zip, index, name });
+        if let Some(member) = member {
+            match member.resolve(source, |parent, name| {
+                let directory = ai_personas::library_folders::split(name).0.to_owned();
+                self.trail.push((parent.clone(), super::folder_nav::Folders { directory }, String::new()));
+            }) {
+                Ok(source) => self.load(source),
+                Err(error) => { self.clear_selection(); return Err(error); }
+            }
         } else { self.load(source); }
+        Ok(())
+    }
+    pub(super) fn inside_archive(&self) -> bool {
+        matches!(self.source, Some(Source::Member { .. }))
     }
     pub fn open_file(&mut self, path: PathBuf) {
         self.trail.clear();
@@ -658,6 +669,11 @@ impl Viewer {
         let mut reload = false;
         let mut bytes = false;
         if !self.trail.is_empty() {
+            if !show_header {
+                if let Some(Source::Member { name, .. }) = &self.source {
+                    ui.add(egui::Label::new(egui::RichText::new(name).strong()).wrap());
+                }
+            }
             back = ui.button("←  Back to archive").clicked();
             ui.add_space(4.);
         }
