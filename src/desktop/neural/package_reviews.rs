@@ -62,6 +62,7 @@ enum Reply {
 #[derive(Default)]
 pub(super) struct Desk {
     visible: bool,
+    reading_return: bool,
     selection: Selection,
     offset: usize,
     page: Option<Value>,
@@ -80,13 +81,26 @@ impl Desk {
         work: &str,
         delivery: Option<&str>,
     ) {
+        self.open_selection(ctx, root, work, delivery, None);
+    }
+    pub(super) fn open_finding(
+        &mut self, ctx: &egui::Context, root: &Path, work: &str, delivery: &str, finding: &str,
+    ) {
+        self.open_selection(ctx, root, work, Some(delivery), Some(finding));
+    }
+    fn open_selection(
+        &mut self, ctx: &egui::Context, root: &Path, work: &str,
+        delivery: Option<&str>, finding: Option<&str>,
+    ) {
         self.visible = true;
         if self.draft.is_some() || self.publishing {
             return;
         }
+        self.reading_return = finding.is_some();
         self.selection = Selection {
             work: work.into(),
             delivery: delivery.unwrap_or_default().into(),
+            specific: finding.unwrap_or_default().into(),
             ..Default::default()
         };
         self.reset();
@@ -219,14 +233,30 @@ impl Desk {
         let mut inspect = None;
         let mut load = None;
         let mut publish = false;
-        egui::Window::new("Package reviews")
+        let rect = ctx.content_rect().shrink(6.);
+        let bounds = (rect.size() - egui::vec2(32., 76.)).max(egui::vec2(1., 1.));
+        let heading = if self.reading_return { "Returned finding" } else { "Package reviews" };
+        egui::Window::new(heading)
             .id(egui::Id::new("studio-package-reviews"))
             .open(&mut visible)
-            .default_width(760.)
-            .default_height(590.)
+            .min_size(egui::vec2(180., 120.).min(bounds))
+            .max_size(bounds)
+            .default_size(egui::vec2(760., 590.).min(bounds))
+            .constrain_to(rect)
             .resizable(true)
             .show(ctx, |ui| {
-                if self.draft.is_none() {
+                if self.reading_return {
+                    ui.horizontal_wrapped(|ui| {
+                        theme::badge(ui, "Peer review", TEAL);
+                        ui.weak("Returned to the issuer · not an acceptance");
+                        if ui.small_button("Browse other reviews…").clicked() {
+                            self.reading_return = false;
+                            self.selection.specific.clear();
+                            load = Some(0);
+                        }
+                        if self.pending.is_some() { ui.spinner(); }
+                    });
+                } else if self.draft.is_none() {
                     let previous = self.selection.clone();
                     let compare = choose_subject(ui, &mut self.selection, status);
                     if previous != self.selection {
@@ -263,7 +293,9 @@ impl Desk {
                 }
                 if let Some(error) = &self.error {
                     ui.colored_label(ui.visuals().error_fg_color, error);
-                    if self.draft.is_some() && self.pending.is_none() {
+                    if self.reading_return && self.pending.is_none() && ui.button("Retry finding").clicked() {
+                        load = Some(0);
+                    } else if self.draft.is_some() && self.pending.is_none() {
                         ui.horizontal(|ui| {
                             if ui.button("Reload reviewed brief").clicked() {
                                 load = Some(0);
@@ -448,7 +480,7 @@ impl Desk {
                                 exact, total.saturating_sub(exact)));
                         }
                         for entry in page["items"].as_array().into_iter().flatten() {
-                            review_card(ui, entry, package, &mut inspect);
+                            review_card(ui, entry, package, status, &mut inspect);
                         }
                         if self.offset > 0 || self.offset + PAGE < total {
                             ui.horizontal(|ui| {
@@ -587,7 +619,7 @@ fn ref_button(
         *open = Some(reference.to_owned());
     }
 }
-fn review_card(ui: &mut Ui, item: &Value, selected: &Value, open: &mut Option<String>) {
+fn review_card(ui: &mut Ui, item: &Value, selected: &Value, status: &Value, open: &mut Option<String>) {
     let review = &item["review"];
     let reviewed = &review["subject"];
     let reference = s(review, "reference");
@@ -602,11 +634,23 @@ fn review_card(ui: &mut Ui, item: &Value, selected: &Value, open: &mut Option<St
             theme::badge(ui, &title(s(review, "verdict")), color);
             ui.strong(s(review, "criterion"));
         });
-        ui.small(format!(
-            "{} · {}",
-            s(review, "author"),
-            s(review, "author_kind")
-        ));
+        let id = s(review, "author");
+        let label = if review["author_kind"] == "persona" {
+            status["personas"].as_array().into_iter().flatten()
+                .find(|p| p["body"]["id"] == id)
+                .and_then(|p| p["body"]["label"].as_str())
+                .filter(|label| !label.is_empty()).unwrap_or(id)
+        } else { id };
+        ui.horizontal_wrapped(|ui| {
+            ui.strong(label).on_hover_text(format!("{} · {id}", s(review, "author_kind")));
+            if let Some(brief) = review["reporting_mandate"].as_str() {
+                ui.weak("published in");
+                let activity = status["work"].as_array().into_iter().flatten()
+                    .find(|w| w["body"]["id"] == review["work"])
+                    .map(|w| activity_title(&w["body"])).unwrap_or("Reporting activity");
+                ref_button(ui, brief, format!("{} · {}", excerpt(activity, 52), version(brief)), open);
+            }
+        });
         ui.horizontal_wrapped(|ui| {
             if item["same_basis"] == true {
                 ui.colored_label(TEAL, "Exact files, inputs and brief");

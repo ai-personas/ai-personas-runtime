@@ -260,18 +260,15 @@ pub(super) fn publish(
     } else {
         format!("operator:{author}")
     };
-    store::event(
-        db,
-        work,
-        &sender,
-        "*",
-        "package_review",
-        &json!({"reference":reference,"criterion":input.criterion,"verdict":input.verdict}),
-        call,
-    )?;
-    Ok(
-        json!({"reference":reference,"verdict":input.verdict,"reviewed_delivery":subject.delivery,"reviewed_mandate":subject.mandate}),
-    )
+    let notice = json!({"reference":reference,"criterion":input.criterion,"verdict":input.verdict});
+    store::event(db, work, &sender, "*", "package_review", &notice, call)?;
+    let mut result = json!({"reference":reference,"verdict":input.verdict,"reviewed_delivery":subject.delivery,"reviewed_mandate":subject.mandate});
+    if let (Some(call), Some(delivery)) = (call, subject.delivery.as_deref()) {
+        if let Some(address) = peer::notify_issuer(db, work, author, call, delivery, &notice)? {
+            result["issuer_notice"] = json!(address);
+        }
+    }
+    Ok(result)
 }
 
 fn asset_id(reference: &str) -> &str {

@@ -248,7 +248,7 @@ pub(super) fn responses_to_call(
         }
     }
     // Multiple reviews or deliveries from one decision still name separate editions.
-    let sql = format!("{EVENTS} WHERE {VISIBLE} AND e.work=?2 AND e.kind='package_review' AND e.target='*'
+    let sql = format!("{EVENTS} WHERE {VISIBLE} AND e.work=?2 AND e.kind='package_review' AND e.target IN ('*',?1)
         AND e.actor<>?1 AND e.invocation IN (SELECT v.invocation FROM versions v JOIN objects r ON r.digest=v.digest
         WHERE v.kind='package_review' AND json_extract(CAST(r.bytes AS TEXT),'$.subject.delivery') IN (
         SELECT 'delivery:'||d.id||'@'||d.revision FROM versions d WHERE d.kind='delivery' AND d.invocation=?3))");
@@ -269,9 +269,10 @@ pub(super) fn responses_to_call(
 }
 
 fn peer_review(db: &Connection, owner: &str, event: &Experience, body: &Value) -> Result<Option<super::activity_sources::delivery::Edition>> {
-    let Some(call) = event.invocation.as_deref().filter(|_| event.kind == "package_review" && event.target == "*" && event.actor != owner) else { return Ok(None) };
+    use super::package_review::peer::{reviewed_issue, Notice};
+    let Some(call) = event.invocation.as_deref().filter(|_| event.kind == "package_review" && (event.target == "*" || event.target == owner) && event.actor != owner) else { return Ok(None) };
     let seq = event.id.strip_prefix("event-").ok_or_else(|| failure("Missing review event"))?.parse()?;
-    super::package_review::peer::reviewed_issue(db,owner,&event.work,&event.actor,call,seq,body).map(Some)
+    reviewed_issue(db, owner, Notice { work:&event.work, peer:&event.actor, target:&event.target, call, seq, body }).map(Some)
 }
 
 /// A compact invitation to deliberate retrieval. Other activities contribute
@@ -297,6 +298,17 @@ pub(super) fn availability(db: &Connection, actor: &str, work: &str) -> Result<V
     if let Some(pointer) = receiving::elsewhere(db, actor, work)? {
         available["latest_peer_receiving_check_elsewhere"] = pointer;
     }
+    // A new activity isn't a continuation of the old review. Offer only a
+    // discovery address, never the report, old instructions or another duty.
+    let sql = format!("{EVENTS} WHERE e.kind='package_review' AND e.target=?1 AND e.work<>?2 AND e.invocation IS NOT NULL ORDER BY e.seq DESC LIMIT 1");
+    if let Some(e) = db.query_row(&sql, [actor,work], Experience::row).optional()? {
+        let body: Value = store::object(db, &e.digest)?;
+        if let Ok(Some(issued)) = peer_review(db, actor, &e, &body) {
+            available["latest_returned_peer_review_elsewhere"] = json!({"experience":e.metadata()["reference"],
+                "work":e.work,"reviewed_by":e.actor,"review":body["reference"],"delivery":issued.issue.record.reference.handle(),
+                "issuing_decision":format!("experience:{}@1",issued.issue.invocation),"bodies_supplied":false});
+        }
+    }
     Ok(available)
 }
 
@@ -310,6 +322,14 @@ pub(super) fn read(db: &Connection, actor: Option<&str>, reference: &str) -> Res
             Ok(linked) => result["issuance_checked"] = json!({"decision":format!("experience:{}@1",linked.call),
                 "issuer":item.target,"operation":linked.operation,"delivery":linked.edition,"checking_call":item.invocation}),
             Err(_) => result["issuance_link_status"] = json!("unavailable"),
+        }
+    }
+    if item.kind == "package_review" && item.target != "*" {
+        match peer_review(db, &item.target, &item, &event["body"]) {
+            Ok(Some(edition)) => result["issuance_reviewed"] = json!({"delivery":edition.issue.record.reference.handle(),
+                "issuer":item.target,"decision":format!("experience:{}@1",edition.issue.invocation),"operation":edition.operation,
+                "review":event["body"]["reference"],"reporting_work":event["body"]["reporting_work"]}),
+            _ => result["issuance_link_status"] = json!("unavailable"),
         }
     }
     if item.kind == "accepted_decision" {

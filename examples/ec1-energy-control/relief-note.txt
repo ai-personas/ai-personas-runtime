@@ -1,0 +1,6 @@
+Put EC1.sha256 beside both unchanged ZIPs. In that directory run:
+sha256sum -c EC1.sha256
+If either check fails, hold the files and notify Rowan. Do not upload.
+Kit verified both ZIP names, byte counts and full SHA-256 hashes on the card
+against the Rev A originals. This confirms file identity only.
+Physical receipt is not recorded. No order is authorized.
