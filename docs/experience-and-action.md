@@ -48,6 +48,10 @@ The shipping code also verifies the exact provider-input and character-use recei
 
 A stronger claim still requires a persona to originate a warranted change, use it in later ordinary decisions, and receive consequences that distinguish useful transfer from new facts, supplied reminders and provider variation. For **numerical** maturation, also trace the owner's separate adoption, the actual changed output on those encounters, and what happened to behavior that was already useful.
 
+## What did a peer think of the files I issued?
+
+The [two-ticket print job](../examples/museum-deposit-tickets/) follows a same-activity peer review into the issuer’s ordinary decision. Both the professional finding and the original issuing action are attributable; neither is numerical development. The saved EC1 review exposed the missing link, and the new ticket job exercised it through Studio on Astra high/xhigh.
+
 ## Mara's feedback on an issued edition
 
 Mara’s buyer reported that the **P124 inspection nest** sliced and fitted nominally, but an allowed combination of drawing tolerances left a **3.20 mm border against a 3.25 mm seat**. The buyer addressed the report to Mara’s exact issued ZIP. In a separate review Mara deliberately selected both her issuing decision and the buyer’s message, then chose a future practice: calculate each contact side’s worst-case clearance independently before claiming fit. She chose to keep her character and stop.

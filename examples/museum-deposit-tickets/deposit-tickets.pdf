@@ -1,0 +1,59 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.2756 841.8898] /Resources << /Font << /R 4 0 R /B 5 0 R >> >> /Contents 6 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+6 0 obj
+<< /Length 1194 >>
+stream
+0.09 0.19 0.22 rg 0.09 0.19 0.22 RG 1.5 w
+BT /B 13 Tf 1 0 0 1 44 785.890 Tm (MUSEUM  /  DEPOSIT TICKET) Tj ET
+44 771.890 m 551 771.890 l S
+BT /B 42 Tf 1 0 0 1 42 708.890 Tm (Iris desk) Tj ET
+BT /B 12 Tf 1 0 0 1 44 652.890 Tm (CASE) Tj ET
+BT /B 12 Tf 1 0 0 1 305 652.890 Tm (TIME) Tj ET
+BT /R 31 Tf 1 0 0 1 43 615.890 Tm (P-17) Tj ET
+BT /R 31 Tf 1 0 0 1 304 615.890 Tm (09:40) Tj ET
+0.93 g 44 485.890 507 84 re f 0.09 0.19 0.22 rg
+BT /B 11 Tf 1 0 0 1 58 543.890 Tm (HANDLING INSTRUCTION) Tj ET
+BT /B 20 Tf 1 0 0 1 58 509.890 Tm (Release only against a signed receipt.) Tj ET
+0.09 0.19 0.22 rg 0.09 0.19 0.22 RG 1.5 w
+BT /B 13 Tf 1 0 0 1 44 364.945 Tm (MUSEUM  /  DEPOSIT TICKET) Tj ET
+44 350.945 m 551 350.945 l S
+BT /B 42 Tf 1 0 0 1 42 287.945 Tm (Aspen desk) Tj ET
+BT /B 12 Tf 1 0 0 1 44 231.945 Tm (CASE) Tj ET
+BT /B 12 Tf 1 0 0 1 305 231.945 Tm (TIME) Tj ET
+BT /R 31 Tf 1 0 0 1 43 194.945 Tm (P-71) Tj ET
+BT /R 31 Tf 1 0 0 1 304 194.945 Tm (14:05) Tj ET
+0.93 g 44 64.945 507 84 re f 0.09 0.19 0.22 rg
+BT /B 11 Tf 1 0 0 1 58 122.945 Tm (HANDLING INSTRUCTION) Tj ET
+BT /B 20 Tf 1 0 0 1 58 88.945 Tm (Hold until the duty curator calls.) Tj ET
+0.45 G 0.6 w [4 4] 0 d
+18 420.945 m 577 420.945 l S
+endstream
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000259 00000 n 
+0000000329 00000 n 
+0000000404 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R >>
+startxref
+1650
+%%EOF
