@@ -77,10 +77,17 @@ impl Window {
             {
                 selected = Some(s(r, "declaration").into());
             }
+            if ui
+                .small_button("Brief at declaration ↗")
+                .on_hover_text(s(role, "brief"))
+                .clicked()
+            {
+                selected = Some(s(role, "brief").into());
+            }
         });
         ui.label(s(role, "note"));
-        let name = app.work_name(work);
-        ui.small(excerpt(&name, 96)).on_hover_text(name);
+        let need = r["original_need"].as_str().unwrap_or(work);
+        ui.small(excerpt(need, 96)).on_hover_text(need);
         ui.separator();
         let items = r["items"].as_array().map(Vec::as_slice).unwrap_or_default();
         let verified = items.iter().filter(|v| v["kind"] == "supplied").count();
@@ -99,11 +106,22 @@ impl Window {
                     ui.small(s(row, "reason"));
                 } else {
                     ui.horizontal_wrapped(|ui| {
-                        ui.strong(app.label(s(row, "persona")));
+                        let actor = s(row, "persona");
+                        ui.strong(
+                            row["label_at_decision"]
+                                .as_str()
+                                .filter(|s| !s.is_empty())
+                                .unwrap_or(actor),
+                        )
+                        .on_hover_text(actor);
                         ui.small(s(row, "accepted_utc"));
                         match row["continuation"].as_str() {
-                            Some("stop") => { ui.small("Chose to stop"); }
-                            Some("wait") => { ui.small("Chose to wait"); }
+                            Some("stop") => {
+                                ui.small("Chose to stop");
+                            }
+                            Some("wait") => {
+                                ui.small("Chose to wait");
+                            }
                             _ => {}
                         }
                         if ui
@@ -119,6 +137,14 @@ impl Window {
                             .clicked()
                         {
                             selected = Some(s(row, "decision").into());
+                        }
+                        if row["brief"] != role["brief"]
+                            && ui
+                                .small_button("Changed brief ↗")
+                                .on_hover_text(s(row, "brief"))
+                                .clicked()
+                        {
+                            selected = Some(s(row, "brief").into());
                         }
                     });
                 }

@@ -152,8 +152,16 @@ impl App {
             // recipient prose. Opening a title never substitutes a later issue.
             let key = ui.make_persistent_id("edition-page");
             let total = activity.deliveries.len();
-            let mut page = ui.data(|d| d.get_temp::<usize>(key)).unwrap_or(0).min(last_page(total, PER_PAGE));
-            for &i in activity.deliveries.iter().skip(page * PER_PAGE).take(PER_PAGE) {
+            let mut page = ui
+                .data(|d| d.get_temp::<usize>(key))
+                .unwrap_or(0)
+                .min(last_page(total, PER_PAGE));
+            for &i in activity
+                .deliveries
+                .iter()
+                .skip(page * PER_PAGE)
+                .take(PER_PAGE)
+            {
                 let r = &self.records("deliveries")[i];
                 let reference = inbox::handle(r);
                 ui.push_id(&reference, |ui| {

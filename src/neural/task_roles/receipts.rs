@@ -5,7 +5,7 @@ use crate::neural::provider_evidence;
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 
-fn declaration(db: &Connection, r: &store::Record) -> Result<i64> {
+fn declaration(db: &Connection, r: &store::Record) -> Result<(i64, store::Record)> {
     let b = &r.body;
     let work = b["work"]
         .as_str()
@@ -52,7 +52,7 @@ fn declaration(db: &Connection, r: &store::Record) -> Result<i64> {
     {
         return Err(failure("Ambiguous or mismatched role declaration notice"));
     }
-    Ok(seq)
+    Ok((seq, task))
 }
 
 /// Newest prepared first, among accepted decisions on this task. Seek older
@@ -70,7 +70,7 @@ pub fn received(
     if role.reference.kind != KIND || role.reference.handle() != reference {
         return Err(failure("Choose a canonical exact human task-role revision"));
     }
-    let seq = declaration(db, &role)?;
+    let (seq, declared_task) = declaration(db, &role)?;
     let expected = entry(&role);
     let work = role.body["work"].as_str().expect("checked task");
     // Locate only structured entries. A note or role-change event that quotes
@@ -123,7 +123,8 @@ pub fn received(
                 ));
             }
             Ok(
-                json!({"kind":"supplied","persona":actor,"decision":format!("experience:{call}@1"),
+                json!({"kind":"supplied","persona":actor,"label_at_decision":s.data["identity"]["label"],
+                "decision":format!("experience:{call}@1"),
                 "input":format!("object:{}",row.get::<_,String>(3)?),"accepted_at":row.get::<_,i64>(4)?,
                 "accepted_utc":row.get::<_,Option<String>>(5)?,"continuation":accepted.response["continuation"]["kind"],
                 "brief":brief,"epoch":s.epoch,"binding":accepted.binding}),
@@ -132,7 +133,8 @@ pub fn received(
         items.push(result.unwrap_or_else(|e| json!({"kind":"unavailable","reason":e.to_string()})));
     }
     Ok(
-        json!({"role":expected,"work":work,"declaration":format!("experience:event-{seq}@1"),
+        json!({"role":expected,"work":work,"original_need":declared_task.body["original_need"],
+        "declaration":format!("experience:event-{seq}@1"),
         "scope":"Exact active-role entry in an accepted persona decision on this task; supply is not agreement or fulfillment.",
         "items":items,"next_before":next}),
     )
