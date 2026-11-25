@@ -2,7 +2,8 @@
 //! window does not run a check on behalf of a persona or record a package review.
 use super::*;
 use ai_personas::neural::{
-    issued_zip::{self, Comparison, Difference, Fingerprint, Source},
+    issued_files::Source,
+    issued_zip::{self, Comparison, Difference, Fingerprint},
     tools::DeliveryScope,
 };
 use std::sync::OnceLock;

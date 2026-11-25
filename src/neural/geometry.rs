@@ -40,6 +40,9 @@ pub struct Render {
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Inspect {
+    /// Optional delivery or request revision. Checks membership and the original file write.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edition: Option<String>,
     /// Exact asset revision or byte object. For a ZIP, select the STL member.
     pub reference: String,
     /// Original case-sensitive path inside the referenced ZIP; omit for a standalone STL.
@@ -248,11 +251,12 @@ pub async fn inspect(root: &std::path::Path, input: Inspect) -> Result<Value> {
     let root = root.to_owned();
     tokio::task::spawn_blocking(move||{
         let mut store=store::Store::open(&root)?;
-        let source = store.snapshot(|db| member::MeshInput::read(db, &input.reference, input.member.as_deref()))?;
+        let source = store.snapshot(|db| member::MeshInput::read(db, &input.reference, input.member.as_deref(), input.edition.as_deref()))?;
         let geometry = measure(&source.bytes)?;
         let object = format!("object:{}", source.digest);
         let lookup = if source.member.is_some() { &object } else { &input.reference };
         let mut result = json!({"reference":input.reference,"mesh":object,"bytes":source.bytes.len(),"geometry":geometry});
+        if let Some(edition) = input.edition { result["package_edition"] = json!(edition); }
         let finish = |db: &rusqlite::Transaction<'_>| -> Result<_> {
             source.retain(db, &mut result)?;
             result["render_history"] = history::lookup(db, &history::Lookup::first(lookup))?;

@@ -1818,6 +1818,9 @@ impl App {
                     ui.label("Preview drawings, images, documents, data, 3D models and packages.");
                     ui.weak("The inspector shows its owner, exact version and qualifications.");
                 } else {
+                    if let Some(edition) = self.preview_metadata["package_edition"].as_str() {
+                        ui.small(format!("Verified attachment · {edition}"));
+                    }
                     let actions = |ui: &mut Ui| {
                         let projected=self.preview_metadata["view"]=="provider_receipt_metadata";
                         if !projected && (self.selected_reference.starts_with("asset:") || self.selected_reference.starts_with("object:"))
@@ -1826,7 +1829,7 @@ impl App {
                             if print.clicked() {
                                 let path = self.preview_metadata["path"].as_str().unwrap_or("document.html").to_owned();
                                 let reference = self.selected_reference.clone();
-                                let package = self.print_package_for(&reference);
+                                let package = self.preview_package.clone();
                                 self.open_print_preview(ui.ctx(), &reference, &path, package, Some(print.id));
                             }
                         }
@@ -1844,7 +1847,8 @@ impl App {
                         }
                         let path=s(&self.preview_metadata,"path");
                         if (path.to_ascii_lowercase().ends_with(".stl") || self.preview_metadata["format"]=="stl") && ui.small_button("Measure mesh…").clicked() {
-                            self.mesh_profile.open(ui.ctx(),&self.root,&self.operator,&self.selected_reference,&self.work,None);
+                            self.mesh_profile.open(ui.ctx(),&self.root,&self.operator,&self.selected_reference,&self.work,None,
+                                self.preview_package.clone());
                         }
                         if self.selected_reference.starts_with("asset:") && path.to_ascii_lowercase().ends_with(".scad") && ui.button("Render model…").clicked() {
                             self.dialog=Some(Dialog::Render(super::render::RenderDialog::new(path,&self.selected_reference)));

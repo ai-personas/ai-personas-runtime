@@ -52,18 +52,28 @@ impl Edition {
         if !self.members.iter().any(|m| m == reference) {
             return Err(failure(format!("{reference} is not an issued file of {}", record.reference.handle())));
         }
-        let file = store::exact(db, reference)?;
-        let source = resources::origin(db, &file.reference.id, file.reference.revision)?
-            .ok_or_else(|| failure(format!("Cannot verify the source of issued file {reference}")))?;
-        let writer = Choice::recorded(db, &source.author, &source.call)?;
-        let size: i64 = db.query_row("SELECT length(bytes) FROM objects WHERE digest=?1", [&source.blob], |r| r.get(0))?;
-        if source.write_tool.is_none() || source.written_event.is_some_and(|seq| seq >= self.issue.sequence)
-            || version_order(db, &file)? >= version_order(db, record)?
-            || !proof::verified_source(db, &writer, &source, size.try_into()?)? {
-            return Err(failure(format!("The file {reference} differs from its recorded write before issue")));
-        }
-        Ok(source)
+        content_before(db, reference, record, self.issue.sequence)
     }
+}
+
+/// A delivery or request can only attach a registration already written at issue.
+/// Membership is checked by the caller, not inferred from path, hash or timing.
+pub(in crate::neural) fn content_before(db: &Connection, reference: &str, issue: &store::Record, sequence: i64) -> Result<resources::Asset> {
+    let file = store::exact(db, reference)?;
+    if file.reference.kind != "asset" || file.reference.handle() != reference {
+        return Err(failure("Select a canonical asset revision"));
+    }
+    let source = resources::origin(db, &file.reference.id, file.reference.revision)?
+        .ok_or_else(|| failure(format!("Cannot verify the source of issued file {reference}")))?;
+    let writer = Choice::recorded(db, &source.author, &source.call)
+        .map_err(|e| failure(format!("Cannot verify the content-writing decision {}: {e}", source.call)))?;
+    let size: i64 = db.query_row("SELECT length(bytes) FROM objects WHERE digest=?1", [&source.blob], |r| r.get(0))?;
+    if source.write_tool.is_none() || source.written_event.is_some_and(|seq| seq >= sequence)
+        || version_order(db, &file)? >= version_order(db, issue)?
+        || !proof::verified_source(db, &writer, &source, size.try_into()?)? {
+        return Err(failure(format!("The file {reference} differs from its recorded write before issue")));
+    }
+    Ok(source)
 }
 
 fn version_order(db: &Connection, record: &store::Record) -> Result<i64> {

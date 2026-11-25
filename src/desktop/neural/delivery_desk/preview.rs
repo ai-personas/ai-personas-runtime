@@ -1,7 +1,7 @@
 //! A bounded in-page preview of a single immutable package member.
 use super::*;
 use super::super::super::data_view;
-use ai_personas::neural::store;
+use ai_personas::neural::issued_files::{Edition, Source};
 use std::{
     io::Cursor,
     path::Path,
@@ -117,7 +117,10 @@ impl Format {
 
 struct Job {
     root: PathBuf,
+    edition: String,
     reference: String,
+    file_path: String,
+    file_digest: String,
     path: String,
     kind: Kind,
     page: u32,
@@ -134,7 +137,27 @@ enum Content {
     Studio(Arc<tempfile::TempDir>, PathBuf, String),
     Text(String, bool),
 }
-type Answer = (u64, ai_personas::neural::Result<Content>);
+struct Identity {
+    source: Source,
+    member: Option<(String, usize, String)>,
+}
+impl Identity {
+    fn show(&self, ui: &mut Ui) {
+        let s = &self.source;
+        egui::CollapsingHeader::new("Verified file identity")
+            .id_salt(("issued-file-identity", &s.edition, &s.file))
+            .show(ui, |ui| {
+                ui.weak("Checked against the issuing decision, the original file write and the retained bytes. Not a quality verdict or physical receipt.");
+                let mut details = format!("Edition: {}\nIssue decision: {}\nFile: {}\nPath: {}\nContent revision: {}\nWriter: {}\nWrite decision: {}\nBytes: {}\nSHA-256: {}", s.edition, s.issuing_decision, s.file, s.path, s.content_revision, s.content_author, s.content_decision, s.bytes, s.sha256);
+                if let Some((path, bytes, hash)) = &self.member {
+                    details.push_str(&format!("\nZIP member: {path}\nMember bytes: {bytes}\nMember SHA-256: {hash}"));
+                }
+                ui.add(egui::Label::new(RichText::new(&details).small().monospace()).wrap().selectable(true));
+                if ui.small_button("Copy file identity").clicked() { ui.ctx().copy_text(details); }
+            });
+    }
+}
+type Answer = (u64, ai_personas::neural::Result<(Identity, Content)>);
 
 struct Worker {
     tx: mpsc::Sender<Job>,
@@ -187,6 +210,8 @@ pub(super) struct Inline {
     worker: Option<Worker>,
     latest: Arc<AtomicU64>,
     reference: String,
+    edition: String,
+    identity: Option<Identity>,
     pages: pdf::Pages,
     html_source: bool,
     view: View,
@@ -215,6 +240,8 @@ impl Inline {
     pub fn clear(&mut self) {
         self.latest.fetch_add(1, Ordering::Relaxed);
         self.reference.clear();
+        self.edition.clear();
+        self.identity = None;
         if let Some(viewer) = &mut self.studio { viewer.clear_selection(); }
         self.pages = Default::default();
         self.view = View::Pending;
@@ -233,18 +260,22 @@ impl Inline {
     fn request(&mut self, ui: &Ui, root: &Path, file: &File) {
         let serial = self.latest.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
         ui.ctx().request_repaint();
-        self.view = match file.bytes {
-            None => View::Note("The file metadata is unavailable.".into()),
-            Some(n) if n > SOURCE_LIMIT => {
+        self.identity = None;
+        self.view = match (file.bytes, &file.digest) {
+            (None, _) | (_, None) => View::Note("The file metadata is unavailable.".into()),
+            (Some(n), _) if n > SOURCE_LIMIT => {
                 View::Note("This file is too large for an inline preview.".into())
             }
-            Some(_) => {
+            (Some(_), Some(digest)) => {
                 let worker = self
                     .worker
                     .get_or_insert_with(|| Worker::new(self.latest.clone()));
                 let job = Job {
                     root: root.into(),
+                    edition: self.edition.clone(),
                     reference: file.reference.clone(),
+                    file_path: file.path.clone(),
+                    file_digest: digest.clone(),
                     path: self.member.as_ref().map_or_else(|| file.path.clone(), |m| m.path.clone()),
                     kind: self.member.as_ref().map_or(file.format.kind, |m| m.kind),
                     page: self.pages.page,
@@ -261,10 +292,11 @@ impl Inline {
         };
     }
 
-    pub fn show(&mut self, ui: &mut Ui, root: &Path, file: &File) {
-        if self.reference != file.reference {
+    pub fn show(&mut self, ui: &mut Ui, root: &Path, edition: &str, file: &File) {
+        if self.reference != file.reference || self.edition != edition {
             self.clear();
             self.reference.clone_from(&file.reference);
+            self.edition = edition.into();
             self.html_source = false;
             self.request(ui, root, file);
         }
@@ -274,9 +306,7 @@ impl Inline {
             if let Some(viewer) = &mut self.studio { viewer.clear_selection(); }
             self.pages = Default::default();
             self.html_source = false;
-            if let Some(listing) = self.directory.take() {
-                self.view = View::Archive(listing);
-            }
+            self.request(ui, root, file);
         }
         let member_key = self.member.as_ref().map(|m| m.key(&file.reference));
         let reference = member_key.as_deref().unwrap_or(&file.reference);
@@ -292,7 +322,7 @@ impl Inline {
                 if serial != self.latest.load(Ordering::Relaxed) {
                     continue;
                 }
-                self.view = match result {
+                self.view = match result.map(|(identity, content)| { self.identity = Some(identity); content }) {
                     Ok(Content::Image(pixels, note, paths)) => View::Image(
                         ui.ctx().load_texture(
                             format!("delivery-{reference}"),
@@ -315,7 +345,7 @@ impl Inline {
                         ))
                     }
                     Ok(Content::Html(page)) => View::Html(page),
-                    Ok(Content::Archive(listing)) => View::Archive(listing),
+                    Ok(Content::Archive(listing)) => View::Archive(self.directory.take().unwrap_or(listing)),
                     Ok(Content::Table(rows)) => View::Table(rows, Default::default()),
                     Ok(Content::Text(body, truncated)) => View::Text(body, truncated),
                     Ok(Content::Studio(directory, path, sha256)) => {
@@ -335,6 +365,7 @@ impl Inline {
                 };
             }
         }
+        if let Some(identity) = &self.identity { identity.show(ui); }
         let document = matches!(kind, Kind::Pdf) || self.pages.count.is_some();
         if document && self.pages.navigation(ui, reference) {
             self.request(ui, root, file);
@@ -424,9 +455,8 @@ impl Inline {
             }
             View::Note(text) => {
                 ui.weak(text.as_str());
-                if document
-                    && file.bytes.is_some_and(|n| n <= SOURCE_LIMIT)
-                    && ui.small_button("Retry page").clicked()
+                if file.digest.is_some() && file.bytes.is_some_and(|n| n <= SOURCE_LIMIT)
+                    && ui.small_button(if document { "Retry page" } else { "Retry preview" }).clicked()
                 {
                     self.request(ui, root, file);
                 }
@@ -444,33 +474,24 @@ impl Inline {
     }
 }
 
-fn load(job: &Job, cancelled: impl Fn() -> bool) -> ai_personas::neural::Result<Content> {
+fn load(job: &Job, cancelled: impl Fn() -> bool) -> ai_personas::neural::Result<(Identity, Content)> {
     let db = data::open(&job.root)?;
-    let asset = store::exact(&db, &job.reference)?;
-    if asset.reference.kind != "asset" || asset.reference.handle() != job.reference {
-        return Err(ai_personas::neural::failure(
-            "The selected revision is not a retained file.",
-        ));
+    let (source, bytes) = Edition::open(&db, &job.edition)?.read(&job.reference, Some(SOURCE_LIMIT))?;
+    if source.path != job.file_path || source.sha256 != job.file_digest {
+        return Err(ai_personas::neural::failure("The file differs from the selection on the delivery desk."));
     }
-    let digest = asset.body["blob"]
-        .as_str()
-        .ok_or_else(|| ai_personas::neural::failure("This revision has no retained bytes."))?;
-    let size: i64 = db.query_row(
-        "SELECT length(bytes) FROM objects WHERE digest=?1",
-        [digest],
-        |r| r.get(0),
-    )?;
-    if u64::try_from(size)? > SOURCE_LIMIT {
-        return Err(ai_personas::neural::failure(
-            "This file is too large for an inline preview.",
-        ));
-    }
-    let bytes = store::bytes(&db, digest)?;
     drop(db);
-    let bytes = match &job.member {
-        Some(member) => member.contents(&bytes)?,
-        None => bytes,
+    let (member, bytes) = match &job.member {
+        Some(entry) => {
+            let bytes = entry.contents(&bytes)?;
+            (Some((entry.path.clone(), bytes.len(), ai_personas::store::sha256_bytes(&bytes))), bytes)
+        }
+        None => (None, bytes),
     };
+    Ok((Identity { source, member }, render(job, bytes, cancelled)?))
+}
+
+fn render(job: &Job, bytes: Vec<u8>, cancelled: impl Fn() -> bool) -> ai_personas::neural::Result<Content> {
     let pdf_header = match job.kind {
         Kind::Other => ai_personas::pdf_preview::is_pdf(&bytes),
         Kind::Text | Kind::Html | Kind::Table(_) => bytes.starts_with(b"%PDF-"),

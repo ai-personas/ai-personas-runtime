@@ -746,9 +746,17 @@ pub(super) fn preview_output(root: &Path, reference: &str, output: Option<&(Stri
                 .unwrap_or_default()
                 .to_string_lossy()
                 .into_owned();
-            let (bytes, projected) = preview_bytes(&db, digest)?;
+            let issued = output.filter(|(source, _)| source.starts_with("delivery:") || source.starts_with("human_request:"));
+            let (bytes, projected) = if let Some((edition, path)) = issued {
+                let file = neural::human_requests::Materials::open(&db, edition)?.read(reference)?;
+                if file.path != *path || file.digest != digest {
+                    return Err(neural::failure("The file differs from the selected package attachment."));
+                }
+                (file.bytes, false)
+            } else { preview_bytes(&db, digest)? };
             let media: String = db.query_row("SELECT media FROM objects WHERE digest=?1", [digest], |r| r.get(0))?;
             let mut metadata=record.body;
+            if let Some((edition, _)) = issued { metadata["package_edition"] = json!(edition); }
             metadata["media"] = json!(media);
             if projected { metadata["view"]=json!("provider_receipt_metadata"); }
             (bytes, name, metadata)

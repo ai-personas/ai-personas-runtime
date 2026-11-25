@@ -6,6 +6,7 @@ impl App {
     pub(super) fn clear_file_preview(&mut self) {
         self.preview_generation += 1;
         self.preview_pending = false;
+        self.preview_package = None;
         self.preview_zip_member = None;
         self.selected_reference.clear();
         self.preview_metadata = Value::Null;

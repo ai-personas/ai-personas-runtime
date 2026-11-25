@@ -1,6 +1,6 @@
 //! Read one verified ZIP as data. Member names are labels, never host paths.
 use super::PreviewCancellation;
-use ai_personas::neural::{failure, issued_zip, store, Result};
+use ai_personas::neural::{failure, issued_files::{Edition, Source}, issued_zip, store, Result};
 use eframe::egui::{Color32, ColorImage};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -63,7 +63,7 @@ fn active(cancel: &PreviewCancellation) -> Result<()> {
 }
 
 pub struct Archive {
-    pub source: issued_zip::Source,
+    pub source: Source,
     pub paths: Vec<String>,
     bytes: Vec<u8>,
 }
@@ -76,17 +76,13 @@ impl Archive {
     ) -> Result<Self> {
         active(cancel)?;
         let db = store::open_inspection(root)?;
-        let (source, bytes) = issued_zip::issued_bytes(&db, edition, file).map_err(|e| {
-            failure(format!(
-                "Cannot verify the selected file against this issue: {e}"
-            ))
-        })?;
+        let (source, bytes) = Edition::open(&db, edition)?.read(file, None)?;
         drop(db);
         Self::from_verified(source, bytes, cancel)
     }
 
     fn from_verified(
-        source: issued_zip::Source,
+        source: Source,
         bytes: Vec<u8>,
         cancel: &PreviewCancellation,
     ) -> Result<Self> {

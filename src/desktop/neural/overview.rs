@@ -388,7 +388,7 @@ impl App {
                 egui::CollapsingHeader::new(contents)
                     .default_open(self.layout.editor == Editor::Delivery).show(ui,
                     |ui| {
-                        self.attachment_links(ui, &b["artifacts"]);
+                        self.attachment_links(ui, &b["artifacts"], Some(&handle));
                         for gap in gaps.iter().filter_map(Value::as_str) {
                             ui.label(format!("• {gap}"));
                         }

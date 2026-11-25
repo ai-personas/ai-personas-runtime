@@ -12,9 +12,15 @@ pub(super) struct MeshInput {
 }
 
 impl MeshInput {
-    pub fn read(db: &Connection, reference: &str, path: Option<&str>) -> Result<Self> {
-        let digest = byte_digest(db, reference)?;
-        let bytes = store::bytes(db, &digest)?;
+    pub fn read(db: &Connection, reference: &str, path: Option<&str>, edition: Option<&str>) -> Result<Self> {
+        let (digest, bytes) = if let Some(edition) = edition {
+            let file = crate::neural::human_requests::Materials::open(db, edition)?.read(reference)?;
+            (file.digest, file.bytes)
+        } else {
+            let digest = byte_digest(db, reference)?;
+            let bytes = store::bytes(db, &digest)?;
+            (digest, bytes)
+        };
         let Some(path) = path else {
             return Ok(Self {
                 digest,
@@ -59,7 +65,7 @@ fn extract(bytes: &[u8], path: &str, blob_limit: u64) -> Result<(Vec<u8>, usize,
         .index_for_name(path)
         .ok_or_else(|| failure(format!("No such file in this ZIP: {path}")))?;
     let mut file = zip.by_index(index)?;
-    if !file.is_file() || file.is_symlink() {
+    if !file.is_file() || !matches!(file.unix_mode().unwrap_or(0) & 0o170000, 0 | 0o100000) {
         return Err(failure("Select a regular mesh file in the ZIP"));
     }
     let size = file.size();

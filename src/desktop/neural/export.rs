@@ -23,10 +23,29 @@ struct ListedEdition {
 
 #[derive(Clone)]
 struct Member {
-    delivery: String,
+    edition: String,
     path: String,
     digest: String,
     entry: Option<delivery_desk::ZipFile>,
+}
+
+impl Member {
+    fn save(&self, root: &std::path::Path, reference: &str, destination: &std::path::Path) -> Result<String, String> {
+        use ai_personas::neural::human_requests::Materials;
+        let db = data::open(root).map_err(|e| e.to_string())?;
+        let file = Materials::open(&db, &self.edition).and_then(|edition| edition.read(reference)).map_err(|e| e.to_string())?;
+        drop(db);
+        if file.path != self.path || file.digest != self.digest {
+            return Err("The retained file differs from the selected package member.".into());
+        }
+        if let Some(entry) = &self.entry {
+            save_new_file_with(destination, |temp| entry.copy_to(&file.bytes, temp).map_err(|e| e.to_string()))?;
+            Ok(format!("Saved {} from the issued ZIP to {}", entry.path, destination.display()))
+        } else {
+            save_new_file(destination, &file.bytes)?;
+            Ok(format!("Saved {} from the selected edition to {}", file.path, destination.display()))
+        }
+    }
 }
 
 fn basename(path: &str) -> &str {
@@ -136,6 +155,12 @@ impl App {
         if self.selected_reference.is_empty() || self.preview_metadata.is_null() {
             return;
         }
+        if let Some(delivery) = self.preview_metadata["package_edition"].as_str() {
+            let (delivery, file, path, digest) = (delivery.to_owned(), self.selected_reference.clone(),
+                s(&self.preview_metadata, "path").to_owned(), s(&self.preview_metadata, "blob").to_owned());
+            self.save_package_member(&delivery, &file, &path, &digest, None);
+            return;
+        }
         let path = s(&self.preview_metadata, "path");
         let source = self.preview_metadata["source_record"].as_str()
             .map(|record| (record.to_owned(), path.to_owned()));
@@ -152,14 +177,14 @@ impl App {
             name,
         ));
     }
-    pub(super) fn save_package_member(&mut self, delivery: &str, reference: &str, path: &str, digest: &str, entry: Option<delivery_desk::ZipFile>) {
+    pub(super) fn save_package_member(&mut self, edition: &str, reference: &str, path: &str, digest: &str, entry: Option<delivery_desk::ZipFile>) {
         self.export_generation += 1;
         let name = basename(entry.as_ref().map_or(path, |e| &e.path)).to_owned();
         self.export_dialog = Some(Dialog::new(
             self.export_generation,
             Contents::Artifact {
                 reference: reference.into(), source: None, metadata_view: false,
-                member: Some(Member { delivery: delivery.into(), path: path.into(), digest: digest.into(), entry }),
+                member: Some(Member { edition: edition.into(), path: path.into(), digest: digest.into(), entry }),
             },
             name,
         ));
@@ -273,6 +298,7 @@ impl App {
                     ui.add(egui::Label::new(RichText::new(&entry.path).strong()).wrap());
                 }
                 ui.small(format!("{}  ·  Revision {edition}", member.path)).on_hover_text(reference);
+                ui.small(&member.edition);
             }
             if let Contents::Printed { source, document } = &dialog.contents {
                 ui.strong(&source.path);
@@ -369,30 +395,12 @@ impl App {
                             .map_err(|e| e.to_string())?;
                     }
                     Contents::Artifact { reference, source, member, .. } => {
-                        if let Some(selected) = &member {
-                            let db = data::open(&root).map_err(|e| e.to_string())?;
-                            ai_personas::neural::asset_history::verify_delivery_member(&db, &selected.delivery, &reference)
-                                .map_err(|e| e.to_string())?;
+                        if let Some(selected) = member {
+                            return selected.save(&root, &reference, &path);
                         }
-                        let preview = data::preview_output(&root, &reference, source.as_ref())
-                            .map_err(|e| e.to_string())?;
+                        let preview = data::preview_output(&root, &reference, source.as_ref()).map_err(|e| e.to_string())?;
                         let bytes = std::fs::read(&preview.path).map_err(|e| e.to_string())?;
-                        if let Some(selected) = &member {
-                            if preview.metadata["path"] != selected.path || preview.metadata["blob"] != selected.digest
-                                || preview.metadata["view"] == "provider_receipt_metadata"
-                                || ai_personas::store::sha256_bytes(&bytes) != selected.digest {
-                                return Err("The retained file differs from the selected package member.".into());
-                            }
-                            if let Some(entry) = &selected.entry {
-                                save_new_file_with(&path, |temp| entry.copy_to(&bytes, temp).map_err(|e| e.to_string()))?;
-                                return Ok(format!("Saved {} from the issued ZIP to {}", entry.path, path.display()));
-                            }
-                        }
                         save_new_file(&path, &bytes)?;
-                        if member.is_some() {
-                            let edition = reference.rsplit_once('@').map(|(_, n)| n).unwrap_or(&reference);
-                            return Ok(format!("Saved file revision {edition} to {}", path.display()));
-                        }
                     }
                     Contents::Deliveries { work, editions, .. } => {
                         let listed = editions.into_iter().map(|e| (e.reference, e.digest)).collect();

@@ -159,7 +159,7 @@ impl App {
             .unwrap_or_else(|| work.into())
     }
 
-    pub(super) fn attachment_links(&mut self, ui: &mut Ui, references: &Value) {
+    pub(super) fn attachment_links(&mut self, ui: &mut Ui, references: &Value, edition: Option<&str>) {
         for reference in references
             .as_array()
             .into_iter()
@@ -175,7 +175,8 @@ impl App {
                 .unwrap_or(reference)
                 .to_owned();
             if ui.link(&name).on_hover_text(reference).clicked() {
-                self.open_resource(ui.ctx(), reference.into());
+                if let Some(edition) = edition { self.open_package_file(ui.ctx(), edition, reference); }
+                else { self.open_resource(ui.ctx(), reference.into()); }
             }
         }
     }
@@ -229,7 +230,7 @@ impl App {
                         ui.set_min_width(ui.available_width());
                         self.message_heading(ui,&e);
                         ui.label(excerpt(s(b,"text"),260));
-                        self.attachment_links(ui,&b["references"]);
+                        self.attachment_links(ui,&b["references"], None);
                         ui.horizontal_wrapped(|ui|{
                             if ui.small_button("Read message").clicked() {
                                 self.open_resource(ui.ctx(),format!("experience:event-{}@1",e["event"]));
@@ -407,7 +408,7 @@ impl App {
                             self.request_correspondence(ui, &reference, work, requester, true);
                         } else {
                             self.request_instructions(ui, body);
-                            self.request_materials(ui, body);
+                            self.request_materials(ui, &reference, body);
                         }
                     },
                 );
@@ -422,7 +423,7 @@ impl App {
                         if has_returns {
                             if response_visible { ui.add_space(10.); }
                             self.request_instructions(ui, body);
-                            self.request_materials(ui, body);
+                            self.request_materials(ui, &reference, body);
                         } else {
                             ui.add_space(10.);
                             self.request_correspondence(ui, &reference, work, requester, true);
@@ -452,7 +453,7 @@ impl App {
             match tab {
                 DetailTab::Request => {
                     self.request_instructions(ui, body);
-                    self.request_materials(ui, body);
+                    self.request_materials(ui, &reference, body);
                 }
                 DetailTab::Conversation => {
                     self.request_correspondence(ui, &reference, work, requester, false)
@@ -521,7 +522,7 @@ impl App {
         }
     }
 
-    fn request_materials(&mut self, ui: &mut Ui, body: &Value) {
+    fn request_materials(&mut self, ui: &mut Ui, reference: &str, body: &Value) {
         let files = body["artifacts"].as_array().map_or(0, Vec::len);
         if files == 0 && !body["deliveries"].as_array().is_some_and(|d| !d.is_empty()) {
             return;
@@ -539,7 +540,7 @@ impl App {
                         .size(16.)
                         .strong(),
                 );
-                self.attachment_links(ui, &body["artifacts"]);
+                self.attachment_links(ui, &body["artifacts"], Some(reference));
             }
         });
     }

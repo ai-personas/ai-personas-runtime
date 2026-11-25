@@ -1,7 +1,7 @@
 //! Keep provider output items available to local verifiers outside the resource catalogue.
 use super::{character, context::Snapshot, failure, store, Result};
 use crate::{provider, store::sha256_bytes};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 
 pub(super) struct Accepted {
@@ -130,7 +130,7 @@ pub(super) fn final_matches(
             "SELECT digest,bytes FROM provider_outputs WHERE receipt=?1",
             [id],
             |row| Ok((row.get(0)?, row.get(1)?)),
-        )?;
+        ).optional()?.ok_or_else(|| failure("Missing retained final provider output for this decision"))?;
         let items = verified(receipt, &digest, &bytes)?;
         return Ok(provider::retained_decision_matches(
             &items, response, profile,

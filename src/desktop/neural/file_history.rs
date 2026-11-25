@@ -63,6 +63,7 @@ struct Origin {
     person: String,
     work: String,
     profile: people::ProfileView,
+    edition: Option<String>,
     package: Option<delivery_desk::ReturnTo>,
 }
 
@@ -222,6 +223,11 @@ impl App {
             person: self.persona.clone(),
             work: self.work.clone(),
             profile: self.profile_view,
+            edition: match self.layout.editor {
+                Editor::Delivery => Some(self.layout.delivery.clone()),
+                Editor::Artifacts if self.selected_reference == reference => self.preview_package.clone(),
+                _ => None,
+            },
             package,
         };
         self.file_history = History {
@@ -267,8 +273,9 @@ impl App {
                 }
             }
             Editor::Artifacts => {
-                if self.selected_reference != origin.asset {
-                    self.open_resource(ui.ctx(), origin.asset.clone());
+                if self.selected_reference != origin.asset || self.preview_package != origin.edition {
+                    let selected = origin.edition.map(|edition| self.issued_selection(edition, &origin.asset));
+                    self.open_named_resource(ui.ctx(), origin.asset.clone(), selected);
                 }
                 self.delivery_desk.set_return(&origin.asset, origin.package);
             }
@@ -331,7 +338,7 @@ impl App {
             Some(Action::Print { reference, path }) => {
                 self.file_history.visible = false;
                 self.open_history_file(ctx, &reference);
-                let package = self.print_package_for(&reference);
+                let package = self.preview_package.clone();
                 self.open_print_preview(ctx, &reference, &path, package, None);
                 self.file_history.target = Some(Target::File(reference));
             }
@@ -349,8 +356,10 @@ impl App {
     }
 
     fn open_history_file(&mut self, ctx: &egui::Context, reference: &str) {
-        self.open_resource(ctx, reference.into());
         let target = self.file_history.origin.as_ref().and_then(|o| o.package.clone());
+        let selected = self.file_history.origin.as_ref().filter(|_| self.file_history.opened == reference)
+            .and_then(|o| o.edition.clone()).map(|edition| self.issued_selection(edition, reference));
+        self.open_named_resource(ctx, reference.into(), selected);
         self.delivery_desk.set_return(reference, target);
     }
 }
