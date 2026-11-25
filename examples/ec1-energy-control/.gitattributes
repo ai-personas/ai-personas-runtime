@@ -1,5 +1,7 @@
 *.zip binary
 *.pdf binary
+*.xlsx binary
+rotary/commission.txt -text
 inspection/EC1-inspection.svg -text
 inspection/rest/EC1-inspection-rest/* -text
 inspection/register/EC1-register/*.csv -text whitespace=cr-at-eol

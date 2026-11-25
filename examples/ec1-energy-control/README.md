@@ -21,6 +21,8 @@ Their source ledger distinguishes first-party material, an interview report and 
 
 [What if the charged plate actually moves?](motion/) In a later study Arden issued an offline model with a reversible mechanical port. Closing the isolated plates delivered 276.6934 pJ in the specified case; reopening took the same work back. The one-minute latch transmitted force but delivered no energy.
 
+[What if the force acts on a turning rotor?](rotary/) Lumen’s editable spreadsheet and printable A4 briefing compare a force fixed in the room with one that stays forward-tangent. The latter would first exceed the example’s initial charge at turn 34. Neither force law was measured, and exceeding that one expense is not proof of a generating cycle.
+
 The first delivery contained 25 files, including an SVG schematic, board, simulation, Gerbers, drill, BOM and measurement reducer. Stock KiCad 9.0.9 found no unconnected pads but **seven unavailable footprint-library warnings**. It had no native editable schematic; the issuer's receiving check did not catch that portability problem. Its Studio download had SHA-256 `173a00297eb0483426c42694ef413116673c8c49a800c733f3ec08ffe6e2f652`.
 
 **A separate human commission**, opened from that exact edition, specified a stock-KiCad-9 project and separate fabrication ZIP. Kit completed it without further input, first issuing a partial edition, then exercising the files from the issued tree and publishing the final edition. The two payloads did not change between those editions; the verification and disposition did. This was not spontaneous repair of the first task.

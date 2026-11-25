@@ -691,7 +691,7 @@ The viewer checks recognizable signatures and Office container contents along wi
 
 | File | What opens in Studio |
 | --- | --- |
-| XLS, XLSX, XLSM, XLSB, ODS | Workbook sheets, stored cell values, filtering and numeric plots. |
+| XLS, XLSX, XLSM, XLSB, ODS | Workbook sheets, unformatted stored values, filtering and numeric plots. XLSX/XLSM also have a [formula inspector](#inspect-a-workbook-formula). |
 | SQLite | Read-only ordinary tables with named columns and paged rows. |
 | HTML | Print layout using the bundled document printer and Poppler, or a text and source view when page rendering is unavailable. |
 | DOCX, ODT, PPTX, ODP | LibreOffice page layout when available, otherwise a reading view with paragraphs or slide selection. |
@@ -701,6 +701,16 @@ The viewer checks recognizable signatures and Office container contents along wi
 | GIF, animated WebP, APNG | Timed playback, pause and frame selection. Large animations can use a first-frame preview. |
 | TTF, OTF, TTC, WOFF, WOFF2 | A type specimen from the selected font with Python and Pillow. Web fonts also use fontTools. |
 | ZIP, TAR and other archive families | Browse entries and open an individual member. Compressed TAR uses Python. Additional containers, including 7z and RAR, depend on system libarchive and its codec support. |
+
+### Inspect a workbook formula
+
+In a delivery’s **File preview** or the **File viewer**, choose an XLSX/XLSM sheet and **Formulas**. Enter the worksheet address (such as `D22`), or use **Previous** and **Next** to move between formula cells on that sheet. The address is not the data row number in a sorted or filtered **Values** table. **Copy expression** copies the text stored in the formula element, without adding `=`. Switching sheets starts at the new sheet’s first formula. **Save this file…** on a delivery still saves the original workbook, not the displayed cells.
+
+![Full turns, cell D22: the stored strict-crossover expression and its saved result of 34. Studio has not recalculated it.](assets/studio-workbook-formula.jpg)
+
+**Saved result** is what the file says, not a live calculation. An absent cached value, an empty value element, a saved zero and a cell with no formula are different. Shared and array records show the stored group or range when present; Studio does not invent an expression at every covered cell. The inspector follows local worksheet relationships, not tab numbers. An ambiguous sheet link is unavailable. A widely spaced sheet can have readable formulas even when its values would not fit in a rectangular preview. Formula inspection is bounded to 16 MiB of XML per part and 32 MiB across a workbook. It is a view of worksheet cell formulas, not an inventory of names, links or macros, or a safety check for opening a workbook in another application.
+
+**Values** does not apply spreadsheet number formatting: for example, a stored `0.6` may be shown as `60%` by the author’s spreadsheet. Studio neither executes macros nor starts an office converter to recalculate a workbook it cannot read; it offers byte inspection instead. To test the calculation, inspect the file first, save a copy and change inputs in a trusted spreadsheet. The [rotary receiving check](../examples/ec1-energy-control/rotary/) shows how the issued `34` was checked separately against equality and the first complete turn strictly *over* the charge cost.
 
 ## Previewing produced files
 
@@ -785,7 +795,7 @@ control remains available. Native drawing pages use a longest raster edge of
 | Formats | Compatible renderer | In-UI representation and limits |
 | --- | --- | --- |
 | PDF | `pdfinfo` and `pdftoppm` (Poppler) | Selectable pages, rasterized on demand. No interactive forms or embedded program execution. |
-| DOC/DOCX/ODT/RTF, PPT/PPTX/ODP, XLS/XLSX/ODS | `soffice` or `libreoffice`, plus Poppler | Document and slide pages. Layout depends on installed fonts. Workbook formats use the built-in sheet view first. |
+| DOC/DOCX/ODT/RTF, PPT/PPTX/ODP | `soffice` or `libreoffice`, plus Poppler | Document and slide pages. Layout depends on installed fonts. Workbook previews use the built-in sheet reader, not Office page conversion. |
 | KiCad `.kicad_pcb` | `kicad-cli` 9+ | Front or mirrored back copper/silkscreen/outline, or outline alone, rendered as SVG. Inner copper, 3D component models, DRC, and fabrication validation are not included. |
 | KiCad `.kicad_sch` | `kicad-cli` 9+ | Available exported SVG sheets. Only the selected source is staged, so separate hierarchical sheets, libraries, and linked assets may be unavailable. |
 | MP4/MOV/WebM/AVI/MKV/M4V | `ffprobe` and `ffmpeg` | Eight timestamp samples across the duration, decoded on demand. The playback control opens the original media in a player. |

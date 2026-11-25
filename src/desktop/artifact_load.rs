@@ -301,12 +301,12 @@ pub(super) fn decode(
     }
     if matches!(ext, "xlsx" | "xls" | "xlsb" | "xlsm" | "ods") {
         file.rewind().map_err(|e| e.to_string())?;
-        if let Ok(book) = office::Book::workbook(&read_all(&mut file)?) {
-            return Ok(Decoded {
-                body: Body::Book(book),
-                note: String::new(),
-            });
-        }
+        // A failed stored-cell read is not permission to load the workbook in
+        // an office calculation engine. Keep the exact bytes available instead.
+        return match office::Book::workbook(&read_all(&mut file)?) {
+            Ok(book) => Ok(Decoded { body: Body::Book(book), note: String::new() }),
+            Err(error) => raw_input(file, format!("Cannot read stored workbook cells: {error}. Showing bytes without recalculation.")),
+        };
     }
     if ext == "wav" {
         file.rewind().map_err(|e| e.to_string())?;

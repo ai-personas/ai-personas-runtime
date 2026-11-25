@@ -49,9 +49,7 @@ pub(super) const ROUTES: &[Route] = &[
     },
     Route {
         label: "Office pages · LibreOffice + Poppler",
-        extensions: &[
-            "doc", "docx", "odt", "rtf", "ppt", "pptx", "odp", "xls", "xlsx", "ods",
-        ],
+        extensions: &["doc", "docx", "odt", "rtf", "ppt", "pptx", "odp"],
         kind: Kind::Office,
         tools: &["soffice", "pdfinfo", "pdftoppm"],
     },
