@@ -13,6 +13,7 @@ pub(super) struct Publication {
     pub public: Value,
     pub returned: Option<(i64, Value)>,
     pub author_label: Option<String>,
+    pub attachments: Vec<crate::neural::input_files::Material>,
 }
 
 pub(super) fn addressed(public: &Value, edition: &str, work: &str) -> Value {
@@ -85,9 +86,10 @@ pub(super) fn verify(
         "verdict",
         "evidence",
     ];
+    let attachments = super::files::manifest(r)?;
     if !r
         .as_object()
-        .is_some_and(|o| o.len() == fields.len() && fields.iter().all(|k| o.contains_key(*k)))
+        .is_some_and(|o| o.len() == fields.len() + usize::from(!attachments.is_empty()) && fields.iter().all(|k| o.contains_key(*k)))
         || r["reference"] != reference
         || package.delivery != edition
         || ["criterion", "finding"]
@@ -236,5 +238,6 @@ pub(super) fn verify(
         public,
         returned,
         author_label,
+        attachments,
     })
 }

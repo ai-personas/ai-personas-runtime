@@ -673,7 +673,7 @@ fn internal(
         "human.request" => super::human_requests::create(db,snapshot,decode(input)?),
         "human.issue_packet" => super::human_requests::issue_packet(db,snapshot,decode(input)?),
         "human.withdraw" => super::human_requests::withdraw(db,snapshot,decode(input)?),
-        "result.review" => super::package_review::publish(db,work,actor,Some(call),&decode(input)?),
+        "result.review" => super::package_review::publish(db,work,actor,super::package_review::Publisher::Persona(call),&decode(input)?),
         "result.reviews" => super::package_review::lookup_for(db,Some(work),Some(snapshot),&decode(input)?),
         "result.deliver" => {
             let x: tools::Deliver = decode(input)?;

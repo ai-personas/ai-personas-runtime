@@ -56,6 +56,8 @@ struct Review {
     author: String,
     author_kind: String,
     subject: ReviewedPackage,
+    #[serde(default)]
+    attachments: Vec<crate::neural::input_files::Material>,
     criterion: String,
     finding: String,
     verdict: package_review::Verdict,
@@ -234,6 +236,16 @@ fn finding(
         files,
         mandate,
     );
+    if !review.attachments.is_empty() {
+        html.push_str("<div><dt>Files supplied by the reviewer</dt><dd>Listed as published; not included in this handoff. Open the finding in the source workspace to save an original.<ul class=\"references\">");
+        for f in &review.attachments {
+            html.push_str("<li dir=\"auto\">");
+            append_text(html, &f.name);
+            html.push_str(&format!(" · {} bytes · SHA-256 {}", f.bytes, f.sha256));
+            html.push_str("</li>");
+        }
+        html.push_str("</ul></dd></div>");
+    }
     field(html, "Review record", &review.reference);
     html.push_str("</dl></li>");
     Ok(())

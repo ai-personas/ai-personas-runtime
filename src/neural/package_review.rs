@@ -2,6 +2,8 @@
 //! Matching those identities does not establish the truth of the finding.
 pub mod after_issue;
 mod comparisons;
+mod files;
+pub use files::EvidenceFile;
 pub use comparisons::lookup;
 pub(super) use comparisons::{edition_notes, lookup_for};
 pub(super) mod peer;
@@ -131,6 +133,14 @@ pub(super) fn check_reference(db: &Connection, reference: &str) -> Result<()> {
     typed(db, reference, "package_review").map(|_| ())
 }
 
+/// Used on open and save, including Studio's raw record viewer. An index row
+/// or a once-verified comparison page is not sufficient to attribute the words.
+pub fn published_record(db: &Connection, reference: &str) -> Result<store::Record> {
+    let record = typed(db, reference, "package_review")?;
+    publication::checked(db, &record, None)?;
+    Ok(record)
+}
+
 /// An exact address can be selected before its publishing decision commits.
 /// Leave a missing proof readable as a gap, without quoting the record or
 /// preventing a later healthy decision from inspecting it afresh.
@@ -243,13 +253,25 @@ fn target(
     }
 }
 
+pub(super) enum Publisher<'a> {
+    Persona(&'a str),
+    Operator(&'a crate::neural::input_files::InputFiles),
+}
+
 pub(super) fn publish(
     db: &Connection,
     work: &str,
     author: &str,
-    call: Option<&str>,
+    publisher: Publisher<'_>,
     input: &Review,
 ) -> Result<Value> {
+    let call = match publisher {
+        Publisher::Persona(call) => Some(call),
+        Publisher::Operator(_) => {
+            if let Some(r) = &input.subject.delivery { after_issue::public_issue(db, r)?; }
+            None
+        }
+    };
     if input.criterion.trim().is_empty() || input.finding.trim().is_empty() {
         return Err(failure(
             "Give the criterion you assessed and what you found",
@@ -267,9 +289,15 @@ pub(super) fn publish(
     operations::check_shared_evidence(db, call.map(|_| author), &input.evidence)?;
     let key = id("review")?;
     let reference = format!("package_review:{key}@1");
-    let body = json!({"reference":reference,"subject":subject,"author":author,"author_kind":if call.is_some(){"persona"}else{"operator"},
+    let mut body = json!({"reference":reference,"subject":subject,"author":author,"author_kind":if call.is_some(){"persona"}else{"operator"},
         "work":work,"reporting_mandate":reporting.reference.handle(),"decision":call,"criterion":input.criterion,
         "finding":input.finding,"verdict":input.verdict,"evidence":input.evidence});
+    if let Publisher::Operator(files) = publisher {
+        if !files.is_empty() {
+            body["attachments"] = json!(files.retain(db)?);
+            files::manifest(&body)?;
+        }
+    }
     let written = store::write(db, "package_review", &key, 0, &body, call)?;
     let sender = if call.is_some() {
         author.to_owned()

@@ -57,6 +57,8 @@ pub enum Entry {
         finding: String,
         #[serde(skip)]
         evidence: Vec<String>,
+        #[serde(skip)]
+        attachments: Vec<crate::neural::input_files::Material>,
     },
     Citation {
         reference: String,
@@ -144,6 +146,7 @@ fn entry(db: &Connection, issue: &Edition, kind: &str, reference: String) -> Res
             verdict: serde_json::from_value(r["verdict"].clone())?,
             finding: serde_json::from_value(r["finding"].clone())?,
             evidence: serde_json::from_value(r["evidence"].clone())?,
+            attachments: proof.attachments,
         })
     } else {
         let later = public_issue(db, &reference)?;
@@ -210,11 +213,13 @@ impl Entry {
             Entry::Finding {
                 finding,
                 evidence,
+                attachments,
                 author_label,
                 ..
             } => {
                 detail["finding"] = json!(finding);
                 detail["evidence"] = json!(evidence);
+                if !attachments.is_empty() { detail["attachments"] = json!(attachments); }
                 detail["author_label_at_review"] = json!(author_label);
             }
             Entry::Citation {

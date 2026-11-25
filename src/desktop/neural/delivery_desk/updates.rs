@@ -89,6 +89,7 @@ impl App {
         );
         let mut edition = None;
         let mut evidence = None;
+        let mut evidence_file = None;
         let mut retry = false;
         let mut save_handoff = false;
         ui.add_space(8.);
@@ -134,6 +135,7 @@ impl App {
                         verdict,
                         finding,
                         evidence: sources,
+                        attachments,
                         ..
                     } => {
                         let expanded =
@@ -195,6 +197,14 @@ impl App {
                                     }
                                 });
                             }
+                            if !attachments.is_empty() {
+                                ui.strong("Reviewer’s files · not part of the issued package");
+                                for f in attachments {
+                                    if let Some(file) = super::super::package_reviews::file_button(ui, reference, &f.name, &f.reference, f.bytes) {
+                                        evidence_file = Some(file);
+                                    }
+                                }
+                            }
                             exact_ref(ui, reference);
                         }
                     }
@@ -234,6 +244,7 @@ impl App {
             *page = (*page).min(report.total_candidates.saturating_sub(1) / PER_PAGE);
             home::pager(ui, page, report.total_candidates, PER_PAGE, "later records");
         });
+        if let Some(f) = evidence_file { self.save_review_file(f); }
         if save_handoff { self.save_delivery_handoff(&p.reference, s(&p.body, "title"), p.files.len()); }
         if retry {
             self.delivery_desk.updates.read = None;

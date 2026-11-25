@@ -736,7 +736,9 @@ pub(super) fn preview_output(root: &Path, reference: &str, output: Option<&(Stri
         let observed = neural::context::read(&db,reference,None,None)?;
         (serde_json::to_vec_pretty(&observed["record"])?,"experience.json".into(),json!({"reference":reference,"kind":"experience"}))
     } else {
-        let record = store::exact(&db, reference)?;
+        let record = if reference.starts_with("package_review:") {
+            neural::package_review::published_record(&db, reference)?
+        } else { store::exact(&db, reference)? };
         if record.reference.kind == "asset" {
             let digest = record.body["blob"]
                 .as_str()
