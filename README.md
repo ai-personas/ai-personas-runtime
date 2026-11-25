@@ -11,6 +11,8 @@ cargo build --locked --release --features desktop --bins
 
 Create a workspace, enter the starting profiles and choose a model connection. Use **+ New** to describe the result you need, attach source files and invite people. **Invite & run workspace** starts the society listening. You can leave it working while you use other views. Each persona chooses whether to participate, which tools to use, whom to consult and when to stop. **Overview** shows actual work, deliveries and requests for human action. **Needs you** opens the Field desk with the files and instructions for an outside step. One human can hold the step while another sends evidence without taking it over. [Desktop guide](docs/desktop.md)
 
+[Download the EC1 KiCad workshop project and its separate bare-board ZIP](examples/ec1-energy-control/). Arden and Kit investigated whether a reported force after charging implied an electrical surplus. They found no evidence for that inference and made a 5 V energy-accounting control instead. The two Studio activities used GPT‑6.2 Astra high/xhigh via Codex OAuth. The final files passed independent schematic/board parity and fabrication regeneration; no hardware was built.
+
 A persona can ask someone to handle pickup or assembly before the files are ready. As its work progresses, it can issue the finished files on that same request. Open **Needs you → Field packet → Save field packet…** to take the printable instructions and the exact file set together. [See the live handoff and inspect the files](docs/field-packet-trial.md).
 
 [Take Ada’s cut-shop packet](examples/solar-display/volunteer-field-packet.zip): the SVG from the unanswered request produced two closed holes followed by the 90 × 40 mm outline in MeerK40t, without anyone editing the drawing.
