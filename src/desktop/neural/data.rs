@@ -671,7 +671,11 @@ pub(super) fn preview_output(root: &Path, reference: &str, output: Option<&(Stri
     let (bytes, name, metadata) = if let Some(digest) = reference.strip_prefix("object:") {
         let (bytes, projected) = preview_bytes(&db, digest)?;
         let media:String=db.query_row("SELECT media FROM objects WHERE digest=?1",[digest],|row|row.get(0))?;
-        let suffix = match media.split(';').next().unwrap_or_default() {
+        let declared = media.split(';').next().unwrap_or_default();
+        let format = if declared == "application/octet-stream" {
+            neural::context::image_media(&bytes).unwrap_or(declared)
+        } else { declared };
+        let suffix = match format {
             "application/json"=>"json",
             "application/pdf"=>"pdf",
             "text/html" | "application/xhtml+xml"=>"html",

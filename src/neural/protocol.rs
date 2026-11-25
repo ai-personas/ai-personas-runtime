@@ -188,7 +188,7 @@ pub enum AppraisalChoice {
     /// the situation lacks evidence, nor a request to invent feature values.
     Baseline { #[serde(default)] #[schemars(required)] reason: String },
     Evaluate { appraisal: Appraisal, reason: String },
-    /// Pause before choosing between real alternatives. Carry observed event evidence; for cited text from selected_resources, reselect the same exact file or byte range. No work action or reply in this first response.
+    /// Pause before choosing between real alternatives. Carry observed event evidence. For selected text, reselect the same exact file or byte range. For a supplied image, reselect its whole exact reference. No work action or reply in this first response.
     BeforeAction { appraisal: Appraisal, alternatives: [String; 2], reason: String },
     Reuse { evaluation: String, reason: String },
 }

@@ -86,7 +86,7 @@ pub(super) fn reselected(
         .filter(|r| next.iter().any(|s| r.selected_by(s)))
         .collect();
     if ranges.is_empty() || !data["context_recovery"].is_null() {
-        return Err(failure(format!("For before_action, {reference} must have supplied text in selected_resources. Select the same exact revision and UTF-8 byte range in next_context.references. A name, a wider range or a metadata-only observation is not that read.")));
+        return Err(failure(format!("For before_action, {reference} needs supplied text or a whole image input. Reselect the same text range or whole image reference in next_context.references. A name, wider range or manifest alone is not that observation.")));
     }
     Ok(ranges)
 }

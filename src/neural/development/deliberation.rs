@@ -13,14 +13,18 @@ use crate::{
 use rusqlite::Connection;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
+mod images;
+pub(in crate::neural) use images::ordered as ordered_images;
 mod text;
 
 pub(in crate::neural) struct Grounds {
     events: Vec<Value>,
     pub(in crate::neural) text: Vec<text::TextRange>,
+    pub(in crate::neural) images: Vec<images::Selection>,
 }
 
 pub(in crate::neural) fn evidence(
+    db: &Connection,
     s: &Snapshot,
     a: &Appraisal,
     next: &[ContextResource],
@@ -28,6 +32,7 @@ pub(in crate::neural) fn evidence(
     let mut out = Grounds {
         events: Vec::new(),
         text: Vec::new(),
+        images: Vec::new(),
     };
     for r in a
         .features
@@ -40,13 +45,17 @@ pub(in crate::neural) fn evidence(
             continue;
         } // The full brief is mandatory.
         if r.starts_with("object:") || r.starts_with("asset:") {
-            out.text.extend(text::reselected(&s.data, next, r)?);
+            if let Some(image) = images::reselected(db, s, next, r)? {
+                out.images.push(image);
+            } else {
+                out.text.extend(text::reselected(&s.data, next, r)?);
+            }
             continue;
         }
         let Some(body) =
             recall::previous_observation(s, r).filter(|_| r.starts_with("experience:event-"))
         else {
-            return Err(failure("For before_action, cite the current work, an observed event body or selected file text you choose to keep for the next decision."));
+            return Err(failure("For before_action, cite the current work, an observed event body, or supplied text or images you choose to keep for the next decision."));
         };
         let mut item = json!({"experience":r,"observation":body});
         // Keep the acting choice with its consequence if they were both on the owner's desk.
@@ -81,6 +90,7 @@ pub(in crate::neural) fn evidence(
 pub(in crate::neural) fn carry(
     db: &Connection,
     data: &Value,
+    image_inputs: &[(String, String)],
     owner: &str,
     work: &str,
     p: &Persona,
@@ -114,11 +124,15 @@ pub(in crate::neural) fn carry(
     }
     let next: Vec<ContextResource> =
         serde_json::from_value(r["next_context"]["references"].clone())?;
-    let grounds = evidence(&s, &a, &next)?;
+    let grounds = evidence(db, &s, &a, &next)?;
     let mut frame = json!({"owner":owner,"work":work,"source":format!("experience:{id}@1"),"model":p.model,"epoch":p.epoch,"evaluation":e["reference"],"reason":choice["reason"],"alternatives":choice["alternatives"],"evidence_then":grounds.events,"scope":"The decision is still yours. These JSON observations informed your appraisal before action, not new events or fresh files. Image bytes require explicit selection. Check any new arrivals before proceeding."});
     if !grounds.text.is_empty() {
         text::verify_next(data, &grounds.text)?;
         frame["selected_text_for_next_choice"] = serde_json::to_value(grounds.text)?;
+    }
+    if !grounds.images.is_empty() {
+        images::verify_next(db, data, image_inputs, &grounds.images)?;
+        frame["reselected_images"] = serde_json::to_value(grounds.images)?;
     }
     Ok(Some(frame))
 }
