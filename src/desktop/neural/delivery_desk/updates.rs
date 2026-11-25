@@ -90,6 +90,7 @@ impl App {
         let mut edition = None;
         let mut evidence = None;
         let mut retry = false;
+        let mut save_handoff = false;
         ui.add_space(8.);
         let Some(result) = read.as_ref().and_then(|r| r.get()) else {
             ui.horizontal(|ui| {
@@ -116,7 +117,11 @@ impl App {
                     return;
                 }
             };
-            ui.weak("These records do not replace this edition or record acceptance.");
+            ui.horizontal_wrapped(|ui| {
+                ui.weak("These records do not replace this edition or record acceptance.");
+                save_handoff = ui.small_button("Save with edition notes…")
+                    .on_hover_text("Take the full offline sheet with verified findings and later issuers’ terms, beside this edition’s original files.").clicked();
+            });
             for item in &report.items {
                 ui.separator();
                 match item {
@@ -124,6 +129,7 @@ impl App {
                         reference,
                         author,
                         author_kind,
+                        author_label,
                         criterion,
                         verdict,
                         finding,
@@ -145,7 +151,7 @@ impl App {
                                 if author_kind == "operator" {
                                     ui.strong(format!("{author} · operator finding"));
                                 } else {
-                                    ui.strong(self.label(author)).on_hover_text(author);
+                                    ui.strong(author_label.as_deref().unwrap_or(author)).on_hover_text(author);
                                     ui.weak("· finding on this criterion");
                                 }
                                 ui.small_button(if expanded {
@@ -195,13 +201,14 @@ impl App {
                     Entry::Citation {
                         reference,
                         issuer,
+                        issuer_label,
                         title,
                         in_evidence,
                         in_review_inputs,
                         ..
                     } => {
                         ui.horizontal_wrapped(|ui| {
-                            ui.strong(self.label(issuer)).on_hover_text(issuer);
+                            ui.strong(issuer_label.as_deref().unwrap_or(issuer)).on_hover_text(issuer);
                             ui.label(match (in_evidence, in_review_inputs) {
                                 (true, true) => "cited this edition as evidence and a review input",
                                 (true, _) => "cited this edition as evidence",
@@ -227,6 +234,7 @@ impl App {
             *page = (*page).min(report.total_candidates.saturating_sub(1) / PER_PAGE);
             home::pager(ui, page, report.total_candidates, PER_PAGE, "later records");
         });
+        if save_handoff { self.save_delivery_handoff(&p.reference, s(&p.body, "title"), p.files.len()); }
         if retry {
             self.delivery_desk.updates.read = None;
             ui.ctx().request_repaint();

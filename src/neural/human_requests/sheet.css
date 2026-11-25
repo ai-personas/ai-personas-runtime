@@ -62,6 +62,10 @@ section, footer { margin-top: 1.6rem; padding-top: 1.2rem; border-top: 1px solid
     background: #f2f5f8;
 }
 .revision-note h2 { font-size: .97rem; }
+.revision-note.concern { border-color: #996125; background: #fff8eb; }
+.revision-note ul { padding-inline-start: 1.3rem; }
+.revision-note a { color: var(--blue); text-underline-offset: .15em; }
+.revision-note p + ul, .revision-note p + p { margin-top: .35rem; }
 .revision-note dl > div, .item-facts > div, .identifiers > div {
     display: grid;
     grid-template-columns: minmax(6.8rem, 8.25rem) minmax(0, 1fr);

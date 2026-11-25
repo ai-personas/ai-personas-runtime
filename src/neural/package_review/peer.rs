@@ -22,7 +22,7 @@ pub(super) fn notify_issuer(
     }
     // This arrival could wake an issuer who chose to wait for reviews. Bind
     // the original operation now, not only when someone later reads the link.
-    let issued = delivery::edition(db, edition_ref).map_err(|e| {
+    let issued = super::after_issue::public_issue(db, edition_ref).map_err(|e| {
         failure(format!("Cannot return this finding: could not verify the original issuing decision for {edition_ref}: {e}"))
     })?;
     let b = &issued.issue.record.body;
@@ -73,9 +73,9 @@ pub(in crate::neural) fn reviewed_issue(
     let edition = r["subject"]["delivery"]
         .as_str()
         .ok_or_else(|| failure("Review was not of an issued edition"))?;
-    let issue = delivery::edition(db, edition)?;
+    let issue = super::after_issue::public_issue(db, edition)?;
     issue.issue.check_destination(n.work, owner)?;
-    let verified = publication::verify(db, &record, &issue)?;
+    let verified = publication::verify(db, &record, Some(&issue))?;
     let (seq, body, target) = match verified.returned {
         Some((seq, body)) => (seq, body, owner),
         None => (verified.sequence, verified.public, "*"),

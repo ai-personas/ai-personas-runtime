@@ -674,7 +674,7 @@ fn internal(
         "human.issue_packet" => super::human_requests::issue_packet(db,snapshot,decode(input)?),
         "human.withdraw" => super::human_requests::withdraw(db,snapshot,decode(input)?),
         "result.review" => super::package_review::publish(db,work,actor,Some(call),&decode(input)?),
-        "result.reviews" => super::package_review::lookup_for(db,Some(work),Some(actor),&decode(input)?),
+        "result.reviews" => super::package_review::lookup_for(db,Some(work),Some(snapshot),&decode(input)?),
         "result.deliver" => {
             let x: tools::Deliver = decode(input)?;
             if x.title.trim().is_empty()
@@ -691,7 +691,7 @@ fn internal(
             check_shared_evidence(db,Some(actor),&x.review_inputs)?;
             if !x.reviews.is_empty() {
                 let mandate=snapshot.data["work"]["reference"].as_str().ok_or_else(||failure("Missing delivery mandate"))?;
-                super::package_review::check_reliance(db,&x.artifacts,mandate,&x.review_inputs,&x.reviews)?;
+                super::package_review::check_reliance(db,&x.artifacts,mandate,&x.review_inputs,&x.reviews,call)?;
             }
             let mut body = serde_json::to_value(x)?;
             body["work"] = json!(work);

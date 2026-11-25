@@ -475,12 +475,19 @@ impl Desk {
                         if total == 0 {
                             ui.weak("No published findings for this selection.");
                         } else {
-                            let exact = page["matching_basis_count"].as_u64().unwrap_or_default() as usize;
-                            ui.small(format!("{} on these files, inputs and brief   ·   {} on a different or unknown basis",
-                                exact, total.saturating_sub(exact)));
+                            let rows = page["items"].as_array().map(Vec::as_slice).unwrap_or_default();
+                            let verified = rows.iter().filter(|r| r["review"].is_object()).count();
+                            ui.small(format!("{verified} verified on this page · {total} candidates in all"));
                         }
                         for entry in page["items"].as_array().into_iter().flatten() {
-                            review_card(ui, entry, package, status, &mut inspect);
+                            if let Some(reason) = entry["unavailable"].as_str() {
+                                card(ui).show(ui, |ui| {
+                                    ui.strong("Finding unavailable"); ui.label(reason);
+                                    if ui.small_button("Check again").clicked() { load = Some(self.offset); }
+                                });
+                            } else {
+                                review_card(ui, entry, package, status, &mut inspect);
+                            }
                         }
                         if self.offset > 0 || self.offset + PAGE < total {
                             ui.horizontal(|ui| {
@@ -635,12 +642,7 @@ fn review_card(ui: &mut Ui, item: &Value, selected: &Value, status: &Value, open
             ui.strong(s(review, "criterion"));
         });
         let id = s(review, "author");
-        let label = if review["author_kind"] == "persona" {
-            status["personas"].as_array().into_iter().flatten()
-                .find(|p| p["body"]["id"] == id)
-                .and_then(|p| p["body"]["label"].as_str())
-                .filter(|label| !label.is_empty()).unwrap_or(id)
-        } else { id };
+        let label = item["author_label_at_review"].as_str().unwrap_or(id);
         ui.horizontal_wrapped(|ui| {
             ui.strong(label).on_hover_text(format!("{} · {id}", s(review, "author_kind")));
             if let Some(brief) = review["reporting_mandate"].as_str() {

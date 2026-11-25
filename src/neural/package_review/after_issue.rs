@@ -3,7 +3,9 @@
 use super::{publication, typed, version_order, Verdict};
 use crate::neural::{
     activity_sources::delivery::{self, Edition},
-    failure, store, Result,
+    failure,
+    issued_files::IssueTerms,
+    store, Result,
 };
 use clap::Args;
 use rusqlite::{params, Connection};
@@ -44,6 +46,8 @@ pub enum Entry {
         reference: String,
         author: String,
         author_kind: String,
+        #[serde(skip)]
+        author_label: Option<String>,
         work: String,
         verdict: Verdict,
         criterion: String,
@@ -61,6 +65,11 @@ pub enum Entry {
         title: String,
         in_evidence: bool,
         in_review_inputs: bool,
+        // Not supplied on discovery. Read the issuing terms only on open or export.
+        #[serde(skip)]
+        terms: IssueTerms,
+        #[serde(skip)]
+        issuer_label: Option<String>,
     },
     Unavailable {
         reason: String,
@@ -86,14 +95,20 @@ const MATCHES: &str = "FROM versions v JOIN objects o ON o.digest=v.digest
     WHEN 'delivery' THEN EXISTS (SELECT 1 FROM json_each(CAST(o.bytes AS TEXT),'$.evidence') WHERE value=?1)
     OR EXISTS (SELECT 1 FROM json_each(CAST(o.bytes AS TEXT),'$.review_inputs') WHERE value=?1) END END";
 
-fn public_issue(db: &Connection, reference: &str) -> Result<Edition> {
+pub(super) fn public_issue(db: &Connection, reference: &str) -> Result<Edition> {
     let edition = delivery::edition(db, reference)?;
+    check_public(db, &edition)?;
+    Ok(edition)
+}
+
+fn check_public(db: &Connection, edition: &Edition) -> Result<()> {
     let issue = &edition.issue;
+    let reference = issue.record.reference.handle();
     let b = &issue.record.body;
     let mut q = db.prepare_cached(
         "SELECT seq,e.digest FROM events e JOIN objects o ON o.digest=e.digest
         WHERE e.kind='delivery' AND e.target='*' AND e.actor=?1 AND e.work=?2 AND e.invocation=?3
-        AND json_extract(CAST(o.bytes AS TEXT),'$.reference')=?4",
+        AND CASE WHEN json_valid(CAST(o.bytes AS TEXT)) THEN json_extract(CAST(o.bytes AS TEXT),'$.reference') END=?4",
     )?;
     let mut rows = q.query(params![
         b["owner"].as_str(),
@@ -111,18 +126,19 @@ fn public_issue(db: &Connection, reference: &str) -> Result<Edition> {
     {
         return Err(failure("Ambiguous or mismatched public issue notice"));
     }
-    Ok(edition)
+    Ok(())
 }
 
 fn entry(db: &Connection, issue: &Edition, kind: &str, reference: String) -> Result<Entry> {
     if kind == "package_review" {
         let record = typed(db, &reference, kind)?;
-        publication::verify(db, &record, issue)?;
+        let proof = publication::verify(db, &record, Some(issue))?;
         let r = record.body;
         Ok(Entry::Finding {
             reference,
             author: serde_json::from_value(r["author"].clone())?,
             author_kind: serde_json::from_value(r["author_kind"].clone())?,
+            author_label: proof.author_label,
             work: serde_json::from_value(r["work"].clone())?,
             criterion: serde_json::from_value(r["criterion"].clone())?,
             verdict: serde_json::from_value(r["verdict"].clone())?,
@@ -151,6 +167,8 @@ fn entry(db: &Connection, issue: &Edition, kind: &str, reference: String) -> Res
             work: serde_json::from_value(b["work"].clone())?,
             in_evidence,
             in_review_inputs,
+            terms: IssueTerms::deserialize(&b)?,
+            issuer_label: later.issuer_label,
         })
     }
 }
@@ -181,23 +199,43 @@ pub fn inspect(db: &Connection, query: &Query) -> Result<Value> {
         ));
     }
     let row = entry(db, &source, kind, reference.clone())?;
-    let mut detail = serde_json::to_value(&row)?;
-    detail["after_issue_of"] = json!(query.delivery);
-    match row {
-        Entry::Finding {
-            finding, evidence, ..
-        } => {
-            detail["finding"] = json!(finding);
-            detail["evidence"] = json!(evidence);
-        }
-        Entry::Citation { .. } => {
-            for field in ["scope", "supported_use", "remaining"] {
-                detail[field] = record.body[field].clone();
+    row.detail(&query.delivery)
+}
+
+impl Entry {
+    pub(in crate::neural) fn detail(&self, source: &str) -> Result<Value> {
+        let mut detail = serde_json::to_value(self)?;
+        detail["after_issue_of"] = json!(source);
+        match self {
+            Entry::Finding {
+                finding,
+                evidence,
+                author_label,
+                ..
+            } => {
+                detail["finding"] = json!(finding);
+                detail["evidence"] = json!(evidence);
+                detail["author_label_at_review"] = json!(author_label);
+            }
+            Entry::Citation {
+                terms,
+                issuer_label,
+                ..
+            } => {
+                detail["scope"] = json!(terms.scope);
+                detail["supported_use"] = json!(terms.supported_use);
+                detail["remaining"] = json!(terms.remaining);
+                detail["issuer_label_at_issue"] = json!(issuer_label);
+            }
+            Entry::Unavailable { .. } => {
+                // Do not send a raw store/parse error (possibly containing
+                // unpublished input text) to the recipient of an export.
+                detail["reason"] =
+                    json!("Later publication could not be verified in the source workspace");
             }
         }
-        Entry::Unavailable { reason } => return Err(failure(reason)),
+        Ok(detail)
     }
-    Ok(detail)
 }
 
 /// Use the caller's snapshot. A damaged candidate gets no link or attributed
@@ -214,14 +252,68 @@ pub fn page(db: &Connection, delivery: &str, offset: usize, size: usize) -> Resu
         params![delivery, order],
         |r| r.get(0),
     )?;
+    let items = rows(
+        db,
+        &selected,
+        order,
+        Records::All,
+        i64::try_from(size)?,
+        i64::try_from(offset)?,
+    )?;
+    Ok(Page {
+        delivery: delivery.into(),
+        at_issue_event: selected.issue.sequence,
+        total_candidates: count.try_into()?,
+        offset,
+        page_size: size,
+        items,
+    })
+}
+
+#[derive(Clone, Copy)]
+pub(in crate::neural) enum Records {
+    All,
+    CitingEditions,
+}
+
+/// Use a single pinned public issue for an offline sheet. No arbitrary UI page
+/// size drops the seventh record. Single-recipient slips need only a summary.
+pub(in crate::neural) fn at_export(
+    db: &Connection,
+    selected: &Edition,
+    kind: Records,
+) -> Result<Vec<Entry>> {
+    check_public(db, selected)?;
+    rows(
+        db,
+        selected,
+        version_order(db, &selected.issue.record.reference)?,
+        kind,
+        -1,
+        0,
+    )
+}
+
+fn rows(
+    db: &Connection,
+    selected: &Edition,
+    order: i64,
+    kind: Records,
+    size: i64,
+    offset: i64,
+) -> Result<Vec<Entry>> {
+    let filter = match kind {
+        Records::All => "",
+        Records::CitingEditions => " AND v.kind='delivery'",
+    };
     let mut q = db.prepare(&format!(
-        "SELECT v.kind,v.id,v.revision {MATCHES} ORDER BY v.rowid DESC LIMIT ?3 OFFSET ?4"
+        "SELECT v.kind,v.id,v.revision {MATCHES}{filter} ORDER BY v.rowid DESC LIMIT ?3 OFFSET ?4"
     ))?;
     let mut rows = q.query(params![
-        delivery,
+        selected.issue.record.reference.handle(),
         order,
-        i64::try_from(size)?,
-        i64::try_from(offset)?
+        size,
+        offset
     ])?;
     let mut items = Vec::new();
     while let Some(row) = rows.next()? {
@@ -232,17 +324,10 @@ pub fn page(db: &Connection, delivery: &str, offset: usize, size: usize) -> Resu
             row.get::<_, i64>(2)?
         );
         items.push(
-            entry(db, &selected, kind, handle).unwrap_or_else(|e| Entry::Unavailable {
+            entry(db, selected, kind, handle).unwrap_or_else(|e| Entry::Unavailable {
                 reason: e.to_string(),
             }),
         );
     }
-    Ok(Page {
-        delivery: delivery.to_owned(),
-        at_issue_event: selected.issue.sequence,
-        total_candidates: count.try_into()?,
-        offset,
-        page_size: size,
-        items,
-    })
+    Ok(items)
 }

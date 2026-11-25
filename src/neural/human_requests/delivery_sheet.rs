@@ -3,7 +3,8 @@
 use super::sheet::{append_text, field, file_section, header, listed_values, prose_section};
 use super::{SheetDelivery, SheetFile};
 use crate::neural::{
-    delivery_feedback::Issued, failure, human_requests, package_review, store, Result,
+    activity_sources::delivery::Edition, delivery_feedback::Issued, failure, human_requests,
+    package_review, store, Result,
 };
 use rusqlite::Connection;
 use serde::Deserialize;
@@ -43,6 +44,7 @@ struct Finding {
     same_inputs: bool,
     same_mandate: Option<bool>,
     available_at_delivery: bool,
+    author_label_at_review: Option<String>,
     cited_as_evidence: bool,
     listed_in_reviews: bool,
     created: i64,
@@ -53,7 +55,6 @@ struct Review {
     reference: String,
     author: String,
     author_kind: String,
-    work: String,
     subject: ReviewedPackage,
     criterion: String,
     finding: String,
@@ -150,9 +151,15 @@ fn finding(
     files: &[SheetFile],
     mandate: &str,
     edition: &str,
+    first_concern: Option<&str>,
 ) -> Result<()> {
     let review = &item.review;
-    html.push_str("<li><h3 class=\"delivery-title\" dir=\"auto\">");
+    html.push_str(if first_concern == Some(review.reference.as_str()) {
+        "<li id=\"later-concern\">"
+    } else {
+        "<li>"
+    });
+    html.push_str("<h3 class=\"delivery-title\" dir=\"auto\">");
     append_text(html, &review.criterion);
     html.push_str("</h3><p class=\"verbatim\" dir=\"auto\">");
     append_text(html, &review.finding);
@@ -164,7 +171,9 @@ fn finding(
         } else {
             "Reviewing persona"
         },
-        &review.author,
+        item.author_label_at_review
+            .as_deref()
+            .unwrap_or(&review.author),
     );
     field(html, "Published", &utc(db, item.created)?);
     field(
@@ -185,6 +194,9 @@ fn finding(
             package_review::Verdict::Inconclusive => "Inconclusive",
         },
     );
+    if let Some(other) = review.subject.delivery.as_deref().filter(|r| *r != edition) {
+        field(html, "Reviewed edition", other);
+    }
     let mut differences = Vec::new();
     if !item.same_files {
         differences.push("Different file revisions");
@@ -241,31 +253,38 @@ impl Finding {
 
 pub(super) fn render(
     db: &Connection,
-    issued: &Issued,
+    edition: &Edition,
     files: &[SheetFile],
 ) -> Result<(String, Value)> {
     if files.is_empty() {
         return Err(failure("The issued delivery has no files"));
     }
+    let issued = &edition.issue;
     let record = &issued.record;
     let reference = record.reference.handle();
     let release: Release = serde_json::from_value(record.body.clone())?;
     let package = &release.package;
     let (mandate, brief) = brief(db, &release, issued)?;
-    let mut reports = package_review::exported(db, std::slice::from_ref(record))?;
-    let mut findings: Vec<Finding> = reports
-        .remove(&reference)
-        .map(serde_json::from_value)
-        .transpose()?
-        .unwrap_or_default();
-    // The review may have been written elsewhere about this very delivery. A
-    // different activity merely sharing the files does not make its text public here.
-    findings.retain(|f| {
-        f.listed_in_reviews
-            || f.cited_as_evidence
-            || f.review.work == release.work
-            || f.review.subject.delivery.as_ref() == Some(&reference)
-    });
+    let notes = package_review::edition_notes(db, edition)?;
+    let mut notice = super::edition_notes::Notice::from_entries(&notes.citations);
+    let mut findings: Vec<Finding> = Vec::new();
+    for row in notes.reviews {
+        if row.get("unavailable").is_some() {
+            notice.unavailable += 1;
+        } else {
+            findings.push(serde_json::from_value(row)?);
+        }
+    }
+    let first_concern = findings
+        .iter()
+        .find(|f| {
+            !f.available_at_delivery
+                && f.review.subject.delivery.as_ref() == Some(&reference)
+                && f.review.verdict == package_review::Verdict::Concern
+        })
+        .map(|f| f.review.reference.as_str());
+    notice.findings = findings.len();
+    notice.concern = first_concern.is_some();
     let history = store::operator_review_history(db, &BTreeSet::from([reference.clone()]))?
         .remove(&reference)
         .unwrap_or_default();
@@ -274,7 +293,11 @@ pub(super) fn render(
         .map(serde_json::from_value)
         .collect::<serde_json::Result<Vec<Disposition>>>()?;
     let mut html = header(&package.title, "Issued delivery");
-    field(&mut html, "Delivery owner", &package.owner);
+    field(
+        &mut html,
+        "Delivery owner",
+        edition.issuer_label.as_deref().unwrap_or(&package.owner),
+    );
     field(&mut html, "Issued", &utc(db, issued.time)?);
     field(
         &mut html,
@@ -291,6 +314,7 @@ pub(super) fn render(
         },
     );
     html.push_str("</dl></header>");
+    notice.render(&mut html, true);
     prose_section(
         &mut html,
         "Supported use declared by the issuer",
@@ -348,6 +372,7 @@ pub(super) fn render(
         );
         html.push_str("</dl></section>");
     }
+    let mut first_group = true;
     for heading in [
         "Reviews cited at issue",
         "Other findings available at issue",
@@ -360,13 +385,30 @@ pub(super) fn render(
         if group.peek().is_none() {
             continue;
         }
-        html.push_str("<section><h2>");
+        html.push_str(if first_group {
+            "<section id=\"review-notes\"><h2>"
+        } else {
+            "<section><h2>"
+        });
+        first_group = false;
         html.push_str(heading);
         html.push_str("</h2><ul class=\"entries\">");
         for item in group {
-            finding(&mut html, db, item, files, &mandate, &reference)?;
+            finding(
+                &mut html,
+                db,
+                item,
+                files,
+                &mandate,
+                &reference,
+                first_concern,
+            )?;
         }
         html.push_str("</ul></section>");
+    }
+    super::edition_notes::citations(&mut html, &notes.citations);
+    if notice.unavailable > 0 {
+        html.push_str("<section id=\"unavailable-notes\"><h2>Some edition notes are unavailable</h2><p>The workspace could not verify the publication or its relationship to this edition. No unverified finding or later issuer’s instructions are included. Check the source workspace for details.</p></section>");
     }
     if !dispositions.is_empty() {
         html.push_str("<section><h2>Operator disposition history</h2><ol class=\"entries\">");
