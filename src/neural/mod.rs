@@ -35,6 +35,7 @@ pub mod input_files;
 pub mod briefs;
 pub mod intake;
 pub mod membership;
+pub mod task_roles;
 pub mod agreements;
 pub mod development;
 pub mod question_history;

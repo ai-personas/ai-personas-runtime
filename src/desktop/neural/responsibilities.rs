@@ -5,7 +5,10 @@ use std::{
     sync::mpsc::{Receiver, TryRecvError},
 };
 
+mod humans;
+
 pub(super) enum Action {
+    SetRole(Command),
     Inspect(String),
     OpenRequest(String),
     Message { person: String, text: String },
@@ -17,6 +20,7 @@ pub(super) enum Action {
 pub(super) struct Board {
     work: String,
     cursor: i64,
+    role_draft: Option<humans::Draft>,
     pending: Option<Receiver<Result<Value, String>>>,
     report: Option<Value>,
     error: Option<String>,
@@ -25,6 +29,7 @@ pub(super) struct Board {
 impl Board {
     fn refresh(&mut self, ctx: &egui::Context, root: &Path, work: &str, cursor: i64) {
         if self.work != work {
+            self.role_draft = None;
             self.report = None;
         }
         self.work = work.to_owned();
@@ -64,6 +69,8 @@ impl Board {
         root: &Path,
         work: &str,
         cursor: i64,
+        operator: &str,
+        busy: bool,
     ) -> Option<Action> {
         let compact = App::constrained_activity_layout(ui.ctx());
         if !compact {
@@ -126,6 +133,11 @@ impl Board {
                     }
                 });
                 ui.add_space(10.);
+                if report["kind"] != "social" {
+                    if let Some(chosen) = humans::show(ui, report, operator, busy, &mut self.role_draft) {
+                        action = Some(chosen);
+                    }
+                }
                 let headers = [
                     ("Needs follow-through", theme::ACCENT),
                     ("With a participant", TEAL),

@@ -651,6 +651,8 @@ impl App {
                 } else if v["reference"].as_str().is_some_and(|r|r.starts_with("human_request:")) {
                     self.inbox.response_saved(v["reference"].as_str().unwrap());
                     "Human update recorded".into()
+                } else if v["reference"].as_str().is_some_and(|r| r.starts_with("human_task_role:")) {
+                    if v["state"] == "left" { "You left your task role".into() } else { "Your part in the task was saved".into() }
                 } else if let Some(state) = v["state"].as_str() {
                     format!("Scheduling {state}")
                 } else {
@@ -786,7 +788,11 @@ impl eframe::App for App {
                         if !self.work.is_empty() && ui.small_button("Agreement book").clicked(){self.show_agreements(None);}
                     });
                     let cursor=self.events.iter().rev().find(|e|e["work"]==self.work).and_then(|e|e["event"].as_i64()).unwrap_or(0);
-                    match self.responsibilities.show(ui,&self.root,&self.work,cursor){
+                    match self.responsibilities.show(ui,&self.root,&self.work,cursor,self.operator.trim(),self.busy){
+                        Some(responsibilities::Action::SetRole(command)) => match ai_personas::neural::id("human-role") {
+                            Ok(key) => self.command_with_request(ctx,command,Some(key)),
+                            Err(e) => self.error=Some(e.to_string()),
+                        },
                         Some(responsibilities::Action::ChangeActivity{reopen,brief})=>self.dialog=Some(Dialog::ActivityState{
                             work:self.work.clone(),expected:brief,reopen,reason:String::new()}),
                         Some(responsibilities::Action::Inspect(reference))=>self.open_resource(ctx,reference),

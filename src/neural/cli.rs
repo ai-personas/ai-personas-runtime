@@ -432,6 +432,19 @@ pub enum Command {
     Audit,
     /// Measure every recorded invocation, verified resource input and local search in one activity.
     Usage { work: String },
+    /// Choose your own human role on a task; no change to persona duties or run state.
+    TaskRole {
+        work: String,
+        #[arg(value_enum)]
+        role: super::task_roles::Role,
+        note: String,
+        /// Current exact work edition.
+        #[arg(long)]
+        brief: String,
+        /// Your current role edition (including a previous departure), if any.
+        #[arg(long)]
+        base: Option<String>,
+    },
     /// Current membership, unowned duties, acceptances and effects awaiting resolution.
     Responsibilities { work: String },
     /// Browse proposed agreement editions or read the signed responses to one edition.
@@ -529,7 +542,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
     let mutation = matches!(&command, Command::Request { .. } | Command::Social { .. } | Command::AddPersona { .. }
         | Command::Invite { .. } | Command::Resume { .. } | Command::Message { .. } | Command::Amend { .. }
         | Command::PackageReview { .. } | Command::AssetFeedback { .. } | Command::Accept { .. } | Command::Control { .. } | Command::Configure { .. }
-        | Command::ProposeAgreement { .. } | Command::AgreementPosition { .. }
+        | Command::ProposeAgreement { .. } | Command::AgreementPosition { .. } | Command::TaskRole { .. }
         | Command::Dissolve { .. } | Command::Reopen { .. } | Command::HumanRespond { .. } | Command::FinishRun { .. });
     if mutation {
         let mut store = Store::open(root)?;
@@ -825,6 +838,7 @@ fn operator_action(root: &Path, db: &rusqlite::Connection, operator: &str, comma
             store::event(db,&work,operator,"*","requirements_amended",&notice,None)?;
             Ok(json!({"reference":r.handle(),"original_need":body.original_need}))
         },
+        Command::TaskRole{work,role,note,brief,base}=>super::task_roles::choose(db,operator,&work,&brief,base.as_deref(),role,&note),
         Command::ProposeAgreement{work,proposal}=>super::agreements::propose(db,&work,super::agreements::Author::Operator(operator),&proposal),
         Command::AgreementPosition{work,response}=>super::agreements::respond(db,&work,super::agreements::Author::Operator(operator),&response),
         Command::Dissolve{work,reason,expected}=>super::membership::change_activity(db,&work,operator,&reason,expected.as_deref(),false),
