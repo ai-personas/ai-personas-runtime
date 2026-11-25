@@ -1,4 +1,6 @@
 //! Structure and numeric plots without assumptions about a task's domain or units.
+mod row_order;
+use row_order::RowOrder;
 use super::theme;
 use eframe::egui::{self, RichText, Ui};
 use std::collections::BTreeSet;
@@ -198,6 +200,8 @@ pub struct TableView {
     header_hint: Option<bool>,
     filter: String,
     filter_header: Option<bool>,
+    order: RowOrder,
+    unranked: usize,
     matches: Vec<usize>,
 }
 impl Default for TableView {
@@ -215,6 +219,8 @@ impl Default for TableView {
             header_hint: None,
             filter: String::new(),
             filter_header: None,
+            order: RowOrder::default(),
+            unranked: 0,
             matches: Vec::new(),
         }
     }
@@ -271,6 +277,9 @@ impl TableView {
         };
         let data = &rows[usize::from(self.header).min(rows.len())..];
         if self.layout == Layout::Plot {
+            if self.order.column.is_some() || !self.filter.trim().is_empty() {
+                ui.small("Plot uses all loaded rows in file order.");
+            }
             ui.horizontal_wrapped(|ui| {
                 ui.label("Horizontal axis");
                 egui::ComboBox::from_id_salt("plot-x")
@@ -331,19 +340,28 @@ impl TableView {
             let changed = ui.add(egui::TextEdit::singleline(&mut self.filter)
                 .hint_text("Find a value in any column…")
                 .desired_width(ui.available_width().min(330.))).changed();
-            if changed || self.filter_header != Some(self.header) {
+            let reordered = self.order.controls(ui, columns, &label);
+            let filtered = !self.filter.trim().is_empty();
+            let indexed = filtered || self.order.column.is_some();
+            if changed || reordered || self.filter_header != Some(self.header) {
                 self.page = 0;
                 self.record = 0;
                 self.matches.clear();
-                let needle = self.filter.trim().to_lowercase();
-                if !needle.is_empty() {
+                if filtered {
+                    let needle = self.filter.trim().to_lowercase();
                     self.matches.extend(data.iter().enumerate().filter_map(|(i, row)|
                         row.iter().any(|cell| cell.to_lowercase().contains(&needle)).then_some(i)));
+                } else if indexed {
+                    self.matches.extend(0..data.len());
                 }
+                self.unranked = self.order.apply(&mut self.matches, data);
                 self.filter_header = Some(self.header);
             }
-            let filtered = !self.filter.trim().is_empty();
-            let count = if filtered { self.matches.len() } else { data.len() };
+            if self.unranked > 0 {
+                ui.small(format!("Unranked: {} · kept at the end in file order", self.unranked))
+                    .on_hover_text("Missing or empty cells, or cells that are not decimal numbers in a numeric sort.");
+            }
+            let count = if indexed { self.matches.len() } else { data.len() };
             if filtered { ui.small(format!("Matching rows: {count} of {}", data.len())); }
             if count == 0 && filtered { return; }
             if self.layout == Layout::Record {
@@ -363,8 +381,8 @@ impl TableView {
                     }
                 });
                 self.page = self.record / PAGE;
-                let index = if filtered { self.matches[self.record] } else { self.record };
-                record_sheet(ui, index, &data[index], columns, &label);
+                let index = if indexed { self.matches[self.record] } else { self.record };
+                record_sheet(ui, index, &data[index], columns, &label, self.order.column);
                 return;
             }
             let pages = count.div_ceil(PAGE).max(1);
@@ -393,19 +411,22 @@ impl TableView {
                         .striped(true)
                         .spacing([18.0, 8.0])
                         .show(ui, |ui| {
-                            ui.weak("Row");
-                            for c in 0..columns {
+                            ui.weak("Row").on_hover_text("Original data row, not its rank");
+                            // Put the chosen field next to its original row number, including
+                            // on narrow screens. This is a view; keep all the other columns.
+                            let fields = || self.order.column.into_iter().chain((0..columns).filter(|&c| Some(c) != self.order.column));
+                            for c in fields() {
                                 ui.strong(label(c));
                             }
                             ui.end_row();
                             for position in self.page * PAGE..((self.page + 1) * PAGE).min(count) {
-                                let i = if filtered { self.matches[position] } else { position };
+                                let i = if indexed { self.matches[position] } else { position };
                                 let row = &data[i];
                                 if ui.link((i + 1).to_string()).on_hover_text("Read this record").clicked() {
                                     self.record = position;
                                     self.layout = Layout::Record;
                                 }
-                                for c in 0..columns {
+                                for c in fields() {
                                     ui.add(
                                         egui::Label::new(
                                             row.get(c).map(String::as_str).unwrap_or(""),
@@ -424,14 +445,14 @@ impl TableView {
 
 /// A vertical reading surface for wide registers, including long filenames and
 /// hashes. Labels are presentation; copying always takes the parsed cell verbatim.
-fn record_sheet(ui: &mut Ui, index: usize, row: &[String], columns: usize, label: &impl Fn(usize) -> String) {
+fn record_sheet(ui: &mut Ui, index: usize, row: &[String], columns: usize, label: &impl Fn(usize) -> String, first: Option<usize>) {
     let palette = theme::palette(ui);
     egui::ScrollArea::vertical().id_salt(("record-sheet", index)).auto_shrink([false, true]).show(ui, |ui| {
         egui::Frame::new().fill(palette.panel).stroke(egui::Stroke::new(1., palette.border))
             .inner_margin(12).corner_radius(6).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.strong(format!("Row {}", index + 1));
-                for c in 0..columns {
+                for c in first.into_iter().chain((0..columns).filter(|&c| first != Some(c))) {
                     ui.separator();
                     let name = label(c);
                     let cell = row.get(c);
