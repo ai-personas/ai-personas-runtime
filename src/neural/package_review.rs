@@ -1,6 +1,8 @@
 //! A finding belongs to the constituent versions and brief the reviewer assessed.
 //! Matching those identities does not establish the truth of the finding.
+pub mod after_issue;
 pub(super) mod peer;
+mod publication;
 use super::{failure, id, operations, store, Result};
 use clap::{Args, ValueEnum};
 use rusqlite::{params, Connection};

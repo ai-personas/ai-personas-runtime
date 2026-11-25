@@ -739,6 +739,7 @@ fn internal(
         }
         "work.requests" => super::activity_requests::history(db,work,Some(actor),&decode(input)?),
         "work.sources" => super::activity_sources::own(db,work,actor,&decode(input)?),
+        "result.after_issue" => Ok(serde_json::to_value(super::package_review::after_issue::page(db, &decode(input)?)?)?),
         "result.prior_checks" => super::activity_sources::prior_checks(db,Some(actor),&decode(input)?),
         "work.respond" => super::activity_requests::respond(db,snapshot,decode(input)?),
         "work.request" => {
@@ -770,7 +771,7 @@ pub(super) fn create_activity(
         return Err(failure("Each persona may appear only once in an invitation"));
     }
     if let Some(reference) = &from_edition {
-        super::delivery_feedback::issued(db, reference)?;
+        super::activity_sources::delivery::edition(db, reference)?;
     }
     let invitation = match kind {
         ActivityKind::Task => "Choose whether and how to contribute to this need",
@@ -1072,7 +1073,7 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
             resolve_operation(&mut op,&aliases)?;
             if part.departure.is_some(){return Err(failure("work.leave ends your operations in this activity; issue it last and stop"));}
             if persona.model.is_none()&&!matches!(op.tool.as_str(),"persona.initialize"|"persona.read"|"tools.search"|"tools.describe"|"asset.read") {return Err(failure("initialize and activate your character before accepting or doing work"));}
-            if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"human.requests"|"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.list"|"asset.search"|"asset.history"|"asset.deliveries"|"asset.find"|"asset.zip_members"|"asset.read_zip_text"|"asset.compare_zips"|"history.search"|"experience.search"|"relationship.contacts"|"relationship.history"|"persona.revision_uses"|"persona.paths"|"persona.replay_input"|"peer.message"|"work.briefs"|"work.requests"|"work.sources"|"work.agreements"|"result.prior_checks") {return Err(failure("accept your invitation before ordinary work"));}
+            if persona.model.is_some()&&!part.accepted&&!matches!(op.tool.as_str(),"human.requests"|"peer.respond"|"persona.read"|"persona.evaluate"|"tools.search"|"tools.describe"|"asset.read"|"asset.list"|"asset.search"|"asset.history"|"asset.deliveries"|"asset.find"|"asset.zip_members"|"asset.read_zip_text"|"asset.compare_zips"|"history.search"|"experience.search"|"relationship.contacts"|"relationship.history"|"persona.revision_uses"|"persona.paths"|"persona.replay_input"|"peer.message"|"work.briefs"|"work.requests"|"work.sources"|"work.agreements"|"result.prior_checks"|"result.after_issue") {return Err(failure("accept your invitation before ordinary work"));}
             if part.declined{return Err(failure("declined participation cannot perform operations"));}
             if tools::is_external(&op.tool) {
                 validate_external(db,&persona,&op)?;
