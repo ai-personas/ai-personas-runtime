@@ -16,6 +16,10 @@ use serde_json::{json, Value};
 pub struct Query {
     /// Exact edition to look back at from later published records.
     pub delivery: String,
+    /// Recheck and open one listed address for the finding and its evidence, or the later issuer's supported use and limits. Omit to page through addresses.
+    #[arg(long, conflicts_with_all = ["offset", "page_size"])]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open: Option<String>,
     #[arg(long, default_value_t = 0)]
     #[serde(default)]
     pub offset: usize,
@@ -151,28 +155,73 @@ fn entry(db: &Connection, issue: &Edition, kind: &str, reference: String) -> Res
     }
 }
 
+/// Recheck *both* ends when a persona follows a discovered address in a later
+/// decision. An unbound record read does not establish this publication link.
+pub fn inspect(db: &Connection, query: &Query) -> Result<Value> {
+    let Some(reference) = &query.open else {
+        return Ok(serde_json::to_value(page(
+            db,
+            &query.delivery,
+            query.offset,
+            query.page_size,
+        )?)?);
+    };
+    if query.offset != 0 || query.page_size != page_size() {
+        return Err(failure("Choose a page or open one exact record"));
+    }
+    let kind = match reference.split_once(':') {
+        Some((kind @ ("delivery" | "package_review"), _)) => kind,
+        _ => return Err(failure("Open an exact published finding or later delivery")),
+    };
+    let source = public_issue(db, &query.delivery)?;
+    let record = typed(db, reference, kind)?;
+    if version_order(db, &record.reference)? <= version_order(db, &source.issue.record.reference)? {
+        return Err(failure(
+            "This record was not published after the selected edition",
+        ));
+    }
+    let row = entry(db, &source, kind, reference.clone())?;
+    let mut detail = serde_json::to_value(&row)?;
+    detail["after_issue_of"] = json!(query.delivery);
+    match row {
+        Entry::Finding {
+            finding, evidence, ..
+        } => {
+            detail["finding"] = json!(finding);
+            detail["evidence"] = json!(evidence);
+        }
+        Entry::Citation { .. } => {
+            for field in ["scope", "supported_use", "remaining"] {
+                detail[field] = record.body[field].clone();
+            }
+        }
+        Entry::Unavailable { reason } => return Err(failure(reason)),
+    }
+    Ok(detail)
+}
+
 /// Use the caller's snapshot. A damaged candidate gets no link or attributed
 /// prose; it need not hide the other person's independently verifiable record.
-pub fn page(db: &Connection, query: &Query) -> Result<Page> {
-    if query.page_size == 0 {
+pub fn page(db: &Connection, delivery: &str, offset: usize, size: usize) -> Result<Page> {
+    if size == 0 {
         return Err(failure("Choose a positive page size"));
     }
-    let selected = public_issue(db, &query.delivery)
+    let selected = public_issue(db, delivery)
         .map_err(|e| failure(format!("Cannot verify the selected issue: {e}")))?;
     let order = version_order(db, &selected.issue.record.reference)?;
     let count: i64 = db.query_row(
         &format!("SELECT count(*) {MATCHES}"),
-        params![query.delivery, order],
+        params![delivery, order],
         |r| r.get(0),
     )?;
     let mut q = db.prepare(&format!(
         "SELECT v.kind,v.id,v.revision {MATCHES} ORDER BY v.rowid DESC LIMIT ?3 OFFSET ?4"
     ))?;
     let mut rows = q.query(params![
-        query.delivery,
+        delivery,
         order,
-        i64::try_from(query.page_size)?,
-        i64::try_from(query.offset)?
+        i64::try_from(size)?,
+        i64::try_from(offset)?
     ])?;
     let mut items = Vec::new();
     while let Some(row) = rows.next()? {
@@ -189,11 +238,11 @@ pub fn page(db: &Connection, query: &Query) -> Result<Page> {
         );
     }
     Ok(Page {
-        delivery: query.delivery.clone(),
+        delivery: delivery.to_owned(),
         at_issue_event: selected.issue.sequence,
         total_candidates: count.try_into()?,
-        offset: query.offset,
-        page_size: query.page_size,
+        offset,
+        page_size: size,
         items,
     })
 }

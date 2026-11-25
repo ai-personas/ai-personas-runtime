@@ -62,8 +62,12 @@ pub(super) fn verify(
             "This finding does not identify the selected edition, files and brief",
         ));
     }
-    let public = json!({"reference":reference,"criterion":r["criterion"],"verdict":r["verdict"]});
-    let mut q = db.prepare_cached("SELECT seq,work,actor,target,e.digest,e.invocation FROM events e JOIN objects b ON b.digest=e.digest WHERE e.kind='package_review' AND json_extract(CAST(b.bytes AS TEXT),'$.reference')=?1 ORDER BY seq")?;
+    let mut public =
+        json!({"reference":reference,"criterion":r["criterion"],"verdict":r["verdict"]});
+    if version_call.is_none() {
+        public["published_record"] = json!(format!("object:{}", record.reference.digest));
+    }
+    let mut q = db.prepare_cached("SELECT seq,work,actor,target,e.digest,e.invocation FROM events e JOIN objects b ON b.digest=e.digest WHERE e.kind='package_review' AND CASE WHEN json_valid(CAST(b.bytes AS TEXT)) THEN json_extract(CAST(b.bytes AS TEXT),'$.reference') END=?1 ORDER BY seq")?;
     let mut rows = q.query([&reference])?;
     let first = rows
         .next()?

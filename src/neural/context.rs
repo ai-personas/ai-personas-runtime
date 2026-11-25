@@ -533,7 +533,8 @@ fn read_resource(
             }
             let mut observed=json!({"reference":reference,"record":record.body});
             if record.reference.kind == "delivery" {
-                observed["after_issue_lookup"] = super::package_review::after_issue::lookup(&record.reference.handle());
+                if record.reference.handle() != reference { return Err(failure("Choose a canonical exact delivery revision")); }
+                observed["after_issue_lookup"] = super::package_review::after_issue::lookup(reference);
             } else if record.reference.kind=="development" {
                 if actor.is_none() || actor==record.body["owner"].as_str() {
                     let current = store::required(db, "development", &record.reference.id)?;

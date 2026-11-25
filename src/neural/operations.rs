@@ -739,7 +739,7 @@ fn internal(
         }
         "work.requests" => super::activity_requests::history(db,work,Some(actor),&decode(input)?),
         "work.sources" => super::activity_sources::own(db,work,actor,&decode(input)?),
-        "result.after_issue" => Ok(serde_json::to_value(super::package_review::after_issue::page(db, &decode(input)?)?)?),
+        "result.after_issue" => super::package_review::after_issue::inspect(db, &decode(input)?),
         "result.prior_checks" => super::activity_sources::prior_checks(db,Some(actor),&decode(input)?),
         "work.respond" => super::activity_requests::respond(db,snapshot,decode(input)?),
         "work.request" => {
