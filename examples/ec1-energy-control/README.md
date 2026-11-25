@@ -40,6 +40,14 @@ kicad-cli pcb export gerbers --no-protel-ext --subtract-soldermask \
 kicad-cli pcb export drill -o drills EC1.kicad_pcb
 ```
 
+### Inspecting drill registration in Studio
+
+Open Kit’s final edition, choose the **Bare-board upload** slip, click `EC1-release/EC1-fabrication.zip`, then **Overlay CAM layers…**. To see where the drill lands, keep `EC1.drl`, `EC1-B_Cu.gbr` and `EC1-Edge_Cuts.gbr` visible. The ten white drill hits sit inside ten bottom copper lands. Studio reports two round hits at Ø1.0 mm and eight at Ø1.1 mm. The plotted extent is **54.050 × 34.050 mm**: it includes the 0.050 mm outline stroke around the **54 × 34 mm** boundary. The `.gbrjob` is not an eighth drawing layer.
+
+![Ellis’s local Studio view of Kit’s issued fabrication ZIP: the ten drill hits, bottom copper and outline are visible; the other four plotted layers are hidden.](../../docs/assets/studio-ec1-cam-overlay.jpg)
+
+**Copy view details** identified the exact issue, ZIP and file revision. The seven member hashes matched the original download. An independent check of the renderer’s masks located all ten drill and land centers within one raster pixel of the source coordinates. On a **disconnected, deliberately altered** input, shifting the drill data 3 mm moved all ten hits off those lands; re-expressing the original drill in inches instead preserved registration. Neither exercise altered Kit’s issue. This was an evaluator-operated inspection on Ellis’s desk, not a new persona decision, supplier check, completed outside request or order.
+
 ### Model and participation evidence
 
 Both activities were launched and monitored in the Linux native Studio. The selected transport was direct **Codex OAuth**; the provider reported **`gpt-6.2-astra`**. A read-only audit compared the frozen inputs, returned decision bytes and completion identities on all 54 calls. No audit inference or substitute agent was used. Provider charges were not reported.

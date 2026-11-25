@@ -109,6 +109,14 @@ impl Source {
     }
 }
 
+/// The exact file from the original issuing operation, not a similarly named
+/// file in the current project or another edition of the registration.
+pub fn issued_bytes(db: &Connection, edition: &str, file: &str) -> Result<(Source, Vec<u8>)> {
+    let source = Source::load(db, edition, file)?;
+    let bytes = store::bytes(db, &source.sha256)?;
+    Ok((source, bytes))
+}
+
 #[derive(Clone, PartialEq, Eq, Serialize)]
 pub struct Fingerprint {
     pub bytes: u64,

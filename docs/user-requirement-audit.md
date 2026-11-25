@@ -9,6 +9,7 @@
 - Matched the active IDs to headings in the pinned design, not to the numbering range. The design checkout matched upstream `main` at `7d86efb`. The introduction, requirements, design chapters, examples, implementation requirements and acceptance catalogue inspected referenced real illustrations.
 - Reopened the earlier five-person workspace read-only. Its eleven activities contained nine editions; all **42 file entries** resolved to their exact asset revisions and matching content digests. Examined actual text selected or returned to the tower and printer participants, not just search hits. Rechecked the shared reading-group skill reaching Sami and Ren’s three adopted epochs on one fixed input. The historical observations linked below belong to their own builds, not to new Astra runs.
 - In native Studio, Arden and Kit used direct Codex OAuth. Across the [energy investigation and separate KiCad commission][ec1], [counter card][roles], [museum tickets][tickets], and two [receiving shifts][return], all **82 distinct completed responses** matched their frozen inputs, invocation and terminal output. Their pinned selections and the provider reports agreed: `gpt-6.2-astra`, Arden `high`, Kit `xhigh`. The two rejected responses are included in usage, not in accepted decisions. There were **1,851,694 reported tokens**, no monetary cost figure, and no inference for the audit. Restoring the workspace did not turn its old calls into new calls.
+- On the evaluator-operated receiving desk, the [CAM overlay on Kit’s original bare-board ZIP][cam] put all ten drill hits on the bottom lands. A deliberately shifted drill on a disconnected copy stayed shifted. This read-only check made no provider call or change to the human roles, open request or issued files.
 - Recomputed the **12 baseline inclinations** from each owner’s parameters and matched 68 prior working notes to the text supplied on later decisions. Of 80 accepted decisions, four were for initialization. All 76 others used epoch 1 at baseline, chose `no_change` and preserved the model (Arden 31; Kit 45). A peer review reached Arden’s real decision on the tickets; Arden expressly kept the lesson local. There was no eligible voluntary revision for the planned earlier/later comparison.
 
 ## Publication, identity and development
@@ -84,6 +85,7 @@ For the numerical question, the missing evidence is a persona’s voluntary, exp
 [impl]: https://github.com/ai-personas/ai-personas-design/blob/7d86efb31a0323e03166a5c5212cdcd8b2e32f36/implementation/REQUIREMENTS.md
 [reconciliation]: https://github.com/ai-personas/ai-personas-design/blob/7d86efb31a0323e03166a5c5212cdcd8b2e32f36/examples/REQUIREMENTS-WALKTHROUGH.md
 [ec1]: ../examples/ec1-energy-control/
+[cam]: ../examples/ec1-energy-control/#inspecting-drill-registration-in-studio
 [roles]: ../examples/ec1-energy-control/#when-two-humans-choose-to-help
 [tickets]: ../examples/museum-deposit-tickets/
 [return]: ../examples/ec1-energy-control/#a-review-reaches-the-issuer-on-a-different-shift

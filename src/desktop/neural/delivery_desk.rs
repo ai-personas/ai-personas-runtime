@@ -1,6 +1,7 @@
 //! The issued package, its exact file revisions and the operator's review.
 use super::*;
 
+mod cam;
 mod compare;
 mod dispatch;
 mod origins;
@@ -28,6 +29,7 @@ pub(super) struct Desk {
     check_page: usize,
     origins: Option<origins::Window>,
     compare: Option<compare::Window>,
+    cam: Option<cam::Window>,
     file_search: String,
     origin: Option<(String, ReturnTo)>,
 }
@@ -43,7 +45,8 @@ impl Desk {
     pub(super) fn new(gl: Option<&Arc<eframe::glow::Context>>) -> Self {
         Self { inline: Inline::new(gl), ..Self::default() }
     }
-    pub(super) fn release(&mut self) { self.inline.release(); }
+    pub(super) fn close_overlay(&mut self) { self.cam = None; }
+    pub(super) fn release(&mut self) { self.close_overlay(); self.inline.release(); }
 
     pub(super) fn selected_file(&self) -> Option<&str> {
         self.model.as_ref()?.files.get(self.selected).map(|f| f.reference.as_str())
@@ -244,6 +247,7 @@ impl App {
                 desk.slip_page = 0;
                 desk.origins = None;
                 desk.compare = None;
+                desk.cam = None;
                 desk.file_search.clear();
                 desk.file_folders.directory.clear();
                 desk.focus_preview = false;
@@ -359,6 +363,7 @@ impl App {
             });
         self.delivery_origins_window(ui.ctx(), &p);
         self.zip_comparison_window(ui.ctx(), &p);
+        self.cam_overlay_window(ui.ctx(), &p);
     }
 
     fn package_heading(&mut self, ui: &mut Ui, p: &Package) -> bool {
@@ -507,6 +512,7 @@ impl App {
             SaveEntry(ZipFile),
             InspectEntry(ZipFile),
             Measure(Option<String>),
+            Overlay,
         }
         let desk = &mut self.delivery_desk;
         let mut action = None;
@@ -544,6 +550,10 @@ impl App {
                     if let Some(n) = file.bytes {
                         ui.small(format!("·  {}", size(n)))
                             .on_hover_text(counted(n, "byte", "bytes"));
+                    }
+                    if file.format.archive() && ui.button("Overlay CAM layers…")
+                        .on_hover_text("Look for Gerber and drill files in this issued ZIP. Nothing is uploaded.").clicked() {
+                        action = Some(Action::Overlay);
                     }
                 });
                 ui.add_space(3.);
@@ -603,6 +613,9 @@ impl App {
         }
         let file = &p.files[desk.selected];
         match action {
+            Some(Action::Overlay) => {
+                desk.cam = Some(cam::Window::new(ui.ctx(), &self.root, p, file));
+            }
             Some(Action::Measure(member)) => self.mesh_profile.open(
                 ui.ctx(), &self.root, &self.operator, &file.reference, s(&p.body, "work"), member,
             ),
