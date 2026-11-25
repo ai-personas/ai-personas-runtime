@@ -9,3 +9,5 @@ relief-note.txt -text
 intake/examples/*.csv -text whitespace=cr-at-eol
 media/READ-FIRST.txt -text
 media/identify.py -text
+exhibit/EC1.html -text
+exhibit/bezel.png binary
