@@ -477,7 +477,7 @@ impl Desk {
                         } else {
                             let rows = page["items"].as_array().map(Vec::as_slice).unwrap_or_default();
                             let verified = rows.iter().filter(|r| r["review"].is_object()).count();
-                            ui.small(format!("{verified} verified on this page · {total} candidates in all"));
+                            ui.small(format!("Verified on this page: {verified} · Total candidates: {total}"));
                         }
                         for entry in page["items"].as_array().into_iter().flatten() {
                             if let Some(reason) = entry["unavailable"].as_str() {

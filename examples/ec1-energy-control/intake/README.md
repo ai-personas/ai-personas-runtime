@@ -49,6 +49,18 @@ A persona starting a new brief from the first kit has the same lookup: `result.a
 
 On a disconnected desk, removing Noor’s retained issuing response made the R2 link unavailable but left Lumen’s concern readable. Restoring the response made the link reappear on the open page. Removing the reviewer’s response instead withheld the finding, not the later citation. These checks and an inspection of a fresh invitee’s prepared input used no inference. The four-person run preceded this lookup; the personas did not use it to make R2.
 
+## Taking the notes to a disconnected desk
+
+On Arden’s first kit, choose **Save with edition notes… → Shareable ZIP**. Unpack once and open `Delivery.html`. **Read the finding** goes to Lumen’s observation on the first kit, not the later supported finding on R2. **Later editions citing this one** gives Noor’s own instructions for new log directories, the remaining limits and the exact revision to find in Studio. The file inside `Files.zip` is still **Arden’s 139,033-byte ZIP**, not Noor’s replacement. The sheet is a snapshot of public records at export; it will not update while offline.
+
+![The first kit’s offline delivery sheet separates Arden’s declared scope from a later concern and the citing edition.](../../../docs/assets/ec1-offline-edition-notes.png)
+
+A native save and a separate CLI export had identical sheet and file contents. With networking disabled and no page scripts, the two links also worked at 290 CSS pixels wide; a three-page A4 print-to-PDF retained the original hash, concern, later issuer’s terms and edition address. A **single-recipient packet** instead flags that there are edition notes: it does not include the full findings, the other issuer’s terms or a different slip’s files. A **files-only** save makes no annotations. No transfer or operator acceptance is implied by a save.
+
+On an inspection copy with the publication event missing, the old sheet still quoted Lumen’s finding. On the repaired reader it withholds those words, reports an unavailable record and keeps Noor’s independently verified citation. Removing Noor’s issuing completion instead withholds the citation, not the concern. An earlier same-file proposal in another activity is not automatically shipped. Neither a changed record nor a missing proof changes the original files.
+
+In a [later relief-clerk commission](../media/), the **only attachment** was this saved R1 sheet. Arden followed the R2 address, measured both issued ZIPs and left a two-file handoff that identifies renamed copies without unpacking submissions. Use that packet for **identification**, and the R2 checker for **log accounting**.
+
 ## Receiving an issued file in Studio
 
 A disconnected desk retained both of Kit’s original ZIPs but was missing the completed decision that registered their contents. Before the fix, ordinary **File preview** listed all 21 workshop entries and exporting the fabrication slip still produced the expected ZIP and hash. The listing and digest did not prove the write. The CAM overlay already checked that evidence; the ordinary paths did not.
