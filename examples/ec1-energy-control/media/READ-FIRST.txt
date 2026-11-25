@@ -1,0 +1,70 @@
+EC1 RECEIVING DESK | Which kit is in this folder?
+
+Use R2 for new log directories. Retain the earlier issue for reference only.
+Do not open a submission to decide which it is. A name, icon, timestamp or
+size alone cannot identify either kit.
+
+1. Keep this trusted card and its identify.py separate from the copies.
+   Leave the incoming folder unchanged while checking it. Open a terminal
+   in the folder containing THIS handoff, not in the incoming folder.
+2. Run one command, replacing the quoted example with the incoming folder:
+   Windows (Python 3 launcher):  py -3 -I identify.py "D:\Desk copies"
+   Linux/macOS (Python 3):       python3 -I identify.py "/media/Desk copies"
+   No installation of packages, internet, extraction or submitted code is
+   needed. The checker reads regular files including those in subfolders,
+   regardless of extension. It does not write to the incoming folder.
+3. Read each result by FULL PATH, then read the copy counts:
+   R2        Matches the issue designated for new logs. Identify it for that
+             job; do not run the submitted file during receiving. Multiple
+             R2 paths are copies of the same issued bytes, not newer issues.
+   EARLIER   Retain intact, marked earlier / not for new logs. Do not use it
+             as a fallback even if it is the only recognizable kit.
+   UNKNOWN   No listed match. Record path, byte count and SHA-256. Hold apart
+             without opening or repairing it. Damage and unrelated content
+             need not be distinguishable to make this decision.
+   UNCHECKED Read failed, file changed, or path was skipped (e.g. link).
+             Record the path/error. Hold unverified; no identity decision.
+   R2=0      No VERIFIED current kit. Hold new-log intake; resume only with
+             a verified R2. An unseen or unreadable file is not a substitute.
+   EARLIER=0 Record earlier archive copy not verified; don't relabel another.
+             Missing earlier bytes alone do not disqualify an R2 match.
+   STOP      Folder could not be checked. Verify the folder path/access;
+             do not interpret failure to scan as an empty folder.
+
+Manual fallback | use a trusted local SHA-256 utility on the unopened file.
+For example, Windows PowerShell: Get-FileHash -Algorithm SHA256 -LiteralPath 'D:\Desk copies\kit.zip'
+On Linux: sha256sum -- '/media/Desk copies/kit.zip'
+On macOS: shasum -a 256 '/Volumes/Desk copies/kit.zip'
+Use actual paths. Compare ALL 64 hex digits (case does not matter) and the
+file length in bytes, not allocated size. Repeat for every candidate path.
+The fingerprints below are of the complete issued INTAKE ZIPs, not Files.zip,
+a script inside a kit, a workshop ZIP, or a folder after extraction.
+
+R2       139400 bytes
+SHA-256  e06e81d9c1f96c33e9a009ac4ea7ce19dd7f1bfc003403ea8a9b2be69d463936
+EARLIER  139033 bytes
+SHA-256  b546d9ef762dc6a457bfdbc74da0699a384b325ccaa73f30c427e941f287fbaa
+
+Why R2 | issue trail (no lookup required to use this card)
+The supplied Delivery.html lists receiving/EC1-offline-intake.zip, its
+length and hash in delivery:delivery-c68c8aca81878b3acd80673e9c80f794@1,
+file asset:asset-5428ae07adb51e07664b54a736a4baac@1. Its later finding
+(package_review:review-902fbc6f83ccaefde9bdee0eea34bcf8@1) showed that
+losing one of the two 8 s switch observations could still yield a complete-
+cycle verdict: the checker integrated across an unwitnessed phase change.
+
+The sheet points to delivery:delivery-5297bc2527125c3effc5b4ba2896ce05@1.
+That issue explicitly replaces the earlier checker for new logs; the citation
+alone is not the instruction. Its file is receiving/EC1-offline-intake-r2.zip,
+asset:asset-9ec13bece509ed1f04089dc2cfaa474d@1. The lengths and hashes above
+were measured on the two exact issued file revisions. R2 holds and excludes a
+positive-duration step between different phase signatures, even at 5 ms.
+The review package_review:review-210e5c9fe49dbd2932bbca66cef983d0@1 supports
+that correction on the tested synthetic logs. Original exercise dispositions
+were unchanged: log-27 usable under the stated assumptions; log-14 and
+log-83 held. Neither issue is evidence of device performance.
+
+A fingerprint match identifies bytes against the listed issue. It does not
+establish the origin, writing history or custody of a desk copy. If required
+issue or file-writing evidence is missing, record the byte match AND retain
+a provenance hold; do not release it as authenticated on hash alone.

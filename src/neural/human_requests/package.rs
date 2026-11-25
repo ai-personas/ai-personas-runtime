@@ -1,6 +1,6 @@
 //! Export exact issued files with a recipient-facing delivery or request sheet.
 use super::{attachments, files, files_at_issue::Selection, Materials, SheetDelivery};
-use crate::neural::{archive, failure, issued_files::Edition, store, Result};
+use crate::neural::{archive, failure, issued_files::Edition, package_review::after_issue, store, Result};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -17,6 +17,8 @@ pub enum HandoffFormat {
 mod delivery_sheet;
 #[path = "sheet.rs"]
 mod sheet;
+#[path = "edition_notes.rs"]
+mod edition_notes;
 
 #[derive(Serialize)]
 struct SheetFile {
@@ -118,8 +120,11 @@ fn save_dispatch(db: &Connection, reference: &str, number: usize, destination: &
     let edition = Edition::open(db, reference)?;
     let package = SheetDelivery::deserialize(&edition.verified.issue.record.body)?;
     let issuer = edition.verified.issuer_label.clone();
-    let materials = Materials(Selection::Delivery(edition));
     let slip = package.dispatch(number)?;
+    let notice = if packet {
+        edition_notes::Notice::from_entries(&after_issue::at_export(db, &edition.verified, after_issue::Records::All)?)
+    } else { edition_notes::Notice::default() };
+    let materials = Materials(Selection::Delivery(edition));
     let parent = archive::parent(destination);
     let mut temp = tempfile::NamedTempFile::new_in(parent)?;
     let (format, entries) = if packet {
@@ -133,7 +138,7 @@ fn save_dispatch(db: &Connection, reference: &str, number: usize, destination: &
             entries.push(entry);
         }
         let html = sheet::recipient(&package, issuer.as_deref().unwrap_or(&package.owner),
-            number, slip, reference, &entries);
+            number, slip, reference, &entries, &notice);
         zip.start_file("Dispatch.html", options.large_file(html.len() as u64 >= u32::MAX as u64))?;
         zip.write_all(html.as_bytes())?;
         zip.finish()?;
@@ -251,7 +256,7 @@ pub fn export_handoff(db: &Connection, reference: &str, destination: &Path, form
         archive = Some("Files.zip");
     }
     let (name, (html, mut receipt)) = match selected.0 {
-        Selection::Delivery(edition) => ("Delivery.html", delivery_sheet::render(db, &edition.verified.issue, &files)?),
+        Selection::Delivery(edition) => ("Delivery.html", delivery_sheet::render(db, &edition.verified, &files)?),
         Selection::Request { record, origin, .. } => ("Request.html", request_sheet(db, record, origin, &files)?),
     };
     let mut document = File::create_new(stage.path().join(name))?;

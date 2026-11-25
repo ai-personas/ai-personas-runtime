@@ -528,6 +528,9 @@ fn read_resource(
             if start.is_some() || end.is_some() {
                 return Err(failure("Byte excerpts require an asset or object reference; structured records are supplied whole"));
             }
+            if record.reference.kind=="package_review" {
+                return super::package_review::read_finding(db, reference, &record);
+            }
             if record.reference.kind=="relationship" {
                 return super::relationships::read_note(db, actor, &record, reference);
             }

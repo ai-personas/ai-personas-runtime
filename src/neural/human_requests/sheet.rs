@@ -199,13 +199,14 @@ pub(super) fn file_section(html: &mut String, heading: &'static str, files: &[Sh
 
 pub(super) fn recipient(
     package: &SheetDelivery, issuer: &str, number: usize, slip: &crate::neural::tools::Dispatch,
-    reference: &str, files: &[SheetFile],
+    reference: &str, files: &[SheetFile], notice: &super::edition_notes::Notice,
 ) -> String {
     let mut html = header(&slip.recipient, "Recipient dispatch");
     field(&mut html, "From edition", &package.title);
     field(&mut html, "Issuing persona", issuer);
     field(&mut html, "Dispatch", &number.to_string());
     html.push_str("</dl></header>");
+    notice.render(&mut html, false);
     prose_section(&mut html, "Your instructions", &slip.instructions);
     html.push_str("<section><h2>Your files</h2><p>Unpack this packet, then open the files below. Their names and contents are as issued.</p><ul class=\"entries\">");
     for file in files { attachment(&mut html, file, true); }

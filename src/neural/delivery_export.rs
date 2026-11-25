@@ -55,6 +55,8 @@ pub fn collection(
         .prefix(".personas-export-")
         .tempdir_in(parent)?;
     let mut manifest = Vec::new();
+    let mut reviews = BTreeMap::new();
+    let mut later_editions = BTreeMap::new();
     for head in &deliveries {
         let reference = head.reference.handle();
         let edition = Edition::open(&db, &reference)?;
@@ -80,14 +82,19 @@ pub fn collection(
                 "metadata":asset.body,"bytes":bytes.len(),"sha256":source.sha256}),
             );
         }
+        let notes = package_review::edition_notes(&db, &edition.verified)?;
+        if !notes.reviews.is_empty() { reviews.insert(reference.clone(), notes.reviews); }
+        if !notes.citations.is_empty() {
+            let rows = notes.citations.iter().map(|e| e.detail(&reference)).collect::<Result<Vec<_>>>()?;
+            later_editions.insert(reference, rows);
+        }
     }
-    let reviews = package_review::exported(&db, &deliveries)?;
     let operators = store::operator_review_history(
         &db,
         &deliveries.iter().map(|d| d.reference.handle()).collect(),
     )?;
     let value = json!({"deliveries":deliveries,"delivery_mandates":store::delivery_mandates(&db, work)?,
-        "package_reviews":reviews,"operator_review_history":operators,"artifacts":manifest,"quality_verified_by_export":false});
+        "package_reviews":reviews,"later_editions_citing_this_issue":later_editions,"operator_review_history":operators,"artifacts":manifest,"quality_verified_by_export":false});
     drop(db);
     let mut index = File::create_new(stage.path().join("manifest.json"))?;
     serde_json::to_writer_pretty(&mut index, &value)?;

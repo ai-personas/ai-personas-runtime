@@ -79,7 +79,7 @@ pub struct RegistrationNotes {
 }
 
 /// The issuer’s statement at publication, not a later acceptance or a finding.
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct IssueTerms {
     #[serde(rename(deserialize = "owner"))]
     pub issuer: String,

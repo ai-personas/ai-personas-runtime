@@ -214,12 +214,12 @@ impl App {
             Contents::Artifact { .. } => ("Save artifact", "Save the exact retained file to your computer.", "Save file"),
             Contents::Printed { .. } => ("Save print PDF", "Save the PDF generated for this preview.", "Save PDF"),
             Contents::Deliveries { .. } => ("Export deliveries", "Each edition gets its own folder. The manifest records its files and reviews. This is not a combined build package.", "Export deliveries"),
-            Contents::Dispatch { packet: true, .. } => ("Save recipient packet", "One ZIP for this recipient. Open Dispatch.html for their instructions; Files/ holds the exact files named on their slip.", "Save packet"),
+            Contents::Dispatch { packet: true, .. } => ("Save recipient packet", "Dispatch.html contains this recipient’s instructions and flags later edition notes without sharing the reports. Files/ holds only the original files on this slip.", "Save packet"),
             Contents::Dispatch { files: 1, .. } => ("Save dispatch file", "This is the original file, not a new ZIP around it.", "Save original"),
             Contents::Dispatch { .. } => ("Save dispatch files", "Only the files on this slip are included, at their issued paths.", "Save ZIP"),
             Contents::Package(_) => ("Save file package", "The ZIP contains the selected file revisions with their original names and folders.", "Save file"),
             Contents::Handoff { reference, .. } if reference.starts_with("delivery:") =>
-                ("Save delivery handoff", "The recipient gets the issuer’s instructions and the exact files in this edition.", "Save handoff"),
+                ("Save delivery handoff", "Send this edition as issued. The sheet separates the issuer’s instructions from reviews and citations verified when you save.", "Save handoff"),
             Contents::Handoff { .. } =>
                 ("Save request handoff", "The recipient can read the request offline and bring back a field report for an active request.", "Save handoff"),
         };
@@ -247,7 +247,7 @@ impl App {
                     ui.horizontal_wrapped(|ui| {
                         theme::glyph(ui, Icon::Files, theme::palette(ui).muted);
                         ui.strong(if delivery { "Delivery.html" } else { "Request.html" });
-                        ui.small(if delivery { "Supported use and remaining work" } else { "Requested action and what to return" });
+                        ui.small(if delivery { "Issued terms, findings and later editions to look up" } else { "Requested action and what to return" });
                     });
                     if *files > 0 {
                         ui.horizontal_wrapped(|ui| {

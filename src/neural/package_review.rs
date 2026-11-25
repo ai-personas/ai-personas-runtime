@@ -1,6 +1,9 @@
 //! A finding belongs to the constituent versions and brief the reviewer assessed.
 //! Matching those identities does not establish the truth of the finding.
 pub mod after_issue;
+mod comparisons;
+pub use comparisons::lookup;
+pub(super) use comparisons::{edition_notes, lookup_for};
 pub(super) mod peer;
 mod publication;
 use super::{failure, id, operations, store, Result};
@@ -126,6 +129,17 @@ fn typed(db: &Connection, reference: &str, kind: &str) -> Result<store::Record> 
 
 pub(super) fn check_reference(db: &Connection, reference: &str) -> Result<()> {
     typed(db, reference, "package_review").map(|_| ())
+}
+
+/// An exact address can be selected before its publishing decision commits.
+/// Leave a missing proof readable as a gap, without quoting the record or
+/// preventing a later healthy decision from inspecting it afresh.
+pub(super) fn read_finding(db: &Connection, reference: &str, record: &store::Record) -> Result<Value> {
+    if record.reference.handle() != reference { return Err(failure("Choose a canonical exact review revision")); }
+    Ok(match publication::checked(db, record, None) {
+        Ok(proof) => json!({"reference":reference,"record":record.body,"publication_event":proof.sequence}),
+        Err(e) => json!({"reference":reference,"unavailable":format!("Cannot verify review publication: {e}")}),
+    })
 }
 
 fn members(db: &Connection, artifacts: &[String]) -> Result<Members> {
@@ -324,11 +338,16 @@ pub(super) fn check_reliance(
     mandate: &str,
     inputs: &[String],
     reviews: &[String],
+    issuing_call: &str,
 ) -> Result<()> {
     let selected = members(db, artifacts)?;
     let inputs: BTreeSet<_> = inputs.iter().cloned().collect();
     for reference in reviews {
         let record = typed(db, reference, "package_review")?;
+        // A review just written by an earlier operation in this accepting
+        // transaction is committed atomically with the issue. For an existing
+        // review require its publication, not just matching file identities.
+        if !store::written_by(db, &record, issuing_call)? { publication::checked(db, &record, None)?; }
         let reviewed: Package = serde_json::from_value(record.body["subject"].clone())?;
         if reviewed.members != selected
             || reviewed.inputs != inputs
@@ -338,155 +357,4 @@ pub(super) fn check_reliance(
         }
     }
     Ok(())
-}
-
-fn visit(
-    db: &Connection,
-    selected: &Target,
-    exact: Option<&str>,
-    for_export: bool,
-    mut on_match: impl FnMut(Value, Package, i64, i64) -> Result<()>,
-) -> Result<()> {
-    let mut query = db.prepare(
-        "SELECT v.rowid,v.created,v.id,v.revision,v.digest FROM versions v
-        WHERE v.kind='package_review' AND (?1 IS NULL OR v.id=?1) ORDER BY v.rowid DESC",
-    )?;
-    let exact_record = exact.map(|r| typed(db, r, "package_review")).transpose()?;
-    let mut rows = query.query([exact_record.as_ref().map(|r| r.reference.id.as_str())])?;
-    while let Some(row) = rows.next()? {
-        let reference = format!(
-            "package_review:{}@{}",
-            row.get::<_, String>(2)?,
-            row.get::<_, i64>(3)?
-        );
-        if exact.is_some_and(|r| r != reference) {
-            continue;
-        }
-        let record: Value = store::object(db, &row.get::<_, String>(4)?)?;
-        if record["reference"] != reference {
-            return Err(failure("Review identity differs from its retained version"));
-        }
-        let package: Package = serde_json::from_value(record["subject"].clone())?;
-        let include = exact.is_some()
-            || if for_export {
-                package.members == selected.package.members
-                    || selected.cited.contains(&reference)
-                    || selected.relied_on.contains(&reference)
-            } else {
-                related(&package.members, &selected.package.members)
-                    || selected.cited.contains(&reference)
-                    || selected.relied_on.contains(&reference)
-            };
-        if include {
-            on_match(record, package, row.get(0)?, row.get(1)?)?;
-        }
-    }
-    Ok(())
-}
-
-pub fn lookup(db: &Connection, work: Option<&str>, query: &Lookup) -> Result<Value> {
-    lookup_for(db, work, None, query)
-}
-
-pub(super) fn lookup_for(
-    db: &Connection,
-    work: Option<&str>,
-    actor: Option<&str>,
-    query: &Lookup,
-) -> Result<Value> {
-    if query.page_size == 0 {
-        return Err(failure("Use a positive page size"));
-    }
-    let selected = target(db, &query.subject, work, actor)?;
-    let mut matching = Vec::new();
-    let mut related = Vec::new();
-    visit(
-        db,
-        &selected,
-        query.review.as_deref(),
-        false,
-        |_, package, order, _| {
-            if package.same_basis(&selected.package) {
-                matching.push(order);
-            } else {
-                related.push(order);
-            }
-            Ok(())
-        },
-    )?;
-    // Keep only row IDs while ranking. Materialize per-file differences for the
-    // requested page, newest first within each group.
-    let matching_count = matching.len();
-    let total = matching_count + related.len();
-    let mut items = Vec::new();
-    let mut row = db.prepare("SELECT created,digest FROM versions WHERE rowid=?1")?;
-    for order in matching
-        .into_iter()
-        .chain(related)
-        .skip(query.offset)
-        .take(query.page_size)
-    {
-        let (created, digest): (i64, String) =
-            row.query_row([order], |r| Ok((r.get(0)?, r.get(1)?)))?;
-        let review: Value = store::object(db, &digest)?;
-        let package = serde_json::from_value(review["subject"].clone())?;
-        let mut item = compare(&selected, &package, &review, order);
-        item["created"] = json!(created);
-        items.push(item);
-    }
-    let operator_reviews = if let Some(reference) = &selected.package.delivery {
-        store::operator_review_history(db, &BTreeSet::from([reference.clone()]))?
-            .remove(reference)
-            .unwrap_or_default()
-    } else {
-        Vec::new()
-    };
-    Ok(
-        json!({"subject":selected.package,"items":items,"total":total,"matching_basis_count":matching_count,
-            "offset":query.offset,"operator_review_history":operator_reviews}),
-    )
-}
-
-pub(super) fn exported(
-    db: &Connection,
-    deliveries: &[store::Record],
-) -> Result<BTreeMap<String, Value>> {
-    let mut reports = BTreeMap::new();
-    let any: bool = db.query_row(
-        "SELECT EXISTS(SELECT 1 FROM versions WHERE kind='package_review')",
-        [],
-        |row| row.get(0),
-    )?;
-    if !any {
-        return Ok(reports);
-    }
-    for delivery in deliveries {
-        let reference = delivery.reference.handle();
-        let selected = target(
-            db,
-            &Subject {
-                delivery: Some(reference.clone()),
-                ..Subject::default()
-            },
-            None,
-            None,
-        )?;
-        let mut items = Vec::new();
-        visit(
-            db,
-            &selected,
-            None,
-            true,
-            |record, package, order, created| {
-                let mut item = compare(&selected, &package, &record, order);
-                item["created"] = json!(created);
-                items.push(item);
-                Ok(())
-            },
-        )?;
-        if !items.is_empty() {
-            reports.insert(reference, json!(items));
-        }
-    }
-    Ok(reports)
 }
