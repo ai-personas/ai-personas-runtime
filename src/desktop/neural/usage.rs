@@ -8,6 +8,7 @@ use std::{
 #[derive(Default)]
 pub(super) struct Panel {
     storage: bool,
+    gaps_only: bool,
     selected_call: Option<String>,
     scope: Option<String>,
     pending: Option<Receiver<Result<Value, String>>>,
@@ -65,6 +66,7 @@ impl Panel {
         if self.scope.as_ref() != Some(&scope) || refresh {
             if self.scope.as_ref() != Some(&scope) {
                 self.selected_call = None;
+                self.gaps_only = false;
             }
             self.scope = Some(scope);
             self.load(ui.ctx(), root, work);
@@ -96,7 +98,7 @@ impl Panel {
                 if self.storage {
                     storage_view(ui, report)
                 } else {
-                    open = activity_view(ui, report, status, &mut self.selected_call);
+                    open = activity_view(ui, report, status, &mut self.selected_call, &mut self.gaps_only);
                 }
             });
         open
@@ -167,13 +169,14 @@ fn activity_view(
     report: &Value,
     status: &Value,
     selected_call: &mut Option<String>,
+    gaps_only: &mut bool,
 ) -> Option<String> {
     let totals = &report["totals"];
     let p = theme::palette(ui);
     let cards = [
-        ("Total tokens", &totals["total_tokens"]["sum"], p.text),
-        ("Input tokens", &totals["input_tokens"]["sum"], TEAL),
-        ("Output tokens", &totals["output_tokens"]["sum"], PURPLE),
+        ("Reported tokens", &totals["total_tokens"]["sum"], p.text),
+        ("Reported input", &totals["input_tokens"]["sum"], TEAL),
+        ("Reported output", &totals["output_tokens"]["sum"], PURPLE),
         ("Recorded calls", &report["call_count"], p.muted),
     ];
     let columns = if ui.available_width() < 560. { 2 } else { 4 };
@@ -187,12 +190,11 @@ fn activity_view(
     let cached = &totals["cached_input_tokens"];
     let cost = &totals["actual_cost_microusd"];
     ui.add_space(5.);
-    ui.label(format!(
-        "{} cached input tokens. {} of {} inputs verified against completed receipts.",
-        value(&cached["sum"]),
-        report["verified_completed_inputs"],
-        report["call_count"]
-    ));
+    ui.label(format!("Token total available for {} of {} calls. {} inputs verified against completed receipts.",
+        totals["total_tokens"]["reported"], report["call_count"], report["verified_completed_inputs"]));
+    if let Some(n) = cached["sum"].as_u64() {
+        ui.small(format!("{} cached input tokens reported (included in input).", number(n)));
+    }
     if let Some(amount) = cost["sum"].as_u64() {
         ui.small(format!(
             "Reported charge of {:.6} USD across {} calls. {} calls have no reported charge.",
@@ -201,15 +203,29 @@ fn activity_view(
             cost["missing"]
         ));
     } else {
-        ui.small("The provider supplied no monetary charge for these calls.");
+        ui.small("No charge amount is available. This does not mean the calls were free.");
     }
-    for &key in &["input_tokens", "output_tokens", "cached_input_tokens"] {
-        let missing = totals[key]["missing"].as_u64().unwrap_or_default();
-        if missing > 0 {
-            ui.small(format!("{} unreported on {missing} calls", title(key)));
-        }
+    let coverage: Vec<_> = [("input_tokens", "Input"), ("cached_input_tokens", "Cached input"), ("output_tokens", "Output")]
+        .into_iter().filter(|(key, _)| totals[*key]["reported"] != totals["total_tokens"]["reported"])
+        .map(|(key, label)| format!("{label}: {}/{} calls", totals[key]["reported"], report["call_count"]))
+        .collect();
+    if !coverage.is_empty() { ui.small(coverage.join(" · ")); }
+    let calls = report["calls"].as_array().map(Vec::as_slice).unwrap_or_default();
+    let gaps = calls.iter().filter(|c| reporting_gap(c)).count();
+    if gaps == 0 { *gaps_only = false; }
+    if gaps > 0 && ui.selectable_label(*gaps_only, if *gaps_only { "← Full usage report".into() }
+        else { format!("Inspect reporting gaps · {gaps}") }).clicked() {
+        *gaps_only = !*gaps_only;
+        *selected_call = if *gaps_only && gaps == 1 {
+            calls.iter().find(|c| reporting_gap(c)).and_then(|c| c["id"].as_str()).map(str::to_owned)
+        } else { None };
     }
     ui.separator();
+    if *gaps_only {
+        ui.strong("Reporting gaps");
+        ui.small("Calls missing token counts or verified inputs. The figures above still cover the whole activity.");
+        return call_list(ui, calls, status, selected_call, true);
+    }
     let mut open = reasoning_receipts(ui, report, status);
     ui.add_space(6.);
     let sources = report["text_sources"]
@@ -282,10 +298,17 @@ fn activity_view(
         "Call receipts",
         &format!("{} recorded", report["call_count"]),
     );
-    let calls = report["calls"]
-        .as_array()
-        .map(Vec::as_slice)
-        .unwrap_or_default();
+    call_list(ui, calls, status, selected_call, false).or(open)
+}
+
+fn reporting_gap(c: &Value) -> bool {
+    c["input_evidence"] != "verified_completed_input" ||
+        ["total_tokens", "input_tokens", "output_tokens", "cached_input_tokens"].iter().any(|k| !c["usage"][*k].is_u64())
+}
+
+fn call_list(ui: &mut Ui, calls: &[Value], status: &Value, selected_call: &mut Option<String>, gaps_only: bool) -> Option<String> {
+    let mut open = None;
+    let p = theme::palette(ui);
     let max = calls
         .iter()
         .filter_map(|c| {
@@ -296,7 +319,8 @@ fn activity_view(
         .max()
         .unwrap_or(1)
         .max(1);
-    if !calls.is_empty() {
+    let chartable = |c: &Value| c["usage"]["input_tokens"].is_u64() && c["usage"]["output_tokens"].is_u64();
+    if calls.iter().any(|c| chartable(c) && (!gaps_only || reporting_gap(c))) {
         ui.horizontal_wrapped(|ui| {
             for (label, color) in [
                 ("Input", TEAL),
@@ -309,21 +333,22 @@ fn activity_view(
         });
     }
     for (i, call) in calls.iter().enumerate().rev() {
+        if gaps_only && !reporting_gap(call) { continue; }
         let id = s(call, "id");
         ui.push_id(id, |ui| {
             let expanded = selected_call.as_deref() == Some(id);
             ui.horizontal_wrapped(|ui| {
                 let choose = ui
-                    .selectable_label(expanded, format!("{}   {}", i + 1, title(s(call, "actor"))))
+                    .selectable_label(expanded, format!("{}   {}", i + 1, persona_label(status, s(call, "actor"))))
                     .on_hover_text(id)
                     .clicked();
-                let bar = token_bar(ui, &call["usage"], max);
+                let bar = chartable(call) && token_bar(ui, &call["usage"], max);
                 if choose || bar {
                     *selected_call = if expanded { None } else { Some(id.to_owned()) };
                 }
-                ui.label(format!("{} tokens", value(&call["usage"]["total_tokens"])));
+                ui.label(call["usage"]["total_tokens"].as_u64().map_or_else(|| "No token total".into(), |n| format!("{} tokens", number(n))));
                 theme::badge(ui, &title(s(call, "state")), p.muted);
-                if ui.small_button("Input ↗").clicked() {
+                if call["mode"].is_string() && ui.small_button("Local input ↗").clicked() {
                     open = Some(s(call, "snapshot").into());
                 }
                 if let Some(receipt) = call["receipt"].as_str() {
@@ -340,6 +365,10 @@ fn activity_view(
                         time_label(call["created"].as_i64().unwrap_or_default()),
                         connection(call)
                     ));
+                    if call["receipt_problem"].is_string() {
+                        ui.small("No provider measurements attributed to this call.");
+                        return;
+                    }
                     ui.small(format!("Provider report: {} · {}",
                         call["reported_model"].as_str().unwrap_or("model unreported"),
                         call["reported_effort"].as_str().unwrap_or("effort unreported")));
@@ -366,6 +395,9 @@ fn activity_view(
             }
             if call["input_evidence"] != "verified_completed_input" {
                 ui.weak(title(s(call, "input_evidence")));
+            }
+            for key in ["receipt_problem", "input_problem"] {
+                if let Some(reason) = call[key].as_str() { ui.label(reason); }
             }
         });
     }

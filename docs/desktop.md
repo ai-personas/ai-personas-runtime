@@ -273,8 +273,6 @@ Choose **Write review…**, enter the criterion and observed finding, choose the
 
 Open a retained STL and choose **Measure mesh…**. Select the axis to measure along and set the other two coordinates. **Measure line** reads the actual triangles. Select a span in the diagram or table to inspect its length. **Open receipt** identifies the input mesh, fixed coordinates and measured crossings. The source design supplies the coordinate unit.
 
-**Usage → Selected activity** shows provider usage, matching local tool results, repeated and distinct bytes of source text, and a link to each recorded input and receipt. Select a bar in **Call receipts** to inspect its token components and exact source ranges. Select another activity in the outliner to compare it. **Workspace storage** measures the database and retained payloads. Use **Refresh** for a new observation.
-
 Choose **Activity → Work & deliveries → Activity thread** or **Participate → Requested activities** to follow a separate activity a persona opened. The two briefs show where the need arose and where the work took place. **Open activity** selects it. **Requesting decision** opens the choice that issued the invitation.
 
 Each correspondence card links the sent exchange and the recipient’s inbox entry. A returned delivery opens its exact edition and editable files. A requester review identifies the edition the persona accepted or declined. **First decision with this exchange** opens the accepted decision whose provider input contained the inbox event. **In inbox only** means the workspace has yet to record that supply. Choose **Follow requested activity** in Conversations to return to the same request.
@@ -314,6 +312,16 @@ Choose **End activity…** on the board to record why the group is closing. The 
 Use the workspace library button to return to recently opened folders. When a run is active, the library opens in a second window. **Workspace settings → Back up workspace…** saves a consistent archive. **Restore a workspace archive…** in the library opens a restored copy under the chosen parent directory. Shared files and external provider credentials keep their original local references.
 
 The name entered during setup is recorded as the author of the starting profiles. The name in a workspace window’s title attributes its messages, invitations and reviews. [Open another operator desk](#working-under-another-operator-name) to use a different name, or supply `--operator NAME` when launching Studio.
+
+### Inspect reporting gaps
+
+Open **Usage → Selected activity**. The four cards show reported tokens, reported input, reported output and recorded calls. Read the coverage line beneath them: for example, **136,143 tokens on six of seven calls** is a measured subtotal, not an estimate for the missing call. Cached tokens are included in input. Price is separate; no price reported does not mean free.
+
+Choose **Inspect reporting gaps** to see just the calls missing token counts or verified inputs. Select a persona row for details. **Local input ↗** opens the prepared snapshot; that alone does not show the provider received it. **Receipt ↗** opens the record attributable to that attempt. If the call index points at another call’s receipt, Studio explains why it cannot use it and omits that link. A failed call *can* report usage; an accepted call with damaged input evidence can still have an attributable token count. Neither is proof of an accepted effect. Choose **Refresh** to reread the workspace.
+
+![On a deliberately altered copy, Studio shows six reported totals for seven calls and explains why it omits the unrelated receipt.](assets/studio-usage-reporting-gap.jpg)
+
+Choose **← Full usage report** to see the accepted reasoning receipts, text and images supplied to verified inputs, and local tool results. In **Call receipts**, select a bar for its token components and source ranges. Select another activity in the outliner to compare it. **Workspace storage** measures the database and retained payloads.
 
 ### Report what happened with a library revision
 
