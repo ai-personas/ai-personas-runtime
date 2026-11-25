@@ -229,6 +229,23 @@ fn tool_results(db: &Connection, work: &str) -> Result<BTreeMap<String, ToolUse>
     Ok(counts)
 }
 
+/// Group actual accepted-call reports, not the personas' current settings. Calls
+/// are in preparation order: keep the last matching receipt as a drill-down.
+fn reasoning_receipts(calls: &[Value]) -> Vec<Value> {
+    let mut groups = BTreeMap::new();
+    for call in calls.iter().filter(|c| c["state"] == "accepted" && c["input_evidence"] == "verified_completed_input") {
+        let key = (call["actor"].as_str(), call["transport_profile"].as_str(),
+                   call["reported_model"].as_str(), call["reported_effort"].as_str());
+        let entry = groups.entry(key).or_insert((0usize, call));
+        entry.0 += 1;
+        entry.1 = call;
+    }
+    groups.into_iter().map(|((actor, transport, model, effort), (count, last))| json!({
+        "actor":actor, "transport_profile":transport, "reported_model":model, "reported_effort":effort,
+        "calls":count, "last_invocation":last["id"], "last_receipt":last["receipt"],
+    })).collect()
+}
+
 /// One activity, including rejected decisions and assessment arms. Only receipt-bound
 /// completed inputs contribute to the observed source-body and context figures.
 pub fn activity(db: &Connection, work: &str) -> Result<Value> {
@@ -342,9 +359,12 @@ pub fn activity(db: &Connection, work: &str) -> Result<Value> {
                 "verified_completed_input"
             }
         };
+        let same_call = audit["invocation_id"] == id;
         calls.push(json!({"id":id,"actor":actor,"state":state,"mode":input.mode,"input_evidence":evidence,
             "created":created,"updated":updated,"snapshot":format!("object:{digest}"),"receipt":receipt.map(|r|format!("object:{r}")),
-            "reported_model":attempt["reported_model"],"reported_effort":attempt["reported_effort"],"usage":usage,
+            "transport_profile":audit["transport_profile"].as_str().filter(|_|same_call),
+            "reported_model":attempt["reported_model"].as_str().filter(|_|same_call),
+            "reported_effort":attempt["reported_effort"].as_str().filter(|_|same_call),"usage":usage,
             "prompt_bytes":audit["prompt_bytes"],"request_bytes":audit["request_bytes"],"elapsed_ms":attempt["elapsed_ms"],
             "sources":observed,"images":images}));
     }
@@ -375,6 +395,6 @@ pub fn activity(db: &Connection, work: &str) -> Result<Value> {
         "first_call_created":first,"last_call_updated":last,"recorded_call_span_seconds":last.zip(first).map(|(b,a)|b-a),
         "events_by_kind":events,"effects_by_state":effects,"decision_revisions_by_kind":revisions,
         "totals":totals,"tool_results":tool_results(db,work)?,"verified_component_json_bytes":component_bytes,
-        "verified_image_bytes_with_repeats":raw_image_bytes,"text_sources":sources,"calls":calls}),
+        "verified_image_bytes_with_repeats":raw_image_bytes,"text_sources":sources,"reasoning_receipts":reasoning_receipts(&calls),"calls":calls}),
     )
 }

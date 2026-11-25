@@ -425,6 +425,15 @@ pub(super) fn foreground_details(ui: &mut Ui, effect: &Value, now: i64) -> Optio
         .clicked().then(|| decision.to_owned())
 }
 
+pub(super) fn prepared_selection(ui: &mut Ui, call: &Value) {
+    let selection = &call["prepared_selection"];
+    let (Some(model), Some(effort)) = (selection["model"].as_str(), selection["effort"].as_str()) else { return };
+    let route = selection["transport_profile"].as_str().and_then(crate::desktop::providers::transport_label);
+    let line = format!("{model} · {effort} · {}", route.unwrap_or("Configured provider"));
+    ui.add(egui::Label::new(RichText::new(&line).small()).truncate())
+        .on_hover_text(format!("{line}\nSelected at preparation from {}. This is not a provider report.", s(selection, "source")));
+}
+
 fn has_recent_bytes(call: &Value, now: i64) -> bool {
     call["stream_bytes"].as_u64().is_some_and(|b| b > 0)
         && call["observed_at"]
@@ -945,6 +954,7 @@ impl App {
                     .on_hover_text(format!("Prepared at {}", time_label(at)));
                 }
             });
+            prepared_selection(ui, call);
             if let (Some(bytes), Some(at)) =
                 (call["stream_bytes"].as_u64(), call["observed_at"].as_i64())
             {

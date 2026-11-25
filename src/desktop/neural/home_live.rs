@@ -761,6 +761,7 @@ fn observation_line(
             ui.horizontal_wrapped(|ui| {
                 theme::badge(ui, live_board::call_stage(call, now, worker), badge);
             });
+            live_board::prepared_selection(ui, call);
             if let (Some(bytes), Some(at)) =
                 (call["stream_bytes"].as_u64(), call["observed_at"].as_i64())
             {

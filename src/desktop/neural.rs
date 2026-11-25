@@ -668,11 +668,7 @@ impl App {
             .unwrap_or(&[])
     }
     fn label<'a>(&'a self, id: &'a str) -> &'a str {
-        self.records("personas")
-            .iter()
-            .find(|p| p["body"]["id"] == id)
-            .and_then(|p| p["body"]["label"].as_str())
-            .unwrap_or(id)
+        persona_label(&self.snapshot.status, id)
     }
     fn selected_person(&self) -> Value {
         self.records("personas")
@@ -807,7 +803,7 @@ impl eframe::App for App {
                 Editor::Character => self.character(ui),
                 Editor::Atlas => self.character_atlas(ui),
                 Editor::Usage => {
-                    if let Some(reference) = self.usage.show(ui, &self.root, &self.work) {
+                    if let Some(reference) = self.usage.show(ui, &self.root, &self.work, &self.snapshot.status) {
                         self.open_resource(ctx,reference);
                     }
                 },
@@ -916,6 +912,12 @@ fn time_label(ts: i64) -> String {
 }
 /// A continuing identity keeps its hue when someone joins, leaves or is
 /// filtered out. Names and exact IDs, not colours, distinguish people.
+fn persona_label<'a>(status: &'a Value, id: &'a str) -> &'a str {
+    status["personas"].as_array().into_iter().flatten()
+        .find(|p| p["body"]["id"] == id)
+        .and_then(|p| p["body"]["label"].as_str()).unwrap_or(id)
+}
+
 pub(super) fn persona_color(id: &str) -> Color32 {
     let colors = [theme::ACCENT, Color32::from_rgb(219, 134, 158), PURPLE,
         Color32::from_rgb(121, 166, 230), TEAL, theme::GREEN];
