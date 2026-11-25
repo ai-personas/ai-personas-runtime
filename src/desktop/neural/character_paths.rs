@@ -234,6 +234,27 @@ impl Window {
                                         }
                                     },
                                 );
+                                if let Some(images) = report["ordered_image_inputs"].as_array() {
+                                    ui.collapsing(format!("Image inputs to this choice · {}", images.len()), |ui| {
+                                        ui.weak("In provider input order. Receiving an image does not establish what the persona inferred from it.");
+                                        for (i, item) in images.iter().enumerate() {
+                                            let object = s(item, "object");
+                                            ui.push_id(i, |ui| {
+                                                ui.horizontal_wrapped(|ui| {
+                                                    ui.strong(format!("{} · {}", i + 1, s(item, "mime")));
+                                                    ui.small(format!("{} bytes", item["bytes"]));
+                                                    if ui.link("Open image ↗").on_hover_text(object).clicked() { open = Some(object.into()); }
+                                                    if ui.small_button("Copy address").clicked() { ui.ctx().copy_text(object.into()); }
+                                                });
+                                                for (field, label) in [("images_selected_for_next_choice", "Named at this pause for the next choice"), ("images_from_pause", "Received again from the earlier pause")] {
+                                                    for src in report[field].as_array().into_iter().flatten().filter(|v| v["object"] == object) {
+                                                        ui.small(label).on_hover_text(s(src, "reference"));
+                                                    }
+                                                }
+                                            });
+                                        }
+                                    });
+                                }
                                 if let Some(ranges) = report["selected_text_for_next_choice"].as_array() {
                                     let unit = if ranges.len() == 1 { "range" } else { "ranges" };
                                     ui.collapsing(format!("Text behind the next appraisal · {} {unit}", ranges.len()), |ui| {

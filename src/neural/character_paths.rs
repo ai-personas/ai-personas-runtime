@@ -59,7 +59,7 @@ pub fn pre_action_source(
         || p.id != owner
         || !s.data["context_recovery"].is_null()
         || s.data["last_contextual_evaluation"]["model"] != serde_json::to_value(&p.model)?
-        || super::development::deliberation::carry(db, &s.data, owner, work, &p)?.as_ref()
+        || super::development::deliberation::carry(db, &s.data, &s.image_blobs, owner, work, &p)?.as_ref()
             != Some(supplied)
     {
         return Err(failure(
@@ -239,7 +239,10 @@ pub fn inspect(db: &Connection, actor: Option<&str>, query: &Query) -> Result<Va
             "The selected hidden unit is outside the inspected topology",
         ));
     }
-    let choice: Value = store::object(db, &response)?;
+    // The numerical projection is an input claim; the judgment and any next
+    // appraisal are output claims. Verify the accepted response separately.
+    let accepted = super::provider_evidence::accepted(db, owner, call, false)?;
+    let choice = &accepted.response;
     let identity = store::exact(db, verified["configuration"].as_str().ok_or_else(|| failure("Missing recorded identity"))?)?;
     if identity.reference.kind != "persona" || identity.reference.id != owner || identity.body["id"] != owner
         || identity.body["model"] != digest || identity.body["epoch"] != verified["epoch"] {
@@ -253,14 +256,23 @@ pub fn inspect(db: &Connection, actor: Option<&str>, query: &Query) -> Result<Va
         "supplied":{"package":format!("object:{digest}"),"numerical":numerical,"paths":paths},"alternate":alternate,
         "coordinates":"Direct terms use direct[row,column]. Hidden inputs use hidden[unit,column], hidden_bias[unit,0] and output[row,unit]. Unlisted weights are zero. By default only hidden units with a nonzero output weight appear.",
         "scope":"Verified supplied inclinations and local forward arithmetic. Any alternate is evaluated on this decision's recorded appraisal."});
-    // These texts grounded the *requested next* appraisal, not the values
+    if !accepted.snapshot.image_blobs.is_empty() {
+        report["ordered_image_inputs"] = serde_json::to_value(super::development::deliberation::ordered_images(db, &accepted.snapshot.image_blobs)?)?;
+        let frame = &accepted.snapshot.data["decision_continuity"]["before_action"];
+        if frame["reselected_images"].is_array() && pre_action_source(db, owner, &accepted.snapshot.work, call)?.is_some() {
+            report["images_from_pause"] = frame["reselected_images"].clone();
+        }
+    }
+    // These resources grounded the *requested next* appraisal, not the values
     // above. A pause alone does not establish a subsequent model input.
     let next = &choice["next_context"];
     if next["appraisal"]["kind"] == "before_action" {
-        let source = super::provider_evidence::accepted(db, owner, call, true)?;
         let appraisal = serde_json::from_value(next["appraisal"]["appraisal"].clone())?;
         let selection: Vec<_> = serde_json::from_value(next["references"].clone())?;
-        let grounds = super::development::deliberation::evidence(&source.snapshot, &appraisal, &selection)?;
+        let grounds = super::development::deliberation::evidence(db, &accepted.snapshot, &appraisal, &selection)?;
+        if !grounds.images.is_empty() {
+            report["images_selected_for_next_choice"] = serde_json::to_value(grounds.images)?;
+        }
         if !grounds.text.is_empty() {
             report["selected_text_for_next_choice"] = serde_json::to_value(grounds.text)?;
         }
