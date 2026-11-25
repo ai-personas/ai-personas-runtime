@@ -8,6 +8,7 @@ mod origins;
 mod preview;
 mod receiving;
 mod requests;
+mod updates;
 use preview::{Format, Inline};
 pub(super) use preview::ZipFile;
 
@@ -27,6 +28,7 @@ pub(super) struct Desk {
     request_page: usize,
     brief_page: usize,
     check_page: usize,
+    updates: updates::Updates,
     origins: Option<origins::Window>,
     compare: Option<compare::Window>,
     cam: Option<cam::Window>,
@@ -189,6 +191,9 @@ fn panel(ui: &Ui) -> egui::Frame {
         .corner_radius(8)
 }
 
+#[derive(PartialEq)]
+enum Jump { Files, Updates }
+
 fn revision(reference: &str) -> Option<&str> {
     reference.rsplit_once('@').map(|(_, n)| n)
 }
@@ -250,6 +255,7 @@ impl App {
                 desk.request_page = 0;
                 desk.brief_page = 0;
                 desk.check_page = 0;
+                desk.updates = updates::Updates::default();
                 desk.slip = 0;
                 desk.slip_page = 0;
                 desk.origins = None;
@@ -317,10 +323,12 @@ impl App {
             .id_salt(("issued-delivery", &p.reference))
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                let files_jump = self.package_heading(ui, &p);
+                let jump = self.package_heading(ui, &p);
                 if compact {
                     self.delivery_breadcrumb(ui, Some(&p), true);
                 }
+                if jump == Some(Jump::Updates) { ui.scroll_to_cursor(Some(egui::Align::Min)); }
+                self.edition_updates(ui, &p);
                 self.receiving_checks(ui, &p);
                 self.dispatch_slips(ui, &p);
                 self.package_human_requests(ui, &p);
@@ -348,7 +356,7 @@ impl App {
                     remaining_work(ui, &p);
                 }
                 ui.add_space(14.);
-                if files_jump {
+                if jump == Some(Jump::Files) {
                     ui.scroll_to_cursor(Some(egui::Align::Min));
                 }
                 self.package_manifest(ui, &p);
@@ -373,9 +381,12 @@ impl App {
         self.cam_overlay_window(ui.ctx(), &p);
     }
 
-    fn package_heading(&mut self, ui: &mut Ui, p: &Package) -> bool {
+    fn package_heading(&mut self, ui: &mut Ui, p: &Package) -> Option<Jump> {
         let b = &p.body;
-        let mut files_jump = false;
+        let mut jump = None;
+        let later = self.delivery_desk.updates.link_text(self.home_index.generation);
+        let updates_link = |ui: &mut Ui| later.is_some_and(|label| ui.link(label)
+            .on_hover_text("Inspect published findings and later editions that cite this issue").clicked());
         let colors = theme::palette(ui);
         let compact = Self::constrained_activity_layout(ui.ctx());
         let (scope, tint) = match s(b, "scope") {
@@ -396,6 +407,7 @@ impl App {
                         theme::glyph(ui, Icon::Files, colors.ink(persona_color(s(b, "owner"))));
                         eyebrow(ui, "Persona Studio  /  Issued edition");
                         theme::badge(ui, scope, tint);
+                        if updates_link(ui) { jump = Some(Jump::Updates); }
                     });
                 }
                 let title = s(b, "title");
@@ -414,7 +426,10 @@ impl App {
                     .wrap(),
                 );
                 if compact {
-                    ui.colored_label(tint, scope);
+                    ui.horizontal_wrapped(|ui| {
+                        ui.colored_label(tint, scope);
+                        if updates_link(ui) { jump = Some(Jump::Updates); }
+                    });
                 }
                 ui.horizontal_wrapped(|ui| {
                     ui.label(format!("Issued by {}", self.label(s(b, "owner"))))
@@ -430,7 +445,7 @@ impl App {
                         .link(counted(p.files.len() as u64, "file", "files"))
                         .clicked()
                     {
-                        files_jump = true;
+                        jump = Some(Jump::Files);
                     }
                     if !p.files.is_empty()
                         && ui
@@ -507,7 +522,7 @@ impl App {
                     }
                 });
             });
-        files_jump
+        jump
     }
 
     fn package_preview(&mut self, ui: &mut Ui, p: &Package) {

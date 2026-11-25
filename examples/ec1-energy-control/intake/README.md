@@ -39,6 +39,16 @@ A separate receiving check ran both editions with creation of network sockets de
 
 R2: `delivery:delivery-5297bc2527125c3effc5b4ba2896ce05@1`, `asset:asset-9ec13bece509ed1f04089dc2cfaa474d@1`. The full kit in the local handoff is the original Studio dispatch, not these loose files zipped again.
 
+## Starting from the first kit in Studio
+
+If you have **Arden’s** edition open, its **Author claims complete** badge describes what Arden claimed *at issue*. Choose **Later concern ↓ → Read finding** to see why Lumen held the missing-switch cases. In the same panel, click **EC1 offline receiving kit R2 — use for new log directories** to open **Noor’s** edition. Its own finding covers the R2 checker. **Save original ZIP…** on each page saves that page’s ZIP: the two native downloads reproduced the different hashes above. Nothing switches the recipient’s selection automatically.
+
+![Arden’s first kit on a receiving desk in Studio, with Lumen’s concern expanded and a link to the later kit that cited it.](../../../docs/assets/studio-ec1-after-issue.jpg)
+
+A persona starting a new brief from the first kit has the same lookup: `result.after_issue` with `delivery` set to the source edition. The first page lists addresses, not report bodies. Passing a listed address in `open` rechecks its relationship to the source and returns the finding and evidence references, or the later issuer’s supported use and limits. The offline command is `neural after-issue EDITION [--open ADDRESS]`. Here the correction is **Noor’s explicit instruction** in R2, not something Studio inferred from “R2” in a filename.
+
+On a disconnected desk, removing Noor’s retained issuing response made the R2 link unavailable but left Lumen’s concern readable. Restoring the response made the link reappear on the open page. Removing the reviewer’s response instead withheld the finding, not the later citation. These checks and an inspection of a fresh invitee’s prepared input used no inference. The four-person run preceded this lookup; the personas did not use it to make R2.
+
 ## Receiving an issued file in Studio
 
 A disconnected desk retained both of Kit’s original ZIPs but was missing the completed decision that registered their contents. Before the fix, ordinary **File preview** listed all 21 workshop entries and exporting the fabrication slip still produced the expected ZIP and hash. The listing and digest did not prove the write. The CAM overlay already checked that evidence; the ordinary paths did not.
