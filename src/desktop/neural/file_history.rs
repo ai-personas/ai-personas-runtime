@@ -297,11 +297,23 @@ impl App {
             self.home_index.generation,
         );
         let mut action = None;
-        let response = egui::Modal::new(egui::Id::new("retained-file-history"))
+        let id = egui::Id::new("retained-file-history");
+        let size = ctx.content_rect().size();
+        let tight = size.x < 390. || size.y < 340.;
+        let margin: i8 = if tight { 6 } else { 16 };
+        let width = (size.x - 2. * f32::from(margin) - 14.).clamp(1., 1080.);
+        // A centered modal can keep its previous frame's height after a resize.
+        // Anchor the controls; only the reading panes should need scrolling.
+        let area = egui::Modal::default_area(id).anchor(
+            egui::Align2::CENTER_TOP,
+            egui::vec2(0., if tight { 4. } else { (size.y * 0.06).clamp(6., 48.) }),
+        );
+        let response = egui::Modal::new(id)
+            .area(area)
             .frame(
                 egui::Frame::new()
                     .fill(theme::Palette::new(self.layout.dark).canvas)
-                    .inner_margin(16)
+                    .inner_margin(margin)
                     .corner_radius(10)
                     .stroke(Stroke::new(
                         1.,
@@ -309,7 +321,7 @@ impl App {
                     )),
             )
             .show(ctx, |ui| {
-                self.file_history_contents(ui, &mut action);
+                self.file_history_contents(ui, width, margin, &mut action);
             });
         if response.should_close() {
             self.file_history = Default::default();

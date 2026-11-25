@@ -16,30 +16,111 @@ fn verb(tool: &str) -> &'static str {
 
 fn link(ui: &mut Ui, label: &str, target: Option<&str>, action: &mut Option<Action>) {
     if let Some(target) = target {
-        if ui.link(label).on_hover_text(target).clicked() {
-            *action = Some(Action::Open(Target::File(target.into())));
-        }
+        evidence_link(ui.link(label), target, action);
     }
 }
 
+fn evidence_link(response: egui::Response, target: &str, action: &mut Option<Action>) {
+    response.context_menu(|ui| {
+        if ui.button("Copy reference").clicked() {
+            ui.ctx().copy_text(target.to_owned());
+            ui.close();
+        }
+    });
+    let response = response.on_hover_ui(|ui| {
+        // Hashes have no natural breakpoints. Keep even an enlarged
+        // preview inside the viewport; Copy reference is always exact.
+        let bounds = ui.ctx().content_rect().size();
+        let width = (bounds.x - 24.).clamp(1., 460.);
+        ui.set_max_width(width);
+        let mut job = egui::text::LayoutJob::simple(
+            target.into(), FontId::monospace(12.), ui.visuals().text_color(), width,
+        );
+        job.wrap.break_anywhere = true;
+        job.wrap.max_rows = ((bounds.y - 24.) / 18.).floor().clamp(1., 8.) as usize;
+        ui.add(egui::Label::new(job).wrap().show_tooltip_when_elided(false));
+    });
+    if response.clicked() {
+        *action = Some(Action::Open(Target::File(target.into())));
+    }
+}
+
+// The same pane moves between columns and tabs. Keep scroll position and
+// expanded sections with the edition, not its current place in the UI tree.
+fn reading_pane(ui: &mut Ui, id: egui::Id, height: f32, contents: impl FnOnce(&mut Ui)) {
+    ui.scope_builder(egui::UiBuilder::new().id(id), |ui| {
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, true])
+            .min_scrolled_height(1.)
+            .max_height(height)
+            .show(ui, contents);
+    });
+}
+
 impl App {
-    pub(super) fn file_history_contents(&mut self, ui: &mut Ui, action: &mut Option<Action>) {
-        let viewport = ui.ctx().content_rect();
-        let width = (viewport.width() - 52.).clamp(140., 1080.);
+    pub(super) fn file_history_contents(
+        &mut self,
+        ui: &mut Ui,
+        width: f32,
+        margin: i8,
+        action: &mut Option<Action>,
+    ) {
         ui.set_width(width);
-        let narrow = width < 790.;
+        let viewport = ui.ctx().content_rect();
+        let compact = width < 790. || viewport.height() < 450.;
         let p = theme::palette(ui);
-        let history = &mut self.file_history;
         ui.horizontal(|ui| {
-            theme::glyph(ui, Icon::Files, p.accent);
-            ui.label(RichText::new("File history").size(20.).strong());
+            if width >= 220. {
+                theme::glyph(ui, Icon::Files, p.accent);
+            }
+            ui.strong(RichText::new("File history").size(if width < 220. { 16. } else { 20. }));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("Close").clicked() {
                     ui.close();
                 }
             });
         });
-        ui.add_space(6.);
+        let page = self.file_history.page.result.as_ref()
+            .and_then(|r| r.as_ref().ok()).cloned();
+        if compact && page.is_some() {
+            let history = &mut self.file_history;
+            ui.horizontal_wrapped(|ui| {
+                ui.selectable_value(&mut history.show_list, false, format!("Revision {}", revision(&history.selected)));
+                ui.selectable_value(&mut history.show_list, true, "All revisions");
+            });
+        }
+        ui.separator();
+        let height = (viewport.bottom() - ui.cursor().top() - f32::from(margin) - 8.).clamp(1., 640.);
+        let list_id = egui::Id::new(("file-history-list", &self.file_history.opened));
+        let detail_id = egui::Id::new(("file-history-edition", &self.file_history.selected));
+        if let Some(page) = page.filter(|_| !compact) {
+            ui.horizontal_top(|ui| {
+                let left = (width * 0.28).clamp(220., 280.);
+                ui.allocate_ui_with_layout(
+                    egui::vec2(left, height), egui::Layout::top_down(egui::Align::Min), |ui| {
+                        ui.set_width(left);
+                        reading_pane(ui, list_id, height, |ui| self.revision_list(ui, &page, action));
+                    },
+                );
+                ui.separator();
+                let right = ui.available_width();
+                ui.allocate_ui_with_layout(
+                    egui::vec2(right, height), egui::Layout::top_down(egui::Align::Min), |ui| {
+                        ui.set_width(right);
+                        reading_pane(ui, detail_id, height, |ui| self.history_pane(ui, false, action));
+                    },
+                );
+            });
+        } else {
+            let list = compact && self.file_history.show_list;
+            reading_pane(ui, if list { list_id } else { detail_id }, height, |ui| {
+                self.history_pane(ui, list, action)
+            });
+        }
+    }
+
+    fn history_pane(&mut self, ui: &mut Ui, list: bool, action: &mut Option<Action>) {
+        let history = &self.file_history;
         let name = if history.opened_path.is_empty() {
             &history.opened
         } else {
@@ -48,7 +129,7 @@ impl App {
         ui.add(
             egui::Label::new(
                 RichText::new(name)
-                    .size(if narrow { 20. } else { 24. })
+                    .size(if ui.available_width() < 500. { 18. } else { 22. })
                     .strong(),
             )
             .wrap(),
@@ -108,68 +189,14 @@ impl App {
             }
             Some(Ok(page)) => page,
         };
-        if narrow {
-            ui.horizontal_wrapped(|ui| {
-                ui.selectable_value(
-                    &mut history.show_list,
-                    false,
-                    format!("Revision {}", revision(&history.selected)),
-                );
-                ui.selectable_value(&mut history.show_list, true, "All revisions");
-            });
-        }
-        let height = (viewport.height() - if narrow { 230. } else { 202. }).clamp(95., 580.);
-        let list = |app: &mut App, ui: &mut Ui, action: &mut Option<Action>| {
-            egui::ScrollArea::vertical()
-                .id_salt(("file-history-list", &app.file_history.opened))
-                .max_height(height)
-                .auto_shrink([false, false])
-                .show(ui, |ui| app.revision_list(ui, &page, action));
-        };
-        let detail = |app: &mut App, ui: &mut Ui, action: &mut Option<Action>| {
-            let selected = app.file_history.selected.clone();
-            egui::ScrollArea::vertical()
-                .id_salt(("file-history-edition", &selected))
-                .max_height(height)
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    if let Some(row) = rows(&page).iter().find(|r| r["reference"] == selected) {
-                        app.revision_detail(ui, row, action);
-                    } else if app.file_history.page.pending.is_some() {
-                        ui.weak("Locating this revision…");
-                    } else {
-                        ui.weak("This page has no retained file revisions.");
-                    }
-                });
-        };
-        if narrow {
-            if history.show_list {
-                list(self, ui, action);
-            } else {
-                detail(self, ui, action);
-            }
+        if list {
+            self.revision_list(ui, &page, action);
+        } else if let Some(row) = rows(&page).iter().find(|r| r["reference"] == history.selected) {
+            self.revision_detail(ui, row, action);
+        } else if history.page.pending.is_some() {
+            ui.weak("Locating this revision…");
         } else {
-            ui.horizontal_top(|ui| {
-                let left = (width * 0.28).clamp(220., 280.);
-                ui.allocate_ui_with_layout(
-                    egui::vec2(left, height),
-                    egui::Layout::top_down(egui::Align::Min),
-                    |ui| {
-                        ui.set_width(left);
-                        list(self, ui, action);
-                    },
-                );
-                ui.separator();
-                let right = ui.available_width();
-                ui.allocate_ui_with_layout(
-                    egui::vec2(right, height),
-                    egui::Layout::top_down(egui::Align::Min),
-                    |ui| {
-                        ui.set_width(right);
-                        detail(self, ui, action);
-                    },
-                );
-            });
+            ui.weak("This page has no retained file revisions.");
         }
     }
 
@@ -435,13 +462,7 @@ impl App {
         ui.horizontal_wrapped(|ui| {
             for (field, name) in [("decision", "decision"), ("receipt", "receipt")] {
                 if let Some(exact) = source[field].as_str() {
-                    if ui
-                        .small_button(format!("{label} {name}"))
-                        .on_hover_text(exact)
-                        .clicked()
-                    {
-                        *action = Some(Action::Open(Target::File(exact.into())));
-                    }
+                    evidence_link(ui.small_button(format!("{label} {name}")), exact, action);
                 }
             }
         });

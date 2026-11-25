@@ -14,7 +14,6 @@ use rusqlite::Connection;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 mod images;
-pub(in crate::neural) use images::ordered as ordered_images;
 mod text;
 
 pub(in crate::neural) struct Grounds {

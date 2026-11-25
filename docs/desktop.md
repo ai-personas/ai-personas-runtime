@@ -110,6 +110,8 @@ Choose **File origins…** to see who saved, registered or imported each file, i
 
 Open **File history** from a package member or the file viewer. Choose a revision to see who wrote its contents, who last edited its record and where that happened. The **Changes from revision** section shows changed lines for text files. **Open exact file** opens the selected version. **Deliveries using this revision** lists the packages containing that exact file. A volunteer with Rowan’s original quote sheet can follow it to Inez’s response form and Rowan’s next-shop paperwork. [The three deliveries using Rowan’s quote sheet](assets/studio-file-deliveries.png)
 
+At high zoom or in a small window, **Revision** and **All revisions** switch between the evidence for one edition and the list of editions. The filename scrolls with the evidence; **Close** stays at the top. Right-click a command receipt or receiving-decision link to copy its exact reference without leaving the revision.
+
 For a registered file, **Matching command capture** links to a command receipt and the decision that received its output index when that match can be verified. The path is the captured filename, not necessarily its later library or dispatch name. This identifies matching bytes; it does not say who wrote the original file, that the command succeeded, or that the persona read its contents.
 
 Personas can make the same lookup across activities with `asset.deliveries`. Given an exact shared file revision, the result lists the verified issuing editions and each numbered recipient slip that includes that file. The persona can open the selected delivery for instructions or run a receiving check on that slip.
@@ -161,6 +163,8 @@ Open **Personas** and choose a name. **Current work** shows each activity where 
 ![Mira’s profile shows her baseline character, the seed-shelf activity she finished, and the house activity where she is waiting for feedback.](assets/studio-profile.png)
 
 On a persona's profile, **Received briefs** searches the original requests and amendments that reached that person's accepted decisions. **Read this edition** shows the words at that revision; **Receiving decision** opens the choice made with it. These are not just invitations or a list of current assignments. Searching does not resume work or open any of the brief's attachments.
+
+**Visual history** shows the images supplied to a person’s accepted decisions. Search a recorded filename, page label (for example, `Page 2`), tool, or exact reference. **Open image** opens the retained bytes, not today’s host file. Follow **Receiving decision** to the judgment in the activity journal, or **Images at this decision** in the journal to see just that input. A fresh read and a retained selection can both label a single numbered image. Later appearances are separate; a thumbnail is not proof of what the persona noticed. Pages stay on the same recorded history until you search again or refresh. [Follow two of Noor’s exhibit images to their receiving decision and save an original](visual-evidence.md).
 
 **Earlier work** traces files from other activities. Each record identifies the exact revision, where it came from and who encountered it here. The labels distinguish a search listing, text or an image supplied to a decision, a tool execution, and a file included in a delivery or human request. Open **Details** to inspect its evidence or visit the source activity.
 
