@@ -11,6 +11,7 @@ pub(super) enum Action {
     SetRole(Command),
     Inspect(String),
     OpenRequest(String),
+    RoleReceipts(String),
     Message { person: String, text: String },
     Invite(String),
     ChangeActivity { reopen: bool, brief: String },

@@ -46,6 +46,9 @@ pub(super) fn show(
                 if ui.small_button("Role record ↗").on_hover_text(s(r,"reference")).clicked() {
                     action = Some(Action::Inspect(s(r,"reference").into()));
                 }
+                if ui.small_button("Who received this?").clicked() {
+                    action = Some(Action::RoleReceipts(s(r,"reference").into()));
+                }
             });
             ui.label(s(r,"note"));
         }

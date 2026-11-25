@@ -24,6 +24,11 @@ impl App {
         self.live_board.show_activity(work);
     }
 
+    pub(super) fn open_task_board(&mut self, work: &str) {
+        self.select_activity(work);
+        self.layout.editor = Editor::Responsibilities;
+    }
+
     pub(super) fn open_home_message(&mut self, work: &str, person: &str) {
         self.open_home_activity(work);
         self.persona = person.to_owned();

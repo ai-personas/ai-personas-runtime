@@ -3,6 +3,7 @@ use super::*;
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Kind {
     Person,
+    TaskRole,
     Activity,
     Request,
     Delivery,
@@ -10,9 +11,10 @@ pub(super) enum Kind {
 }
 
 impl Kind {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Person,
         Self::Activity,
+        Self::TaskRole,
         Self::Request,
         Self::Delivery,
         Self::File,
@@ -20,6 +22,7 @@ impl Kind {
     pub fn filter(self) -> &'static str {
         match self {
             Self::Person => "Personas",
+            Self::TaskRole => "Task roles",
             Self::Activity => "Activities",
             Self::Request => "Requests",
             Self::Delivery => "Deliveries",
@@ -28,7 +31,7 @@ impl Kind {
     }
     pub fn icon(self) -> Icon {
         match self {
-            Self::Person => Icon::People,
+            Self::Person | Self::TaskRole => Icon::People,
             Self::Activity => Icon::Activity,
             Self::Request => Icon::Questions,
             Self::Delivery => Icon::Folder,
@@ -147,6 +150,10 @@ impl Index {
                     "Human request  ·  {}  ·  From {author}",
                     inbox::phase(state).0
                 );
+                let subtitle = match (state, body["claimed_by"].as_str()) {
+                    ("in_progress", Some(holder)) => format!("{subtitle}  ·  Held by {holder}"),
+                    _ => subtitle,
+                };
                 let extra = format!(
                     "{}\n{}\n{}\n{}",
                     s(body, "action"),
@@ -214,12 +221,24 @@ impl Index {
             ));
         }
         for activity in &app.home_index.activities {
-            let names = activity
+            let mut names = activity
                 .members
                 .iter()
-                .map(|id| app.label(id))
-                .collect::<Vec<_>>()
-                .join(", ");
+                .map(|id| app.label(id).to_owned())
+                .collect::<Vec<_>>();
+            for role in &activity.roles {
+                let label = format!("{} · {}", role.operator, role.label);
+                rows.push(Entry::new(
+                    Kind::TaskRole,
+                    &role.reference,
+                    &activity.id,
+                    &label,
+                    format!("Human role  ·  {}", activity.title),
+                    &role.note,
+                ));
+                names.push(label);
+            }
+            let names = names.join(", ");
             let kind = if activity.kind == "social" {
                 "Conversation"
             } else {
@@ -292,10 +311,12 @@ impl Index {
         let tokens = query.split_whitespace().collect::<Vec<_>>();
         let exact = tokens.len() == 1
             && query.split_once(':').is_some_and(|(kind, id)| {
-                matches!(kind, "asset" | "delivery" | "human_request")
-                    && id
-                        .rsplit_once('@')
-                        .is_some_and(|(id, n)| !id.is_empty() && n.parse::<u64>().is_ok())
+                matches!(
+                    kind,
+                    "asset" | "delivery" | "human_request" | "human_task_role"
+                ) && id
+                    .rsplit_once('@')
+                    .is_some_and(|(id, n)| !id.is_empty() && n.parse::<u64>().is_ok())
             });
         let mut hits: Vec<_> = self
             .entries

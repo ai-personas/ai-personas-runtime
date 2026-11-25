@@ -1,6 +1,6 @@
 # EC1: an electrical control, not a generator
 
-**[Workshop project](EC1-workshop.zip) · [Bare-board fabrication files](EC1-fabrication.zip) · [Four-person offline intake kit and results](intake/)**
+**[Workshop project](EC1-workshop.zip) · [Bare-board fabrication files](EC1-fabrication.zip) · [Four-person offline intake kit and results](intake/) · [A4 hole and polarity inspection sheet](inspection/)**
 
 Extract the entire workshop ZIP and open `EC1-workshop/EC1/EC1.kicad_pro` in KiCad 9. Project-local symbols and footprints are included. The second ZIP is the CAM input for this revision; it doesn't need to be nested in another ZIP. Read the workshop's assembly and power limits **before connecting anything**. It is a hand-assembled 0–5 V, current-limited bench control. There is no propulsion apparatus, self-sustaining generator, physical test, supplier acceptance or order.
 
@@ -66,6 +66,8 @@ Both activities were launched and monitored in the Linux native Studio. The sele
 ![Rowan’s workshop handoff and Ellis’s viewer-only contribution on the native responsibility board.](../../docs/assets/studio-ec1-responsibilities.jpg)
 
 The original Studio download is 3,727 bytes, SHA-256 `4a89c1c77eedc33a98f9e9c4aa1c483edb9957b71a00aa210391be606fc363a5`. Opening it independently showed one A4 page with the two recipients, correct ZIP names, sizes and full hashes, and blank check boxes. It is **not an order authorization** or a record of receiving a physical board. These were two desks operated by the evaluator, not two independent usability participants. Card edition: `delivery:delivery-ce3b89c3c073b93b652c7f4f8c5d9d15@1`.
+
+On either desk, return via **Overview → My work** or use **Find… → Task roles** with `Rowan` or `Ellis`. The role links to the board and the card, not to a claim on the physical request. **Who received this?** traces each declaration to its event (145 or 146) and the five inputs that contained its exact wording. From Ellis’s task link a separate reader saved the original 3,727-byte card. On a [later unpowered bench task](inspection/#finding-my-part-in-studio), the declaration arrived during work and only six of nine accepted inputs contained it.
 
 ### A review reaches the issuer on a different shift
 

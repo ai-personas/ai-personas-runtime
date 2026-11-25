@@ -6,6 +6,9 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+mod receipts;
+pub use receipts::received;
+
 const KIND: &str = "human_task_role";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, ValueEnum, Deserialize, Serialize)]
@@ -16,11 +19,17 @@ pub enum Role {
     Leave,
 }
 
+fn key(work: &str, operator: &str) -> Result<String> {
+    Ok(crate::store::sha256_bytes(&serde_json::to_vec(&(work, Contact::operator(operator)))?))
+}
+
+fn entry(r: &store::Record) -> Value {
+    json!({"reference":r.reference.handle(), "operator":r.body["operator"],
+        "role":r.body["role"], "state":r.body["state"], "note":r.body["note"], "brief":r.body["brief"]})
+}
+
 pub(super) fn entries(db: &Connection, work: &str) -> Result<Vec<Value>> {
-    Ok(store::in_work(db, KIND, work)?.into_iter().map(|r| {
-        json!({"reference":r.reference.handle(), "operator":r.body["operator"],
-            "role":r.body["role"], "state":r.body["state"], "note":r.body["note"], "brief":r.body["brief"]})
-    }).collect())
+    Ok(store::in_work(db, KIND, work)?.iter().map(entry).collect())
 }
 
 /// Called inside the same immediate transaction as the operator's request receipt.
@@ -45,8 +54,7 @@ pub(super) fn choose(
             "Describe your responsibility or what remains as you leave",
         ));
     }
-    let key =
-        crate::store::sha256_bytes(&serde_json::to_vec(&(work, Contact::operator(operator)))?);
+    let key = key(work, operator)?;
     let prior = store::head(db, KIND, &key)?;
     if prior.as_ref().map(|r| r.reference.handle()).as_deref() != base {
         return Err(failure(

@@ -39,6 +39,7 @@ mod dialogs;
 mod export;
 mod life;
 mod question_history;
+mod role_receipts;
 mod relationships;
 mod library_search;
 mod asset_feedback;
@@ -213,6 +214,7 @@ pub struct App {
     development_all_work: bool,
     development_scope: (String, String),
     question_history: question_history::History,
+    role_receipts: Option<role_receipts::Window>,
     relationships: relationships::Panel,
     character_paths: character_paths::Window,
     revision_uses: revision_uses::Panel,
@@ -330,6 +332,7 @@ impl App {
             development_all_work: false,
             development_scope: (String::new(), String::new()),
             question_history: Default::default(),
+            role_receipts: None,
             relationships: Default::default(),
             character_paths: Default::default(),
             revision_uses: Default::default(),
@@ -801,6 +804,7 @@ impl eframe::App for App {
                             work:self.work.clone(),expected:brief,reopen,reason:String::new()}),
                         Some(responsibilities::Action::Inspect(reference))=>self.open_resource(ctx,reference),
                         Some(responsibilities::Action::OpenRequest(id))=>self.show_human_request(&id),
+                        Some(responsibilities::Action::RoleReceipts(r))=>self.open_role_receipts(ctx,r),
                         Some(responsibilities::Action::Message{person,text})=>self.dialog=Some(Dialog::Participation{
                             work:self.work.clone(),title:self.task_title().into(),action:dialogs::Action::Message,person,text,reply_to:None,sources:Default::default()}),
                         Some(responsibilities::Action::Invite(person))=>self.dialog=Some(Dialog::Participation{
@@ -830,6 +834,7 @@ impl eframe::App for App {
         self.sources_window(ctx);
         self.intake_window(ctx);
         self.message_receipt_window(ctx);
+        self.role_receipts_window(ctx);
         self.export_window(ctx);
         self.workspace_find_window(ctx);
         if let Some(action)=self.requested_activities.show(ctx,&self.root,&self.snapshot.status,&self.snapshot.assets,self.cursor) {
