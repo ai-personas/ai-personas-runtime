@@ -67,6 +67,8 @@ Cleo then [sent those findings directly to Arden](docs/inverter-peer-return.md).
 
 Open **File history → Deliveries using this revision** to find later packages that included an older sheet. **Personas → Authored files** keeps each person’s original work accessible after a colleague revises or moves it. [Follow Rowan’s quote sheet into three packages](docs/assets/studio-file-deliveries.png)
 
+**Personas → Visual history** shows pictures that actually reached a person’s decisions. [Open Noor’s two exhibit views, read the judgment and save an original PNG](docs/visual-evidence.md).
+
 ## Earlier fragment-based workspaces
 
 Explicitly opening a progress journal with `./personas --gui --progress DIRECTORY` uses its existing interface. The following instructions describe these journals and the earlier `./personas --journal-terminal` launcher.
