@@ -129,7 +129,14 @@ impl Archive {
             let paired = to.is_some_and(|id| {
                 id != from && matches!(self.nodes[id], Identity::Persona(_) | Identity::Operator(_))
             });
-            self.workspace.push(mark, channel, paired);
+            // The shared publication is already in workspace history. Keep the
+            // separate return on the issuer’s own activity map without counting
+            // it as another contribution by the reviewer across the workspace.
+            let returned_review = event["kind"] == "package_review" && event["target"] != "*"
+                && event["body"]["reporting_work"].is_string();
+            if !returned_review {
+                self.workspace.push(mark, channel, paired);
+            }
             activity.push(mark, channel, paired);
         }
         // A newly opened activity can have a brief before anyone contributes.

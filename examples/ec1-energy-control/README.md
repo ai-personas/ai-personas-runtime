@@ -59,4 +59,21 @@ Both activities were launched and monitored in the Linux native Studio. The sele
 
 The original Studio download is 3,727 bytes, SHA-256 `4a89c1c77eedc33a98f9e9c4aa1c483edb9957b71a00aa210391be606fc363a5`. Opening it independently showed one A4 page with the two recipients, correct ZIP names, sizes and full hashes, and blank check boxes. It is **not an order authorization** or a record of receiving a physical board. These were two desks operated by the evaluator, not two independent usability participants. Card edition: `delivery:delivery-ce3b89c3c073b93b652c7f4f8c5d9d15@1`.
 
+### A review reaches the issuer on a different shift
+
+**[Kit’s checksum file](EC1.sha256) · [Arden’s relief-clerk note](relief-note.txt).** Save the manifest beside the two unchanged ZIPs and run `sha256sum -c EC1.sha256` in that directory. It should print `OK` for both filenames. This checks file identity, not physical receipt or authority to order.
+
+From the exact counter-card edition a human opened **New brief from edition…** and invited only Kit to review its printed identifiers and supply a GNU checksum file. Kit checked the original ZIP bytes and read both rows from the PDF. A missing PDF utility caused one failed command; Kit then read the text from the page’s drawing commands. In five accepted `xhigh` decisions (100,277 reported tokens), Kit published a **supported** finding about the two filenames, lengths and hashes, issued the manifest and stopped. No further task message arrived. A separate receiver saved the issued manifest from Studio, checked its bytes, ran it on the two original ZIPs, then tried a swapped pair and a one-byte change on copies. Both originals passed; both swapped names failed; the one-byte change failed only the altered file.
+
+Studio returned Kit’s finding to Arden in the activity that issued the card. Arden was not invited to Kit’s activity and **remained stopped** on the card. The return identified the exact review, card edition and original issuing decision. It did not replace the card, accept it, or assign Arden more work.
+
+![Studio opens Kit’s returned finding from the issuing activity; the card, criterion and reporting brief remain distinct.](../../docs/assets/studio-ec1-returned-finding.jpg)
+
+A separate new invitation asked Arden for a short relief-clerk note. It included no attachment, starting edition, digest, review reference or subsequent human message. Arden’s first input had an address for the return, **not the report body**. Arden selected the exact finding and card; the full finding reached the next three decisions. The fourth and last decision issued the note and stopped. All four were accepted `high` decisions (80,331 reported tokens). The original 359-byte Studio download has six ASCII lines, at most 76 columns. It tells the clerk the command, whom to notify on failure, what Kit checked, and that physical receipt was not recorded and no order authorized. Its command worked unchanged. This was deliberate reuse on a **new commission**, not spontaneous resumption or a change to Arden’s numerical character.
+
+| Issued file | Bytes | SHA-256 |
+|---|---:|---|
+| `EC1.sha256` | 169 | `5e314a11ad310c7bbb5fff61c4380164c0293042c15c2621855c34d9f9719325` |
+| `relief-note.txt` | 359 | `c0bb08238db0f4cacabfd89fcb8187f1a539f7ee46d055730f9200d16e9cddd4` |
+
 First edition: `delivery:delivery-04ffb28bd15b33d01295a7f99481e610@1`. Final workshop edition: `delivery:delivery-f6d488e097d50c27fae27894649902f9@1`. Private state, prompts and transport archives are not in this example.
