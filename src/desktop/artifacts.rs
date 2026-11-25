@@ -144,6 +144,7 @@ pub struct Viewer {
     text_page: usize,
     data_mode: usize,
     dataset: usize,
+    office: office::View,
     citation_filter: Option<String>,
     citation_request: Option<String>,
     archive_filter: String,
@@ -226,6 +227,7 @@ impl Viewer {
             text_page: 0,
             data_mode: 0,
             dataset: 0,
+            office: office::View::default(),
             citation_filter: None,
             citation_request: None,
             archive_filter: String::new(),
@@ -335,6 +337,7 @@ impl Viewer {
         self.text_page = 0;
         self.data_mode = 0;
         self.dataset = 0;
+        self.office = office::View::default();
         self.cancelled = false;
         self.archive_filter.clear();
         self.archive_folders.directory.clear();
@@ -1041,7 +1044,7 @@ impl Viewer {
                     if !self.loading { self.error = Some("The database reader is unavailable.".into()); }
                 }
             }
-            Body::Book(book) => book.ui(ui, &mut self.dataset, &mut self.table),
+            Body::Book(book) => book.ui(ui, &mut self.office, &mut self.table),
             Body::Wave(wave) => wave.ui(ui),
             Body::Score(score) => score.ui(ui),
             Body::Stitches(plan) => plan.ui(ui, &mut self.show_stitch_travel, &mut self.texture),
