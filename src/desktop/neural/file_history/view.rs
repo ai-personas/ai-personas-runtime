@@ -16,29 +16,32 @@ fn verb(tool: &str) -> &'static str {
 
 fn link(ui: &mut Ui, label: &str, target: Option<&str>, action: &mut Option<Action>) {
     if let Some(target) = target {
-        let response = ui.link(label);
-        response.context_menu(|ui| {
-            if ui.button("Copy reference").clicked() {
-                ui.ctx().copy_text(target.to_owned());
-                ui.close();
-            }
-        });
-        let response = response.on_hover_ui(|ui| {
-            // Hashes have no natural breakpoints. Keep even an enlarged
-            // preview inside the viewport; Copy reference is always exact.
-            let bounds = ui.ctx().content_rect().size();
-            let width = (bounds.x - 24.).clamp(1., 460.);
-            ui.set_max_width(width);
-            let mut job = egui::text::LayoutJob::simple(
-                target.into(), FontId::monospace(12.), ui.visuals().text_color(), width,
-            );
-            job.wrap.break_anywhere = true;
-            job.wrap.max_rows = ((bounds.y - 24.) / 18.).floor().clamp(1., 8.) as usize;
-            ui.add(egui::Label::new(job).wrap().show_tooltip_when_elided(false));
-        });
-        if response.clicked() {
-            *action = Some(Action::Open(Target::File(target.into())));
+        evidence_link(ui.link(label), target, action);
+    }
+}
+
+fn evidence_link(response: egui::Response, target: &str, action: &mut Option<Action>) {
+    response.context_menu(|ui| {
+        if ui.button("Copy reference").clicked() {
+            ui.ctx().copy_text(target.to_owned());
+            ui.close();
         }
+    });
+    let response = response.on_hover_ui(|ui| {
+        // Hashes have no natural breakpoints. Keep even an enlarged
+        // preview inside the viewport; Copy reference is always exact.
+        let bounds = ui.ctx().content_rect().size();
+        let width = (bounds.x - 24.).clamp(1., 460.);
+        ui.set_max_width(width);
+        let mut job = egui::text::LayoutJob::simple(
+            target.into(), FontId::monospace(12.), ui.visuals().text_color(), width,
+        );
+        job.wrap.break_anywhere = true;
+        job.wrap.max_rows = ((bounds.y - 24.) / 18.).floor().clamp(1., 8.) as usize;
+        ui.add(egui::Label::new(job).wrap().show_tooltip_when_elided(false));
+    });
+    if response.clicked() {
+        *action = Some(Action::Open(Target::File(target.into())));
     }
 }
 
@@ -459,13 +462,7 @@ impl App {
         ui.horizontal_wrapped(|ui| {
             for (field, name) in [("decision", "decision"), ("receipt", "receipt")] {
                 if let Some(exact) = source[field].as_str() {
-                    if ui
-                        .small_button(format!("{label} {name}"))
-                        .on_hover_text(exact)
-                        .clicked()
-                    {
-                        *action = Some(Action::Open(Target::File(exact.into())));
-                    }
+                    evidence_link(ui.small_button(format!("{label} {name}")), exact, action);
                 }
             }
         });

@@ -6,7 +6,8 @@ use std::io::Write;
 
 #[derive(Clone)]
 enum Contents {
-    Artifact { reference: String, metadata_view: bool, source: Option<(String, String)>, member: Option<Member> },
+    Artifact { reference: String, digest: String, metadata_view: bool, source: Option<(String, String)> },
+    PackageMember { reference: String, member: Member },
     Printed { source: print_preview::Source, document: print_preview::Document },
     Deliveries { work: Option<String>, label: String, editions: Vec<ListedEdition> },
     Package(String),
@@ -169,17 +170,19 @@ impl App {
         }
         let path = s(&self.preview_metadata, "path");
         let source = self.preview_metadata["source_record"].as_str()
+            .or_else(|| self.preview_metadata["command_run"].as_str())
             .map(|record| (record.to_owned(), path.to_owned()));
+        let file = &self.preview_metadata["preview_file"];
         let metadata_view = self.preview_metadata["view"] == "provider_receipt_metadata";
         let name = if metadata_view {
             "provider-receipt-metadata.json".to_owned()
         } else {
-            basename(path).to_owned()
+            basename(s(file, "name")).to_owned()
         };
         self.export_generation += 1;
         self.export_dialog = Some(Dialog::new(
             self.export_generation,
-            Contents::Artifact { reference: self.selected_reference.clone(), metadata_view, source, member: None },
+            Contents::Artifact { reference: self.selected_reference.clone(), digest: s(file, "sha256").to_owned(), metadata_view, source },
             name,
         ));
     }
@@ -188,9 +191,9 @@ impl App {
         let name = basename(entry.as_ref().map_or(path, |e| &e.path)).to_owned();
         self.export_dialog = Some(Dialog::new(
             self.export_generation,
-            Contents::Artifact {
-                reference: reference.into(), source: None, metadata_view: false,
-                member: Some(Member { edition: edition.into(), path: path.into(), digest: digest.into(), entry }),
+            Contents::PackageMember {
+                reference: reference.into(),
+                member: Member { edition: edition.into(), path: path.into(), digest: digest.into(), entry },
             },
             name,
         ));
@@ -214,9 +217,9 @@ impl App {
         let (heading, description, action) = match &dialog.contents {
             Contents::Artifact { metadata_view: true, .. } => (
                 "Save receipt metadata", "Save the public receipt view, including its audit and usage.", "Save file"),
-            Contents::Artifact { member: Some(member), .. } if member.entry.is_some() =>
+            Contents::PackageMember { member, .. } if member.entry.is_some() =>
                 ("Save file from issued ZIP", "Save the original bytes of this entry from the selected delivery.", "Save file"),
-            Contents::Artifact { member: Some(_), .. } => ("Save package file", "Save this exact issued file to your computer.", "Save file"),
+            Contents::PackageMember { .. } => ("Save package file", "Save this exact issued file to your computer.", "Save file"),
             Contents::Artifact { .. } => ("Save artifact", "Save the exact retained file to your computer.", "Save file"),
             Contents::Printed { .. } => ("Save print PDF", "Save the PDF generated for this preview.", "Save PDF"),
             Contents::Deliveries { .. } => ("Export deliveries", "Each edition gets its own folder. The manifest records its files and reviews. This is not a combined build package.", "Export deliveries"),
@@ -299,7 +302,7 @@ impl App {
                 ui.label(description);
             }
             let file = !matches!(dialog.contents, Contents::Handoff { format: HandoffFormat::Folder, .. } | Contents::Deliveries { .. });
-            if let Contents::Artifact { reference, member: Some(member), .. } = &dialog.contents {
+            if let Contents::PackageMember { reference, member } = &dialog.contents {
                 let edition = reference.rsplit_once('@').map(|(_, n)| n).unwrap_or(reference);
                 if let Some(entry) = &member.entry {
                     ui.add(egui::Label::new(RichText::new(&entry.path).strong()).wrap());
@@ -410,11 +413,12 @@ impl App {
                         ai_personas::neural::human_requests::export_handoff(&db, &reference, &path, format)
                             .map_err(|e| e.to_string())?;
                     }
-                    Contents::Artifact { reference, source, member, .. } => {
-                        if let Some(selected) = member {
-                            return selected.save(&root, &reference, &path);
-                        }
+                    Contents::PackageMember { reference, member } => return member.save(&root, &reference, &path),
+                    Contents::Artifact { reference, source, digest, metadata_view } => {
                         let preview = data::preview_output(&root, &reference, source.as_ref()).map_err(|e| e.to_string())?;
+                        if preview.digest != digest || (preview.metadata["view"] == "provider_receipt_metadata") != metadata_view {
+                            return Err("The retained contents differ from the preview. Reopen the file before saving.".into());
+                        }
                         let bytes = std::fs::read(&preview.path).map_err(|e| e.to_string())?;
                         save_new_file(&path, &bytes)?;
                     }

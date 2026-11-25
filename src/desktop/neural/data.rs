@@ -669,7 +669,7 @@ fn verify_source_file(db: &Connection, source: &str, name: &str, object: &str, l
 
 pub(super) fn preview_output(root: &Path, reference: &str, output: Option<&(String,String)>) -> neural::Result<Preview> {
     let db = open(root)?;
-    let (bytes, name, metadata) = if let Some(digest) = reference.strip_prefix("object:") {
+    let (bytes, name, mut metadata) = if let Some(digest) = reference.strip_prefix("object:") {
         let (bytes, projected) = preview_bytes(&db, digest)?;
         let media:String=db.query_row("SELECT media FROM objects WHERE digest=?1",[digest],|row|row.get(0))?;
         let declared = media.split(';').next().unwrap_or_default();
@@ -790,11 +790,11 @@ pub(super) fn preview_output(root: &Path, reference: &str, output: Option<&(Stri
             .prefix("personas-preview-")
             .tempdir()?,
     );
-    let path = directory.path().join(if name.is_empty() {
-        "artifact.bin"
-    } else {
-        &name
-    });
+    let name = if name.is_empty() { "artifact.bin" } else { &name };
+    // A display/export name is not an original path or a source record. A
+    // bare object, in particular, need not have had any filename in the input.
+    metadata["preview_file"] = json!({"name":name,"sha256":digest});
+    let path = directory.path().join(name);
     std::fs::write(&path, &bytes)?;
     Ok(Preview {
         directory,
