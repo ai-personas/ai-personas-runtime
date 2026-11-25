@@ -815,6 +815,7 @@ impl eframe::App for App {
                 },
                 }
             });
+        if self.layout.editor != Editor::Delivery || !has_snapshot { self.delivery_desk.close_overlay(); }
         self.file_history_window(ctx);
         self.print_preview_window(ctx);
         self.show_inspector_window(ctx);

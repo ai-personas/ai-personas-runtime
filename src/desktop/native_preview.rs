@@ -159,7 +159,7 @@ pub(super) struct Document {
 }
 
 #[derive(Default)]
-pub(super) struct Cancellation {
+pub(in crate::desktop) struct Cancellation {
     cancelled: AtomicBool,
     process: Mutex<Option<Child>>,
 }
@@ -267,6 +267,14 @@ fn run(
     }
     cancelled(cancel)?;
     Ok(output)
+}
+
+/// Run the bundled adapter, never a program from the ZIP. Members have numeric
+/// filenames in staging; their original names are labels in the input manifest.
+pub(in crate::desktop) fn cam_layers(folder: &Path, cancel: &Cancellation) -> Result<String, String> {
+    let script = folder.join("cam_layers.py");
+    std::fs::write(&script, include_str!("cam_layers.py")).map_err(|e| e.to_string())?;
+    run("python3", &["-E".into(), script.into_os_string()], folder, cancel)
 }
 
 fn run_python(mode: &str, input: &Path, output: &Path, folder: &Path, cancel: &Cancellation) -> Result<String, String> {

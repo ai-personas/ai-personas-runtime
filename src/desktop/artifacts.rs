@@ -28,6 +28,7 @@ mod database;
 #[path = "native_preview.rs"]
 mod native_preview;
 pub(super) use loader::read_file;
+pub(super) use native_preview::{cam_layers, Cancellation as PreviewCancellation};
 
 #[derive(Clone)]
 enum Source {
