@@ -136,6 +136,7 @@ impl Target {
                 .flatten()
                 .filter_map(Value::as_str)
                 .map(str::to_owned)
+                .chain(live_board::peer_wakes(continuation))
                 .collect(),
             time: continuation["wake_at_unix"].as_i64(),
             draft: String::new(),

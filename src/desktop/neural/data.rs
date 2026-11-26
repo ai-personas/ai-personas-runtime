@@ -110,6 +110,20 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
     let db = open(root)?;
     let mut status = store::status(&db)?;
     provider_failures::for_holds(&db, &mut status)?;
+    // Enrich the local inspector, not the participation body or the runner.
+    // Use its actual arrival predicate at this same read transaction. Timers
+    // and controls are independent; a match does not assert admission.
+    for r in status["participation"].as_array_mut().into_iter().flatten() {
+        if r["body"]["continuation"]["kind"] == "wait" && r["body"]["departure"].is_null()
+            && r["body"]["closed_by_activity"].is_null() && r["body"]["declined"] == false {
+            let checked = serde_json::from_value(r["body"].clone()).map_err(neural::Error::from)
+                .and_then(|p| store::waiting_arrival(&db, &p));
+            r["wake_check"] = match checked {
+                Ok(matched) => json!({"matched": matched}),
+                Err(error) => json!({"error": error.to_string()}),
+            };
+        }
+    }
     if let Some(parts) = status["participation"].as_array_mut().filter(|parts| parts.len() > 1) {
         // A workspace-wide control can append events to every activity without
         // changing any person's participation. Read the committed revisions'

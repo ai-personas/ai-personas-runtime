@@ -2,6 +2,8 @@
 pub(super) mod draft;
 mod tool_result;
 mod journal;
+mod work_status;
+pub(super) use work_status::peer_wakes;
 
 use super::*;
 use ai_personas::neural::live::RunnerObservation;
@@ -16,6 +18,7 @@ enum View {
     Live,
     Work,
     Journal,
+    Status,
 }
 
 #[derive(Clone, Copy, Default, PartialEq)]
@@ -525,6 +528,13 @@ impl App {
             ui.selectable_value(&mut self.live_board.view, View::Work, "Work & deliveries");
             ui.selectable_value(&mut self.live_board.view, View::Journal, "Decision journal")
                 .on_hover_text("Follow each persona’s assessment, remaining work and chosen next step.");
+            if !self.work.is_empty() {
+                let n = self.records("participation").iter().filter(|r| r["body"]["work"] == self.work
+                    && work_status::current_wait(&r["body"])).count();
+                let label = if n > 0 && available >= 670. { format!("Work status · {n} waiting") } else { "Work status".into() };
+                ui.selectable_value(&mut self.live_board.view, View::Status, label)
+                    .on_hover_text("See chosen waits, actual wake conditions and unfinished outcomes for this activity.");
+            }
             let mut earlier = |ui: &mut Ui| {
                 if ui
                     .add_enabled(!self.work.is_empty(), egui::Button::new("Earlier work…"))
@@ -535,7 +545,7 @@ impl App {
                     self.open_sources(ui.ctx(), &work, None);
                 }
             };
-            if available >= 590. {
+            if available >= 700. {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), earlier);
             } else {
                 earlier(ui);
@@ -546,6 +556,7 @@ impl App {
             View::Work => false,
             View::Live => { self.studio_live(ui); true }
             View::Journal => { self.decision_journal(ui); true }
+            View::Status => { self.activity_work_status(ui); true }
         }
     }
 
@@ -695,8 +706,10 @@ impl App {
             ("Activity ended".into(), p.muted)
         } else if let Some((control, _)) = &blocked {
             (format!("Scheduling {control}"), p.ink(theme::ACCENT))
-        } else if following && runner_seen {
-            ("Listening for activity".into(), p.ink(TEAL))
+        } else if runner_seen {
+            // A different Studio window may own the listener. Report its scope,
+            // not whether this particular window started it.
+            (self.runner_status_text(), p.ink(TEAL))
         } else {
             ("No calls in progress".into(), p.muted)
         };
@@ -1053,7 +1066,7 @@ impl App {
             }
             if open && matches!(s(continuation, "kind"), "wait" | "waiting") {
                 let mut steps = Vec::new();
-                let names: Vec<_> = continuation["on_events"]
+                let mut names: Vec<_> = continuation["on_events"]
                     .as_array()
                     .into_iter()
                     .flatten()
@@ -1078,6 +1091,7 @@ impl App {
                         condition.to_owned()
                     })
                     .collect();
+                names.extend(peer_wakes(continuation));
                 let mut triggers = if names.is_empty() {
                     "any new arrival".into()
                 } else {

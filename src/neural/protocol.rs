@@ -244,13 +244,16 @@ pub enum Continuation {
         reason: String,
         wake_at_unix: Option<i64>,
         /// Incoming event kinds that should wake this participation. Use peer_message for a message addressed to you from another persona, request_return for answers or deliveries from an activity you originated, or user_message for a human message.
-        /// Empty receives any new event. A chosen wake time is an independent trigger.
+        /// With no event or peer selections, any new arrival wakes you. A chosen wake time is an independent trigger.
         /// To wait for one outside action, include your exact open human_request:id@revision
         /// (or $id of a human.request made here). A later human status change or report on that request wakes you.
         /// You can also name a supplied active edition of a peer's outside step here. A newer edition makes that wait eligible; you get its register status, not the peer's incoming report.
         /// Use delivery (also result_delivery) for an edition published here or returned to you here, delivery_check for a receiving run on one of your editions, or package_review (also result_review) for a published package finding in this activity or a peer’s published finding returned to you here on your exact edition. A finding is not a delivery acceptance. All triggers are alternatives.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         on_events: Vec<String>,
+        /// Optional exact participation references from participants in this input. Each must be another accepted, ready peer here. Wake if any one subsequently chooses wait or stop, even without a message. Observe the choice, not task completion. With only this selection, unrelated events do not wake you.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        on_peer_settled: Vec<String>,
     },
     Stop {
         reason: String,
