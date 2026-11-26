@@ -767,6 +767,18 @@ The viewer checks recognizable signatures and Office container contents along wi
 | TTF, OTF, TTC, WOFF, WOFF2 | A type specimen from the selected font with Python and Pillow. Web fonts also use fontTools. |
 | ZIP, TAR and other archive families | Browse entries and open an individual member. Compressed TAR uses Python. Additional containers, including 7z and RAR, depend on system libarchive and its codec support. |
 
+### Follow a document through an issued edition
+
+Open the delivery and choose **Read document…**. Pick a Markdown file by its issued path. In **File preview**, choose a heading, use **Previous section** or **Next section**, or switch to **Section source**. **Copy section source** gives the original Markdown for that section, not a transcript of the rendered table. The file’s identity and qualifications are still available on the delivery desk.
+
+![A section of the issued battery guide in Studio, with the battery, buffer and load endpoints beside the issuer’s limits](assets/studio-issued-document.jpg)
+
+**Files named here** lists companion files named in the document that match paths in this particular edition. For example, open `exodus/20W/START-HERE.md` in the [seven-file battery study](../examples/exodus-design-room/battery/). Open `exodus/20W/internal-battery-loop.zip` from that list, then **← Back to document** to return to the guide’s section. The ZIP is checked when opened; finding its path in a guide does not verify its bytes or endorse its contents. The edition’s own **Save** actions still verify the original at save time.
+
+Plain relative Markdown links resolve from the document’s directory. An inline code span may also name a file from the edition root. If those readings identify different files, neither is offered for that mention. There is no basename search, URL fetching or command execution. Image destinations, URL-encoded links, anchors and query strings do not create file actions. A document inside a ZIP has its own sections, but is not a list of links to the enclosing delivery. Browse that ZIP for its companions.
+
+The in-page reader uses top-level headings for sections (not headings quoted inside a list or code block). Its limits are 64 KiB of UTF-8, 256 sections and 16,384 parser events. Outside these limits, use the source preview or open the full file. These are display limits, not limits on what a persona can issue.
+
 ### Compare two logic records
 
 Open a `.vcd` file from **File viewer**, or find it inside a delivery’s ZIP under **File preview**. In **Timing register**, select a record and click **Set reference**. Select a second record to see its before/after value and **cursor time minus reference time**. **Copy timing** includes the file name, SHA-256, signal identifiers, record numbers, times and signed interval. Use **Signals at cursor** to read the last assigned value of each declared name after that particular record, or **Source** to inspect the VCD text.

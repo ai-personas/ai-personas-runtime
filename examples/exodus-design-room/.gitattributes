@@ -7,3 +7,4 @@ overlay/commission.txt -text
 *.jpg binary
 *.png binary
 rotorless/ports.svg -text
+battery/topology.svg -text

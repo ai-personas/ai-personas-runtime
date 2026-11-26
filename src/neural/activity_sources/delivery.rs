@@ -5,13 +5,14 @@ use crate::neural::{
 };
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
-use std::collections::BTreeSet;
+use std::{collections::{BTreeMap, BTreeSet}, path::PathBuf};
 
 pub(in crate::neural) struct Edition {
     pub(in crate::neural) issue: delivery_feedback::Issued,
     pub(in crate::neural) issuer_label: Option<String>,
     pub(in crate::neural) operation: String,
     pub(in crate::neural) members: Vec<String>,
+    pub(in crate::neural) paths: BTreeMap<PathBuf, String>,
 }
 
 pub(in crate::neural) fn edition(db: &Connection, reference: &str) -> Result<Edition> {
@@ -39,10 +40,10 @@ pub(in crate::neural) fn edition(db: &Connection, reference: &str) -> Result<Edi
     if !choice.issued_alias(db, &op, &issue.record, &result)? {
         return Err(failure("The edition terms or issuing receipt differ from the accepted delivery"));
     }
-    operations::package_paths(db, &members)?;
+    let paths = operations::package_paths(db, &members)?;
     let issuer_label = choice.accepted.snapshot.data["identity"]["label"].as_str()
         .filter(|name| !name.trim().is_empty()).map(str::to_owned);
-    Ok(Edition { issue, issuer_label, operation: op.id, members })
+    Ok(Edition { issue, issuer_label, operation: op.id, members, paths })
 }
 
 impl Edition {
