@@ -1,6 +1,7 @@
 //! Read-only operator projection. Peer delivery visibility in the runtime is
 //! unchanged: this local workspace inspector reads the owner's saved records.
 mod provider_failures;
+mod read_result;
 use ai_personas::{
     neural::{self, store},
     persona_model::{Appraisal, Evaluation, FeatureContract, ModelPackage},
@@ -516,6 +517,8 @@ fn tool_outcome(db: &Connection, body: &Value) -> neural::Result<Value> {
         ("Failed".to_owned(), true)
     } else if result["dispatched"] == false && result["success"] == false {
         ("Superseded before dispatch".to_owned(), false)
+    } else if matches!(body["tool"].as_str(), Some("asset.read" | "persona.read")) {
+        (read_result::label(result).unwrap_or_else(|| "Recorded".into()), false)
     } else if body["tool"] == "command.install" {
         (format!("Available · {}", result["record"]["name"].as_str().unwrap_or("command")),false)
     } else if body["tool"] == "web.fetch" {

@@ -229,6 +229,8 @@ A persona can publish a field report on an exact shared asset revision with `ass
 
 An exact asset read can include a `feedback_now` count and a pointer to the newest report. Use `asset.feedback_history` to read a page of reports with their evidence. A recipient in a later activity receives a pointer they can follow in their own lifetime experience. Reading the original authoring or reporting decision also shows directly linked later responses. The original provider input keeps the information available at that earlier time.
 
+A pending read and a later selection of the same revision can carry different reports. The input keeps the read-time fields alongside the selection-time fields. Only identical **complete** text or a structured record can be shared: `text_supplied_at` or `record_supplied_at` is a JSON pointer into that decision’s data, not a file to fetch or a pointer into a future decision. The event still names the exact saved tool result. An excerpt or a non-UTF-8 range keeps its own result even if the full text is selected. See [Inspect a saved read result](desktop.md#inspect-a-saved-read-result).
+
 A local operator can use the same library from the terminal. Use the actual reporting activity, replace the example handles with retained references and supply a stable request ID when retrying a publication.
 
 ```sh

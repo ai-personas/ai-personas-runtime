@@ -1826,6 +1826,7 @@ impl App {
                     ("asset.organize", true, _) => "updated a file record".into(),
                     (_, true, _) => format!("retained a file with {tool}"),
                     (_, _, "" | "Recorded") => format!("used {tool}"),
+                    ("asset.read" | "persona.read", _, label) => format!("used {tool} · {label}"),
                     (_, _, result) => format!("{tool} · {result}"),
                 }
             }
