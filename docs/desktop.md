@@ -176,6 +176,16 @@ A participant may choose to watch a particular collaborator who is still ready. 
 
 For example, after Exodus issue #1571 all four participants were waiting. The listener had no workers; none of their selected arrivals had occurred after their respective input cursors. Ten authored outcomes were still partial. An earlier instruction had reached Eli and led to a separate [manufacturing notice](../examples/exodus-design-room/fixed/DO-NOT-ORDER.txt); a public delivery was not a direct message to the other two waiting peers. This was not evidence of a hung model call, a finished generator, or use of the later peer-choice wake option.
 
+### What happened to my decision request?
+
+In **Activity → Work status → Decision requests**, select the request number beside its recipient. Or choose **Decision request receipt** on its timeline entry. The receipt starts with the operator’s reason and the brief in force. Expand **Preserved wait** or **Preserved stop** to see the choice that remained in place when the operator asked. Nothing here starts a runner or sends a second request.
+
+**What followed** shows attempts made on that permission, in order. An input prepared for dispatch is not a confirmed read. On a completed call, the receipt distinguishes the supplied reason from a recovery address or a request withheld during initialization. A returned response may still await adoption; cancellation or interruption can leave a verified reply with no adopted choice. A rejected response did not change the participation; open its numbered rejection to see why. **Open accepted decision** takes you to the participant’s own judgment and next step, which can be another wait or stop. Listed tools are choices, not execution receipts. **Refresh receipt** reads a new snapshot; missing evidence does not count as a decision. From the terminal: `ai-personas neural --state-root "$workspace" message-receipt EVENT_NUMBER`.
+
+In the original Exodus activity, June’s request **#295** appeared in three completed inputs. The first two responses were rejected (#299 and #310); the third was adopted. Much later **#1579** reached June under the same brief, and she chose to wait for new information. Ravi [reran an issued simulation](../examples/exodus-design-room/fixed/#after-the-desk-asked-again) after his request. That was new execution, not a new measurement or a change to the no-order notice.
+
+![Detail of June’s decision request receipt: the operator’s reason, the prior wait, and the new accepted wait with June’s explanation.](assets/studio-decision-request.jpg)
+
 **People & tools** shows which participants have a call in progress and which tools are queued or running. During a response, Studio displays the bytes received from the provider and the time of the last observation. On a narrow window, use the **Timeline** and **People & tools** tabs.
 
 Under each participant, **Last tool result** shows the most recent recorded tool action in this activity, including a catalogue search or file read. Select the operation to inspect its returned result. **Event #** opens the exact occurrence in the timeline, even when two searches returned the same result. The message composer stays available while another call is streaming. [Inez reviewing the volunteer’s print form](assets/studio-live-tool-result.png)

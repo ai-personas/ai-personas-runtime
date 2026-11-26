@@ -60,6 +60,38 @@ pub(super) fn accepted(
     })
 }
 
+/// Verify a retained reply without interpreting it as a decision: it may be
+/// waiting for adoption, canceled, interrupted after completion, or rejected.
+/// A malformed final can itself be the reason adoption failed; keep its bytes.
+/// The runtime's rejection notice, if any, must be the only event from the call.
+pub(super) fn unadopted_reply(
+    db: &Connection,
+    input: &Snapshot,
+    [source, reply, receipt]: [&str; 3],
+    disposition: &str,
+    rejection: Option<i64>,
+) -> Result<(Vec<u8>, &'static str)> {
+    let call = &input.invocation;
+    let untouched: bool = db.query_row(
+        "SELECT NOT EXISTS(SELECT 1 FROM outbox WHERE invocation=?1)
+         AND NOT EXISTS(SELECT 1 FROM events WHERE invocation=?1 AND seq IS NOT ?2)
+         AND NOT EXISTS(SELECT 1 FROM heads WHERE kind='decision_effects' AND id=?1)
+         AND NOT EXISTS(SELECT 1 FROM versions WHERE kind='decision_effects' AND id=?1)
+         AND NOT EXISTS(SELECT 1 FROM versions WHERE invocation=?1 AND NOT
+             (kind IN ('provider_completion','character_use') AND id=?1 AND revision=1))",
+        params![call, rejection], |r| r.get(0),
+    )?;
+    if !untouched {
+        return Err(failure("This call has records inconsistent with an unadopted response"));
+    }
+    store::verify_completion(db, call, &input.actor, &input.work, source, reply, receipt, disposition)?;
+    let attempt: Value = store::object(db, receipt)?;
+    character::verify_input(db, input, call, &attempt)?;
+    let bytes = store::bytes(db, reply)?;
+    let matched = check_final(db, receipt, &attempt, &bytes)?;
+    Ok((bytes, if matched { "provider_output" } else { "provider_completion" }))
+}
+
 /// A provider need not report a separately identifiable final. But if the
 /// receipt commits to stored output items, verify them before adopting any
 /// effects, using the same comparison as the historical decision reader.

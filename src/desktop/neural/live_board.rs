@@ -121,6 +121,7 @@ impl Filter {
                             | "human_request_progress"
                             | "user_acceptance"
                             | "requirements_amended"
+                            | "explicit_resume"
                     )
                     || event["body"]["author_kind"] == "operator"
                     || event["body"]["recipient_kind"] == "operator"
@@ -1671,6 +1672,9 @@ impl App {
                             action = Some(EventAction::Receipt(seq));
                         }
                     }
+                    if kind == "explicit_resume" && event["invocation"].is_null() && text_action(ui, "Decision request receipt").clicked() {
+                        action = Some(EventAction::Receipt(seq));
+                    }
                     if kind == "decision_rejected" && text_action(ui, "Inspect rejected response").clicked() {
                         action = Some(EventAction::Rejection(seq));
                     }
@@ -1822,6 +1826,7 @@ impl App {
             "asset_feedback" => "shared feedback on a file".into(),
             "provider_failure" => format!("reported a provider failure for {target}"),
             "decision_rejected" => format!("rejected a decision from {target}"),
+            "explicit_resume" => format!("requested a decision from {target}"),
             "requirements_amended" => "amended the brief".into(),
             "activity_dissolved" => "ended the activity".into(),
             "activity_reopened" => "reopened the activity".into(),
