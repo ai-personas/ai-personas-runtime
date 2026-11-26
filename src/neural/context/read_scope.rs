@@ -55,8 +55,9 @@ pub(super) fn record(db: &rusqlite::Connection, actor: Option<&str>, record: &st
     if allowed {Ok(())} else {Err(unavailable(&handle))}
 }
 
-pub(super) fn object(db: &rusqlite::Connection, actor: Option<&str>, digest: &str, reference: &str) -> Result<()> {
-    let Some(actor)=actor else {return Ok(())};
+/// A roster-only read carries its witness alongside the bytes, never inside them.
+pub(super) fn object(db: &rusqlite::Connection, actor: Option<&str>, digest: &str, reference: &str) -> Result<Option<Value>> {
+    let Some(actor)=actor else {return Ok(None)};
     let exists:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM objects WHERE digest=?1)",[digest],|r|r.get(0))?;
     if !exists {return Err(unavailable(reference))}
     let mut records=db.prepare("SELECT kind,id,revision FROM versions WHERE digest=?1
@@ -69,27 +70,35 @@ pub(super) fn object(db: &rusqlite::Connection, actor: Option<&str>, digest: &st
         let record=store::exact(db,&handle)?;
         let author=owner(&record.reference.kind,&record.body).ok_or_else(||unavailable(reference))?;
         if author==actor || shared(db,author,actor,&handle,digest)?
-            || super::super::relationships::disclosure(db,author,actor,reference)?.is_some() {return Ok(())}
+            || super::super::relationships::disclosure(db,author,actor,reference)?.is_some() {return Ok(None)}
     }
     // Tool-read result wrappers may embed a protected body as well. A known
     // result digest must not turn an unobserved private event into public data.
     let source="(e.digest=?2 OR (e.kind='tool_result' AND json_extract(CAST(o.bytes AS TEXT),'$.result')='object:'||?2))";
-    let mut events=db.prepare(&format!("SELECT e.seq,e.actor FROM events e JOIN objects o ON o.digest=e.digest WHERE {source}"))?;
-    let sources=events.query_map(params![actor,digest],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut events=db.prepare(&format!("SELECT e.actor,CASE WHEN e.target='user' AND e.kind IN ('reply','message')
+        AND e.invocation IS NOT NULL THEN e.work END FROM events e JOIN objects o ON o.digest=e.digest WHERE {source}"))?;
+    let sources=events.query_map(params![actor,digest],|r|Ok((r.get::<_,String>(0)?,r.get::<_,Option<String>>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
     if !sources.is_empty() {
         protected=true;
         let visible:bool=db.query_row(&format!("SELECT EXISTS(SELECT 1 FROM events e JOIN objects o ON o.digest=e.digest WHERE {source} AND {})",super::super::experience::VISIBLE),params![actor,digest],|r|r.get(0))?;
-        if visible {return Ok(())}
-        for (_,author) in &sources {
-            if shared(db,author,actor,reference,digest)? {return Ok(())}
+        if visible {return Ok(None)}
+        for (author,_) in &sources {
+            if shared(db,author,actor,reference,digest)? {return Ok(None)}
         }
     }
     let mut calls=db.prepare("SELECT actor FROM invocations WHERE snapshot=?1 OR response=?1 OR receipt=?1")?;
     let authors=calls.query_map([digest],|r|r.get::<_,String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
     for author in &authors {
         protected=true;
-        if author==actor || shared(db,author,actor,reference,digest)? {return Ok(())}
+        if author==actor || shared(db,author,actor,reference,digest)? {return Ok(None)}
     }
-    if protected {return Err(unavailable(reference))}
-    Ok(())
+    if protected {
+        if reference == format!("object:{digest}") {
+            for work in sources.iter().filter_map(|(_,w)| w.as_deref()).collect::<BTreeSet<_>>() {
+                if let Some(basis) = super::roster::witness(db, actor, work, reference)? { return Ok(Some(basis)); }
+            }
+        }
+        return Err(unavailable(reference));
+    }
+    Ok(None)
 }

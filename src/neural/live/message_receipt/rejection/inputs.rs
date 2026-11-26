@@ -27,6 +27,30 @@ fn inbox(input: &Snapshot) -> Result<BTreeMap<i64, &Value>, &'static str> {
     Ok(numbered)
 }
 
+/// A proposed next selection can name a teammate's desk update supplied on
+/// the roster, rather than an inbox event or a previously selected resource.
+/// This reports the historical slot, not a hypothetical adoption today.
+pub(super) fn roster_selections(db: &rusqlite::Connection, input: &Snapshot, response: &Value) -> Vec<Value> {
+    use crate::neural::{context::roster, protocol::ContextResource};
+    let mut found = Vec::new();
+    for item in response["next_context"]["references"].as_array().into_iter().flatten() {
+        let Ok(selection) = serde_json::from_value::<ContextResource>(item.clone()) else { continue };
+        if matches!(selection, ContextResource::Considered { .. }) { continue; }
+        let reference = selection.reference();
+        if !reference.starts_with("object:") || !input.data["participants"].as_array().into_iter().flatten()
+            .any(|p| p["persona"] != input.actor && p["latest_user_communication"]["reference"] == reference) { continue; }
+        let mut row = json!({"selection":item});
+        if let Some((basis, body)) = roster::shown(db, input, reference) {
+            row["shown_on_work_roster"] = basis;
+            row["text"] = body["text"].clone();
+        } else {
+            row["unavailable"] = json!("Could not match the roster entry to the original outgoing update.");
+        }
+        found.push(row);
+    }
+    found
+}
+
 fn compare_inbox(first: &Snapshot, later: &Snapshot) -> Result<Value, &'static str> {
     let (a, b) = (inbox(first)?, inbox(later)?);
     let (mut repeated, mut changed, mut only_first) = (Vec::new(), Vec::new(), Vec::new());

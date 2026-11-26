@@ -169,12 +169,13 @@ fn report(db: &Connection, seq: i64) -> Result<Value> {
         json!({"reference":v["reference"].as_str(),"path":v["workspace_path"].as_str().or(v["metadata"]["path"].as_str()),
             "form":form,"range":matches!(form,"text"|"image").then_some(&v["range"]),"bytes":v["bytes"].as_u64()})
     }).collect::<Vec<_>>());
-    Ok(
-        json!({"event":seq,"notice":e.reference(),"source":format!("object:{}",e.digest),"reason":e.body["reason"],
+    let roster = a.response.as_ref().map(|r| inputs::roster_selections(db,s,r)).unwrap_or_default();
+    let mut view = json!({"event":seq,"notice":e.reference(),"source":format!("object:{}",e.digest),"reason":e.body["reason"],
         "work":e.work,"persona":e.target,"invocation":s.invocation,"records":a.links,"proposed":a.response.as_ref().map(proposal),
         "cited_for_character":citations,"selected":selected,"incoming_count":s.data["new_events"].as_array().map(Vec::len),
-        "following":following(db,&e,s)?}),
-    )
+        "following":following(db,&e,s)?});
+    if !roster.is_empty() { view["proposed_roster_selections"] = json!(roster); }
+    Ok(view)
 }
 
 /// One committed observation; no adoption, scheduling or current-state replay.

@@ -160,7 +160,8 @@ impl Reader {
                     } else {ui.weak("No citation list in the response.");}
                     ui.add_space(7.); ui.separator();
                     let count=r["incoming_count"].as_u64().map_or_else(|| "unknown".to_owned(),|n|n.to_string());
-                    ui.strong(format!("In this input · {count} inbox entries"));
+                    let entries = if count == "1" { "entry" } else { "entries" };
+                    ui.strong(format!("In this input · {count} inbox {entries}"));
                     if let Some(rows)=r["selected"].as_array() {
                         ui.label(format!("Selected resources: {}",rows.len()));
                         for row in rows {
@@ -177,6 +178,7 @@ impl Reader {
                             });
                         }
                     } else {ui.weak("Selection register unavailable.");}
+                    inputs::roster(ui,app,r);
                     ui.add_space(6.); ui.small("An event address in a note, or a file named by that event, is not the event itself.");
                     if ui.link("Open frozen input ↗").clicked() {action=Some(Action::Read(s(&r["records"],"input").into()));}
                 }
