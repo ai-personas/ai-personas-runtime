@@ -4,7 +4,7 @@ use crate::desktop::{document, theme};
 use eframe::egui::{self, RichText, Ui};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     ops::Range,
     path::{Path, PathBuf},
 };
@@ -20,6 +20,7 @@ pub(super) struct Document {
     bom: usize, // offset in the original UTF-8 source; never dropped from Copy
     sections: Vec<Section>,
     named: Vec<(String, String)>, // logical path and exact reference, in mention order
+    mentions: BTreeMap<usize, usize>, // parser offset (without BOM) -> index into named
 }
 
 // For ordinary Markdown links use the containing document's directory. An
@@ -82,12 +83,15 @@ impl Document {
         let mut heading: Option<(usize, String)> = None;
         let mut inside_link = 0;
         let mut named = Vec::new();
-        let mut seen = BTreeSet::new();
-        let mut mention = |word: &str, code| {
+        let mut seen = BTreeMap::new();
+        let mut mentions = BTreeMap::new();
+        let mut mention = |offset, word: &str, code| {
             if let Some((p, r)) = paths.and_then(|m| target(m, path, word, code)) {
-                if seen.insert(r) {
+                let index = *seen.entry(r).or_insert_with(|| {
                     named.push((p.to_string_lossy().into_owned(), r.clone()));
-                }
+                    named.len() - 1
+                });
+                mentions.insert(offset, index);
             }
         };
         for (i, (event, span)) in Parser::new_ext(
@@ -108,7 +112,7 @@ impl Document {
                         }
                         Tag::Link { dest_url, .. } => {
                             if inside_link == 0 {
-                                mention(&dest_url, false);
+                                mention(span.start, &dest_url, false);
                             }
                             inside_link += 1;
                         }
@@ -144,7 +148,7 @@ impl Document {
                 }
                 Event::Code(word) => {
                     if inside_link == 0 {
-                        mention(&word, true);
+                        mention(span.start, &word, true);
                     }
                     if let Some((_, name)) = &mut heading {
                         name.push_str(&word);
@@ -168,6 +172,7 @@ impl Document {
             bom,
             sections,
             named,
+            mentions,
         })
     }
     fn range(&self, n: usize) -> Range<usize> {
@@ -270,11 +275,18 @@ impl Document {
                                 .selectable(true),
                             );
                         } else {
-                            document::issued_section(
+                            let picked = document::issued_section(
                                 ui,
                                 &self.text[self.bom..],
                                 section.start.saturating_sub(self.bom)..section.end - self.bom,
+                                document::Files {
+                                    names: &self.named,
+                                    at: &self.mentions,
+                                },
                             );
+                            if let Some(file) = picked.and_then(|i| self.named.get(i)) {
+                                follow = Some(file.clone());
+                            }
                         }
                     });
             });
