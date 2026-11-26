@@ -8,6 +8,12 @@ pub(super) struct Journal {
     pinned: Option<String>,
 }
 
+impl Board {
+    pub(in super::super) fn holding_choice(&self, reference: &str) -> bool {
+        self.view == View::Journal && self.journal.pinned.as_deref().is_some_and(|id| reference == format!("experience:{id}@1"))
+    }
+}
+
 enum Action {
     Inspect(String),
     Images,

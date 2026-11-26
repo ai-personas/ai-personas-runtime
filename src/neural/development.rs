@@ -178,18 +178,43 @@ fn revisit_condition(db: &Connection, actor: &str, revisit: &Revisit) -> Result<
     Ok(())
 }
 
+/// Which observation, if any, accompanied this address in this input? This
+/// describes supply, not authority to read the reference or truth of a claim.
+/// A previous judgment supplies that choice, not all the sources it cited.
+pub(in crate::neural) fn experience_basis(snapshot: &Snapshot, reference: &str) -> Option<&'static str> {
+    if !reference.starts_with("experience:") || !snapshot.data["context_recovery"].is_null() { return None; }
+    let previous = &snapshot.data["decision_continuity"]["previous_work_decision"];
+    if snapshot.development_version >= 6 && snapshot.model.is_some() && previous["experience"] == reference
+        && previous["invocation"].as_str().is_some_and(|id| reference == format!("experience:{id}@1")) {
+        Some("previous_choice")
+    } else if observed_record(snapshot, reference).is_some() { Some("record") }
+    else if snapshot.data["new_events"].as_array().into_iter().flatten().any(|e| e["experience"] == reference) { Some("incoming_event") }
+    else if experience::recall::supplied(snapshot, reference) { Some("recalled_pair") }
+    else if experience::action::observed(snapshot, reference) { Some("action_with_return") }
+    else if deliberation::observed(snapshot, reference).is_some() || deliberation::choice_observed(snapshot, reference) { Some("before_action") }
+    else { None }
+}
+
+pub(super) fn distinguish_prior_citations(snapshot: &mut Snapshot) {
+    if snapshot.model.is_none() || !snapshot.data["context_recovery"].is_null() { return; }
+    let previous = &snapshot.data["decision_continuity"]["previous_work_decision"];
+    let mut seen = std::collections::BTreeSet::new();
+    let addresses: Vec<_> = previous["judgment"]["evidence"].as_array().into_iter().flatten()
+        .filter_map(Value::as_str)
+        .filter(|r| r.starts_with("experience:") && seen.insert(*r) && experience_basis(snapshot, r).is_none())
+        .collect();
+    if !addresses.is_empty() {
+        let addresses = json!(addresses);
+        snapshot.data["decision_continuity"]["previous_work_decision"]["addresses_without_observation"] = addresses;
+    }
+}
+
 pub(super) fn observed_experience(db: &Connection, snapshot: &Snapshot, reference: &str) -> Result<()> {
     if !reference.starts_with("experience:") {
         return Err(failure(format!("Expected an experience:event-N@1 or experience:call-ID@1 observation, received {reference}. Cite the character-use receipt in follow_up.character_use.")));
     }
     experience::metadata(db, Some(&snapshot.actor), reference)?;
-    // The previous-choice card supplies the owner's actual judgment and chosen
-    // operations, not the entire original input, response or character-use record.
-    let previous = &snapshot.data["decision_continuity"]["previous_work_decision"];
-    let choice_on_desk = snapshot.development_version >= 6 && snapshot.model.is_some()
-        && snapshot.data["context_recovery"].is_null() && previous["experience"] == reference
-        && previous["invocation"].as_str().is_some_and(|id| reference == format!("experience:{id}@1"));
-    if !choice_on_desk && !observed(snapshot, reference) && !experience::recall::supplied(snapshot, reference) && !experience::action::observed(snapshot,reference) && deliberation::observed(snapshot,reference).is_none() && !deliberation::choice_observed(snapshot,reference) {
+    if experience_basis(snapshot, reference).is_none() {
         return Err(failure(format!(
             "Read the exact experience {reference} before interpreting it. To compare several records, select them together in next_context.references so their bodies reach the same decision."
         )));

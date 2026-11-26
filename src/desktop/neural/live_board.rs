@@ -1206,6 +1206,7 @@ enum EventAction {
     Reply(String, String, String),
     Request(String),
     Receipt(i64),
+    Rejection(i64),
     Expand(Option<i64>),
 }
 
@@ -1338,6 +1339,7 @@ impl App {
                     }
                     Some(EventAction::Request(id)) => self.show_human_request(&id),
                     Some(EventAction::Receipt(seq)) => self.open_message_receipt(ui.ctx(), seq),
+                    Some(EventAction::Rejection(seq)) => self.open_rejection(ui.ctx(), seq),
                     Some(EventAction::Expand(seq)) => {
                         if seq.is_some() {
                             self.live_board.paused_at.get_or_insert(self.cursor);
@@ -1654,6 +1656,9 @@ impl App {
                         if text_action(ui, label).clicked() {
                             action = Some(EventAction::Receipt(seq));
                         }
+                    }
+                    if kind == "decision_rejected" && text_action(ui, "Inspect rejected response").clicked() {
+                        action = Some(EventAction::Rejection(seq));
                     }
                     if let Some(reference) = event["failed_call"]["receipt"].as_str() {
                         if text_action(ui, "Provider receipt").on_hover_text(reference).clicked() {

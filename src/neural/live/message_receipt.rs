@@ -8,6 +8,8 @@ mod pdf_pages;
 mod command_inputs;
 mod exchange;
 mod answers;
+mod rejection;
+pub use rejection::inspect as rejected_decision;
 mod participation;
 pub use participation::participation_terms;
 pub(in crate::neural) use answers::operator_answer;
