@@ -21,6 +21,22 @@ fn workspace_command_paused(store: &Store) -> bool {
 
 #[derive(Subcommand, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
+pub enum ZipInspection {
+    /// Find the chosen member’s uncompressed bytes at any original path in the other ZIP.
+    Locate {
+        #[arg(value_enum)]
+        side: super::issued_zip::Side,
+        /// Full original member path in that archive, case-sensitive.
+        path: String,
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
+        #[arg(long, default_value_t = 12)]
+        page_size: usize,
+    },
+}
+
+#[derive(Subcommand, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Command {
     /// Create an isolated runtime and attributed general-purpose identities; no inference.
     Init {
@@ -201,6 +217,8 @@ pub enum Command {
         #[arg(long,default_value="")] baseline_root:String,
         /// Explicit enclosing folder in the selected ZIP (ending in '/'); default uses original member paths.
         #[arg(long,default_value="")] selected_root:String,
+        #[command(subcommand)]
+        inspection: Option<ZipInspection>,
     },
     /// Save the exact files of one delivery or human request as a portable ZIP.
     ExportPackage { reference: String, destination: PathBuf },
@@ -602,7 +620,16 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
         Command::Export{directory,work}=>Ok(serde_json::to_value(super::delivery_export::collection(root,&directory,work.as_deref(),None)?)?),
         Command::ExportReviewFile{file,destination}=>file.save(&store::open_inspection(root)?,&destination),
         Command::AfterIssue(query)=>super::package_review::after_issue::inspect(&store::open_inspection(root)?, &query),
-        Command::CompareIssuedZips{baseline_edition,baseline_file,edition,file,baseline_root,selected_root}=>Ok(serde_json::to_value(super::issued_zip::compare(&store::open_inspection(root)?,&baseline_edition,&baseline_file,&edition,&file,&baseline_root,&selected_root)?)?),
+        Command::CompareIssuedZips { baseline_edition, baseline_file, edition, file, baseline_root, selected_root, inspection } => {
+            let result = super::issued_zip::compare(&store::open_inspection(root)?, &baseline_edition, &baseline_file, &edition, &file, &baseline_root, &selected_root)?;
+            match inspection {
+                Some(ZipInspection::Locate { side, path, offset, page_size }) => {
+                    let locations = result.contents.locate(&super::issued_zip::MemberAddress { side, path }, offset, page_size)?;
+                    Ok(json!({"baseline":result.baseline,"selected":result.selected,"locations":locations}))
+                }
+                None => Ok(serde_json::to_value(result)?),
+            }
+        },
         Command::ExportPackage{reference,destination}=>super::human_requests::export_package(&store::open_inspection(root)?,&reference,&destination),
         Command::ExportDispatch{delivery,number,destination,packet}=>{
             let export = if packet { super::human_requests::export_dispatch_packet } else { super::human_requests::export_dispatch };

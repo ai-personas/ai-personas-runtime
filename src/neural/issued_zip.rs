@@ -1,10 +1,12 @@
 //! Recipient-side comparison of two explicitly selected files in exact issued editions.
 //! Read the ZIPs as data: no extraction, host paths, command execution or review state.
 mod inspection;
+mod locations;
 mod paths;
 mod retained;
 use super::{failure, issued_files::{Edition, Source}, Result};
 pub use inspection::{MemberText, Members};
+pub use locations::{Locations, MemberAddress, Side};
 pub use paths::Contents;
 pub use retained::{compare_registered, RegisteredQuery};
 use rusqlite::Connection;
@@ -62,7 +64,7 @@ fn unique_entries(mut tail: impl Read, expected: usize) -> Result<()> {
     Ok(())
 }
 
-fn members(db: &Connection, source: &Source) -> Result<BTreeMap<String, Fingerprint>> {
+fn members(db: &Connection, source: &Source) -> Result<paths::Files> {
     fingerprint(&source.read_bytes(db)?).map_err(|e| {
         failure(format!("Cannot compare {} in {}: {e}", source.path, source.edition))
     })
@@ -73,7 +75,15 @@ pub struct Fingerprint {
     pub bytes: u64,
     pub sha256: String,
 }
-fn fingerprint(bytes: &[u8]) -> Result<BTreeMap<String, Fingerprint>> {
+#[derive(Clone, Serialize)]
+pub struct Entry {
+    /// Index in this exact ZIP only. Directory order is not content identity.
+    #[serde(skip)]
+    pub index: usize,
+    #[serde(flatten)]
+    pub fingerprint: Fingerprint,
+}
+fn fingerprint(bytes: &[u8]) -> Result<paths::Files> {
     let mut zip = directory(bytes)?;
     let mut members = BTreeMap::new();
     for i in 0..zip.len() {
@@ -93,9 +103,12 @@ fn fingerprint(bytes: &[u8]) -> Result<BTreeMap<String, Fingerprint>> {
         }
         members.insert(
             file.name().into(),
-            Fingerprint {
-                bytes: count,
-                sha256: hex::encode(hash.finalize()),
+            Entry {
+                index: i,
+                fingerprint: Fingerprint {
+                    bytes: count,
+                    sha256: hex::encode(hash.finalize()),
+                },
             },
         );
     }
@@ -114,8 +127,8 @@ pub enum Difference {
 pub struct Member {
     pub path: String,
     pub difference: Difference,
-    pub baseline: Option<Fingerprint>,
-    pub selected: Option<Fingerprint>,
+    pub baseline: Option<Entry>,
+    pub selected: Option<Entry>,
 }
 #[derive(Serialize)]
 pub struct Comparison {

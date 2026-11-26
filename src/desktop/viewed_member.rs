@@ -47,6 +47,12 @@ impl Viewer {
 }
 
 impl MemberTarget {
+    /// A content lookup already knows the outer ZIP it fingerprinted. Do not
+    /// transplant its directory index into a different snapshot at open time.
+    pub(in crate::desktop) fn from_zip(archive: String, original: String, index: usize, path: String) -> Self {
+        Self::Viewed(ViewedMember { archive, original, steps: vec![(ArchiveFormat::Zip, index, path)] })
+    }
+
     pub(super) fn resolve(
         self,
         root: Source,

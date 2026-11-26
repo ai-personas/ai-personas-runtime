@@ -1,10 +1,10 @@
 //! Align only the enclosing folder(s) explicitly chosen by the reader. Never
 //! discard a file to make two trees look alike or infer renames from a digest.
-use super::{failure, Difference, Fingerprint, Member, Result};
+use super::{failure, Difference, Entry, Member, Result};
 use serde::Serialize;
 use std::collections::BTreeMap;
 
-pub(super) type Files = BTreeMap<String, Fingerprint>;
+pub(super) type Files = BTreeMap<String, Entry>;
 
 #[derive(Serialize)]
 pub struct Contents {
@@ -68,7 +68,7 @@ pub(super) fn compare(
             right.remove(&format!("{selected}{path}"))
         };
         let difference = match &b {
-            Some(b) if b == &a => Difference::Same,
+            Some(b) if b.fingerprint == a.fingerprint => Difference::Same,
             Some(_) => Difference::Changed,
             None => Difference::OnlyBaseline,
         };
