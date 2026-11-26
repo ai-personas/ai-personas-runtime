@@ -229,11 +229,16 @@ pub(super) fn insert_bytes(db: &Connection, digest: &str, media: &str, bytes: &[
 pub fn put<T: Serialize>(db: &Connection, value: &T) -> Result<String> {
     put_bytes(db, "application/json", &serde_json::to_vec(value)?)
 }
+/// Check the length of the retained file without loading it into a preview.
+/// A missing row is not a zero-byte file. Other database errors keep their cause.
+pub(super) fn file_size(db: &Connection, path: &str, digest: &str) -> Result<u64> {
+    let length: i64 = db.query_row("SELECT length(bytes) FROM objects WHERE digest=?1", [digest], |r| r.get(0))
+        .optional()?.ok_or_else(|| failure(format!("Missing retained file bytes for {path} (object:{digest})")))?;
+    Ok(length.try_into()?)
+}
 pub fn bytes(db: &Connection, digest: &str) -> Result<Vec<u8>> {
-    let bytes: Vec<u8> =
-        db.query_row("SELECT bytes FROM objects WHERE digest=?1", [digest], |r| {
-            r.get(0)
-        })?;
+    let bytes: Vec<u8> = db.query_row("SELECT bytes FROM objects WHERE digest=?1", [digest], |r| r.get(0))
+        .optional()?.ok_or_else(|| failure(format!("Missing retained object: object:{digest}")))?;
     if crate::store::sha256_bytes(&bytes) != digest {
         return Err(failure("retained object digest mismatch"));
     }

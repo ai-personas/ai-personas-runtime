@@ -1677,7 +1677,7 @@ impl App {
                         ui.add(egui::Label::new(RichText::new(format!("v{version}")).size(10.).weak()).truncate());
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.add(egui::Label::new(RichText::new(size(asset["size"].as_u64().unwrap_or(0))).small()).truncate());
+                        ui.add(egui::Label::new(RichText::new(asset_size(asset)).small()).truncate());
                     });
                 });
             })

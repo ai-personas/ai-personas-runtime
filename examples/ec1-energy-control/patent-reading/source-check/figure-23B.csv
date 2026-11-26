@@ -1,0 +1,5 @@
+source,series_as_printed,curve_at_40_kV,record_type,a_uN_per_kV2,b_uN_per_kV,c_uN,voltage_kV,fit_force_uN
+US 11511891 B2; sheet 18; Fig. 23B,Small Foam Thruster,lower / joined-looking,printed_polynomial_evaluation,.2359,-9.8135,118.7,30,36.6050
+US 11511891 B2; sheet 18; Fig. 23B,Small Foam Thruster,lower / joined-looking,printed_polynomial_evaluation,.2359,-9.8135,118.7,40,103.6000
+US 11511891 B2; sheet 18; Fig. 23B,Might Mouse1,upper / dotted,printed_polynomial_evaluation,.2914,-9.7267,80.887,30,51.3460
+US 11511891 B2; sheet 18; Fig. 23B,Might Mouse1,upper / dotted,printed_polynomial_evaluation,.2914,-9.7267,80.887,40,158.0590

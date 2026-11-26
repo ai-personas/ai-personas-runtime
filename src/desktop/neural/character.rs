@@ -268,7 +268,7 @@ impl App {
         }
         if let Some(asset) = &asset {
             theme::property(ui, "Version", &asset["revision"].to_string());
-            theme::property(ui, "Size", &size(asset["size"].as_u64().unwrap_or(0)));
+            theme::property(ui, "Size", &asset_size(asset));
             theme::property(
                 ui,
                 "Retained",

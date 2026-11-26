@@ -936,6 +936,9 @@ fn number(value: u64) -> String {
 fn counted(n: u64, singular: &str, plural: &str) -> String {
     format!("{} {}", number(n), if n == 1 { singular } else { plural })
 }
+fn asset_size(asset: &Value) -> String {
+    asset["size"].as_u64().map(size).unwrap_or_else(|| "Bytes missing".into())
+}
 fn size(bytes: u64) -> String {
     if bytes >= 1_048_576 {
         format!("{:.1} MB", bytes as f64 / 1_048_576.)

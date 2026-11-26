@@ -185,11 +185,13 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
         let blob = asset.body["blob"]
             .as_str()
             .ok_or_else(|| neural::failure("Artifact has no retained content"))?;
-        let (size, media): (i64, String) = db.query_row(
+        // The registration still exists if its file is missing. Don't lose the
+        // rest of the workspace (including runner observations) with that file.
+        let (size, media) = db.query_row(
             "SELECT length(bytes),media FROM objects WHERE digest=?1",
             [blob],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )?;
+            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
+        ).optional()?.unzip();
         let created: i64 = db.query_row(
             "SELECT created FROM versions WHERE kind='asset' AND id=?1 AND revision=?2",
             rusqlite::params![asset.reference.id, asset.reference.revision],

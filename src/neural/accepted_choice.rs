@@ -345,12 +345,8 @@ impl Choice {
                     && b["cues"] == op.input["cues"]
                     && b["blob"] == blob
                     && result["blob"] == blob
-                    && result["bytes"].as_i64()
-                        == Some(db.query_row(
-                            "SELECT length(bytes) FROM objects WHERE digest=?1",
-                            [&blob],
-                            |r| r.get(0),
-                        )?)
+                    && result["bytes"].as_u64()
+                        == Some(store::file_size(db, b["path"].as_str().unwrap_or("this file"), &blob)?)
                     && super::asset_history::proof::metadata(
                         db,
                         record,

@@ -68,10 +68,10 @@ pub(in crate::neural) fn content_before(db: &Connection, reference: &str, issue:
         .ok_or_else(|| failure(format!("Cannot verify the source of issued file {reference}")))?;
     let writer = Choice::recorded(db, &source.author, &source.call)
         .map_err(|e| failure(format!("Cannot verify the content-writing decision {}: {e}", source.call)))?;
-    let size: i64 = db.query_row("SELECT length(bytes) FROM objects WHERE digest=?1", [&source.blob], |r| r.get(0))?;
+    let size = store::file_size(db, &source.path, &source.blob)?;
     if source.write_tool.is_none() || source.written_event.is_some_and(|seq| seq >= sequence)
         || version_order(db, &file)? >= version_order(db, issue)?
-        || !proof::verified_source(db, &writer, &source, size.try_into()?)? {
+        || !proof::verified_source(db, &writer, &source, size)? {
         return Err(failure(format!("The file {reference} differs from its recorded write before issue")));
     }
     Ok(source)

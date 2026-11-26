@@ -2,6 +2,8 @@
 *.pdf binary
 *.xlsx binary
 rotary/commission.txt -text
+patent-reading/commission.txt -text
+patent-reading/source-check/*.csv -text whitespace=cr-at-eol
 inspection/EC1-inspection.svg -text
 inspection/rest/EC1-inspection-rest/* -text
 inspection/register/EC1-register/*.csv -text whitespace=cr-at-eol
