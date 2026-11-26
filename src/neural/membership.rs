@@ -446,8 +446,9 @@ pub(super) fn change_activity(
         None,
     )?;
     let human_roles = super::task_roles::at_closure(db, work, &proof)?;
+    let outside = super::human_requests::register::observations(db, work)?;
     let body = json!({"work":work,"operator":operator,"reason":reason,"at_unix":super::now(),"prior_brief":prior,
-        "brief":next.handle(),"human_roles_at_closure":human_roles,"members":members,"released_outcomes":outcomes,"unfinished_outcomes":unfinished,
+        "brief":next.handle(),"human_roles_at_closure":human_roles,"outside_steps_at_closure":outside,"members":members,"released_outcomes":outcomes,"unfinished_outcomes":unfinished,
         "closed_offers":offers,"effect_observations":effects,"open_jobs_observed":open_jobs(db,work)?,"inference_observations":unsettled_inference(db,work)?});
     store::write(db, "dissolution", &key, 0, &body, None)?;
     let change = json!({"work":work,"dissolution":proof,"operator":operator,"reason":reason,"brief":next.handle(),
@@ -488,9 +489,7 @@ pub fn responsibilities(db: &Connection, work: &str) -> Result<Value> {
         members.push(json!({"actor":actor,"label":store::required(db,"persona",actor)?.body["label"],"state":state,"participation":p.reference.handle(),"continuation":p.body["continuation"],"pending_resume":p.body["pending_resume"],
             "current_commitment":context::commitment(db,work,actor)?,"departure":p.body["departure"],"closed_by_activity":p.body["closed_by_activity"]}));
     }
-    let outside_steps = store::in_work(db, "human_request", work)?.into_iter().map(|r| {
-        super::human_requests::register::summary(r.reference.handle(), &r.body)
-    }).collect::<Vec<_>>();
+    let outside_steps = super::human_requests::register::observations(db, work)?;
     Ok(
         json!({"work":work,"brief":activity.reference.handle(),"phase":activity.body["phase"],
         "kind":activity.body["kind"],"human_roles":super::task_roles::entries(db,work)?,

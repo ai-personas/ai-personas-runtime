@@ -79,6 +79,10 @@ impl Attempt {
 }
 
 impl Inbox {
+    pub(super) fn showing(&self, id: &str) -> bool {
+        self.selected == id
+    }
+
     pub(super) fn active_list(&mut self) {
         self.tab = InboxTab::Active;
         self.list();
@@ -283,7 +287,11 @@ impl App {
                 design::persona_mark(ui, mark, name, persona_color(requester));
                 ui.strong(name).on_hover_text(requester);
                 theme::badge(ui, status, color);
-                let work = self.work_name(s(body, "work"));
+                let id = s(body, "work");
+                if self.home_index.activity(id).is_some_and(|a| a.phase == "dissolved") {
+                    ui.small("Activity ended");
+                }
+                let work = self.work_name(id);
                 ui.weak(excerpt(&work, 62)).on_hover_text(work);
             });
             ui.add_space(5.);
@@ -323,6 +331,7 @@ impl App {
         let state = s(body, "state");
         let (status, color) = phase(state);
         let active = matches!(state, "open" | "in_progress");
+        let ended = self.home_index.activity(work).is_some_and(|a| a.phase == "dissolved");
         let has_draft = self.inbox.drafts.get(key).is_some_and(|d| {
             !d.note.is_empty()
                 || !d.attachments.is_empty()
@@ -356,22 +365,24 @@ impl App {
                 ui.add_space(3.);
                 ui.add(egui::Label::new(design::display(s(body, "title"), 29.)).wrap());
                 self.requester_continuation(ui, &reference, requester, work);
+                if ended {
+                    ui.weak(if active {
+                        "Activity ended · The outside step is still active. A report changes the request, not the ended participation."
+                    } else {
+                        "Activity ended · The request’s own disposition is shown above."
+                    });
+                }
                 ui.add_space(4.);
                 ui.horizontal_wrapped(|ui| {
-                    let open_activity = if body["field_packet"].is_object() {
-                        egui::Button::new("Open live activity")
+                    if ended {
+                        if ui.button("Open activity record").clicked() { self.open_home_activity(work); }
                     } else {
-                        theme::primary("Open live activity")
-                    };
-                    if ui
-                        .add(open_activity)
-                        .on_hover_text(format!(
-                            "Open this activity with the composer addressed to {}",
-                            self.label(requester)
-                        ))
-                        .clicked()
-                    {
-                        self.open_home_message(work, requester);
+                        let open_activity = if body["field_packet"].is_object() {
+                            egui::Button::new("Open live activity")
+                        } else { theme::primary("Open live activity") };
+                        if ui.add(open_activity).on_hover_text(format!("Open this activity with the composer addressed to {}", self.label(requester))).clicked() {
+                            self.open_home_message(work, requester);
+                        }
                     }
                     let handoff = "Save the printable request and its exact attachments. Active requests with a verified origin include a fillable field report.";
                     if !body["field_packet"].is_object() && ui.button("Save handoff…").on_hover_text(handoff).clicked() {

@@ -818,7 +818,8 @@ impl eframe::App for App {
                         Some(responsibilities::Action::ChangeActivity{reopen,brief})=>self.dialog=Some(Dialog::ActivityState{
                             work:self.work.clone(),expected:brief,reopen,reason:String::new()}),
                         Some(responsibilities::Action::Inspect(reference))=>self.open_board_source(ctx,reference),
-                        Some(responsibilities::Action::OpenRequest(id))=>self.show_human_request(&id),
+                        Some(responsibilities::Action::OpenRequest(id))=>self.open_board_request(id),
+                        Some(responsibilities::Action::SaveOutside{reference,source,title})=>self.export_closure_files(reference,source,&title),
                         Some(responsibilities::Action::RoleReceipts(r))=>self.open_role_receipts(ctx,r),
                         Some(responsibilities::Action::Message{person,text})=>self.dialog=Some(Dialog::Participation{
                             work:self.work.clone(),title:self.task_title().into(),action:dialogs::Action::Message,person,text,reply_to:None,sources:Default::default()}),

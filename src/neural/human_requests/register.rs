@@ -20,7 +20,6 @@ pub struct Lookup {
     page_size: usize,
 }
 
-
 fn default_page_size() -> usize {
     20
 }
@@ -39,6 +38,76 @@ pub(crate) fn available(db: &Connection, work: &str) -> Result<bool> {
 pub(crate) fn summary(reference: String, body: &Value) -> Value {
     json!({"reference":reference,"title":body["title"],"requester":body["requester"],
         "state":body["state"],"claimed_by":body["claimed_by"]})
+}
+
+/// The responsibility board and the activity-ending transaction observe the
+/// same register. A known request with a lost head is not an empty register.
+/// These are observations of retained terms and status, not receipts or orders.
+pub(crate) fn observations(db: &Connection, work: &str) -> Result<Vec<Value>> {
+    let mut query = db.prepare(
+        "WITH editions AS (
+             SELECT id,digest FROM heads WHERE kind='human_request' UNION ALL
+             SELECT id,digest FROM versions WHERE kind='human_request' AND revision=1
+         ) SELECT v.id FROM versions v JOIN invocations i ON i.id=v.invocation
+         WHERE v.kind='human_request' AND v.revision=1 AND i.work=?1
+         UNION SELECT e.id FROM editions e JOIN objects o USING(digest)
+         WHERE CASE WHEN json_valid(CAST(o.bytes AS TEXT))
+             THEN json_extract(CAST(o.bytes AS TEXT),'$.work') END=?1 ORDER BY 1",
+    )?;
+    let ids = query.query_map([work], |row| row.get::<_, String>(0))?;
+    let mut steps = Vec::new();
+    for id in ids {
+        let id = id?;
+        let observed = || -> Result<Value> {
+            let head = store::required(db, "human_request", &id)?;
+            let reference = head.reference.handle();
+            let body = &head.body;
+            let first = store::exact(db, &format!("human_request:{id}@1"))?;
+            let (revision, digest, same_activity): (i64, String, bool) = db.query_row(
+                "SELECT v.revision,v.digest,
+                        (opening.invocation IS NULL OR (i.work IS ?2 AND i.actor IS ?3))
+                 FROM versions v JOIN versions opening ON opening.kind=v.kind AND opening.id=v.id AND opening.revision=1
+                 LEFT JOIN invocations i ON i.id=opening.invocation
+                 WHERE v.kind='human_request' AND v.id=?1 ORDER BY v.revision DESC LIMIT 1",
+                params![id, work, body["requester"].as_str()],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )?;
+            if revision != head.reference.revision
+                || digest != head.reference.digest
+                || !same_activity
+                || body["work"] != work
+                || !super::same_terms(&first.body, body)
+            {
+                return Err(failure(
+                    "Request register does not match its retained terms and edition",
+                ));
+            }
+            let named = |key: &str| body[key].as_str().is_some_and(|s| !s.trim().is_empty());
+            let valid_holder = match body["state"].as_str() {
+                Some("open" | "withdrawn") => body.get("claimed_by") == Some(&Value::Null),
+                Some("in_progress" | "completed" | "unable") => named("claimed_by"),
+                _ => false,
+            };
+            if !named("requester") || !named("title") || !named("action") || !valid_holder {
+                return Err(failure(
+                    "Request status, requester or holder is unavailable",
+                ));
+            }
+            let mut step = summary(reference, body);
+            step["source"] = json!(format!("object:{}", head.reference.digest));
+            step["file_count"] = json!(body["artifacts"]
+                .as_array()
+                .filter(|files| files
+                    .iter()
+                    .all(|f| f.as_str().is_some_and(|r| !r.is_empty())))
+                .map(Vec::len));
+            Ok(step)
+        };
+        steps.push(
+            observed().unwrap_or_else(|e| json!({"request_id":id,"unavailable":e.to_string()})),
+        );
+    }
+    Ok(steps)
 }
 
 pub(crate) fn list(db: &Connection, work: &str, query: Lookup) -> Result<Value> {
