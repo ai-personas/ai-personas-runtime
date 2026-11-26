@@ -72,6 +72,7 @@ impl App {
         let mut inspect_run = None;
         let mut open_file = None;
         let mut open_package = None;
+        let mut review_choice = None;
         let mut refresh = false;
         let report = self.message_receipt.report.as_ref().and_then(|r| r.as_ref().ok());
         let peer = self.message_receipt.peer || report.is_some_and(|r| r["kind"] == "peer_exchange");
@@ -139,6 +140,17 @@ impl App {
                 } else {
                     theme::badge(ui, &format!("{heading} recorded"), PURPLE);
                     ui.label(format!("No verified receipt in {recipient}’s decisions in the original activity."));
+                    let work = s(report, "work");
+                    let open = self.records("work").iter().any(|r| r["body"]["id"] == work && r["body"]["phase"] == "open");
+                    if let Some(state) = self.records("participation").iter()
+                        .find(|r| r["body"]["work"] == work && r["body"]["persona"] == report["recipient"])
+                        .and_then(|r| dialogs::RecipientState::read(r, open))
+                    {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.strong("Participation now");
+                            review_choice = state.show(ui, self.dialog.is_none() && !self.busy);
+                        });
+                    }
                     if !self.running && !self.snapshot.status.is_null() && matches!(self.runner_observation, RunnerObservation::Unobserved) {
                         ui.weak("No activity runner is currently observed in this workspace.");
                     }
@@ -285,7 +297,9 @@ impl App {
         } else if refresh && self.message_receipt.reader.is_none() {
             self.refresh_message_receipt(ctx, event);
         }
-        if let Some((reference, work)) = open_package {
+        if let Some(choice) = review_choice {
+            if self.review_continuation(choice) { self.message_receipt = Default::default(); }
+        } else if let Some((reference, work)) = open_package {
             self.message_receipt = Default::default();
             self.open_home_delivery(&reference, &work);
         } else if let Some(reference) = inspect_run {

@@ -1,5 +1,5 @@
 //! Human messages use the same attributed, idempotent write as the operator CLI.
-use super::{excerpt, input_files::Picker, operator_call, s, theme, App, Command, Icon, Update};
+use super::{excerpt, input_files::Picker, operator_call, theme, App, Command, Icon, Update};
 use ai_personas::neural::input_files::{CapturedFile, InputFiles};
 use eframe::egui::{self, RichText, Ui};
 use std::collections::BTreeMap;
@@ -176,7 +176,7 @@ pub(super) struct SubmissionResult {
 struct Recipient {
     id: String,
     name: String,
-    status: Option<&'static str>,
+    state: Option<super::dialogs::RecipientState>,
 }
 
 impl Composer {
@@ -602,30 +602,19 @@ impl App {
         if work.is_empty() {
             return;
         }
+        let open_activity = self.records("work").iter()
+            .any(|row| row["body"]["id"] == work && row["body"]["phase"] == "open");
         let members: Vec<_> = self
             .records("participation")
             .iter()
-            .map(|row| &row["body"])
-            .filter(|body| body["work"] == work)
-            .filter_map(|body| {
+            .filter(|row| row["body"]["work"] == work)
+            .filter_map(|row| {
+                let body = &row["body"];
                 let id = body["persona"].as_str()?;
-                let status = if body["closed_by_activity"].is_string() {
-                    Some("Activity ended")
-                } else if body["departure"].is_string() {
-                    Some("Left this activity")
-                } else if body["declined"] == true {
-                    Some("Invitation declined")
-                } else if body["pending_resume"].is_object() {
-                    Some("Resume requested")
-                } else if matches!(s(&body["continuation"], "kind"), "stop" | "stopped") {
-                    Some("Stopped on this activity")
-                } else {
-                    None
-                };
                 Some(Recipient {
                     id: id.to_owned(),
                     name: self.label(id).to_owned(),
-                    status,
+                    state: super::dialogs::RecipientState::read(row, open_activity),
                 })
             })
             .collect();
@@ -657,6 +646,8 @@ impl App {
         let mut receipt = None;
         let mut open_package = None;
         let mut invite = false;
+        let mut review_choice = None;
+        let can_review = self.dialog.is_none() && !self.busy;
         let sent = egui::Frame::new()
             .fill(p.panel)
             .stroke(egui::Stroke::new(1., p.border))
@@ -755,13 +746,8 @@ impl App {
                     if !bound {
                         activity.feedback_drafts(ui);
                     }
-                    if let Some(status) = selected.and_then(|person| person.status) {
-                        ui.label(RichText::new(status).small().color(p.muted))
-                            .on_hover_text(if status == "Stopped on this activity" {
-                                "Recording a message leaves this participant stopped."
-                            } else {
-                                "You can still record a message for this participant."
-                            });
+                    if let Some(state) = selected.and_then(|person| person.state.as_ref()) {
+                        review_choice = state.show(ui, can_review);
                     }
                     if let Some(draft) = activity.drafts.get(&activity.selected) {
                         if draft.pending.is_some() {
@@ -802,6 +788,9 @@ impl App {
                 draft.editor(ui, work, &activity.selected, person, operator)
             })
             .inner;
+        if let Some(choice) = review_choice {
+            self.review_continuation(choice);
+        }
         if let Some(reference) = open_package {
             self.open_home_delivery(&reference, work);
         }
