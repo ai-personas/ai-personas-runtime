@@ -16,10 +16,12 @@ pub(super) struct Panel {
     pending: Option<Receiver<Result<Value, String>>>,
     report: Option<Result<Value, String>>,
     selected: usize,
+    question: Option<question_history::Return>,
 }
 
 enum Action {
     Open(String),
+    Question(question_history::Return),
     Atlas { decision: String, owner: String, epoch: u64 },
     Paths {
         query: character_paths::Query,
@@ -28,12 +30,13 @@ enum Action {
 }
 
 impl App {
-    pub(super) fn open_generation(&mut self, ctx: &egui::Context, owner: String, change: String) {
+    pub(super) fn open_generation(&mut self, ctx: &egui::Context, owner: String, change: String, question: Option<question_history::Return>) {
         self.compact_browser = false;
         self.persona = owner.clone();
         self.character_tab = 3;
         self.layout.editor = Editor::Character;
         self.revision_uses.owner = owner;
+        self.revision_uses.question = question;
         self.revision_uses.load(ctx, &self.root, Query {
             reference: change, work: None, basis: None, offset: 0, page_size: 6,
         });
@@ -52,6 +55,10 @@ impl App {
                 .show(ui, &self.root, &self.snapshot.status)
             {
                 Some(Action::Open(reference)) => self.open_resource(ui.ctx(), reference),
+                Some(Action::Question(origin)) => {
+                    self.character_tab = 4;
+                    self.question_history.reopen(ui.ctx(), &self.root, origin);
+                }
                 Some(Action::Atlas { decision, owner, epoch }) => {
                     self.atlas.use_decision(decision, owner, epoch);
                     self.layout.editor = Editor::Atlas;
@@ -218,7 +225,16 @@ impl Panel {
     }
 
     fn show(&mut self, ui: &mut Ui, root: &Path, status: &Value) -> Option<Action> {
-        if ui.small_button("← All revisions").clicked() {
+        let mut back = None;
+        let all = ui.horizontal_wrapped(|ui| {
+            if self.question.is_some() && ui.small_button("← Question history").clicked() {
+                back = self.question.take();
+            }
+            ui.small_button("← All revisions").clicked()
+        }).inner;
+        if let Some(origin) = back { return Some(Action::Question(origin)); }
+        if all {
+            self.question = None;
             self.query = None;
             self.report = None;
             self.pending = None;

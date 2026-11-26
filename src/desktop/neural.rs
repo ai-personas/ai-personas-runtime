@@ -878,8 +878,16 @@ impl eframe::App for App {
         if let Some(reference)=self.library_search.show(ctx,&self.root){
             self.open_resource(ctx,reference);
         }
-        if let Some(reference) = self.question_history.show(ctx, &self.root, &self.snapshot.status) {
-            self.open_resource(ctx, reference);
+        if let Some(action) = self.question_history.show(ctx, &self.root, &self.snapshot.status) {
+            match action {
+                question_history::Action::Record(r) => self.open_resource(ctx, r),
+                question_history::Action::Generation { owner, decision, origin } => self.open_generation(ctx, owner, decision, Some(origin)),
+                question_history::Action::Paths { decision, owner, utc } => self.character_paths.open_query(
+                    ctx, &self.root, &owner, &utc, ai_personas::neural::character_paths::Query {
+                        decision, axis: None, hidden_unit: None, compare: None,
+                    },
+                ),
+            }
         }
         if let Some(reference) = self.character_paths.show(ctx, &self.root, &self.snapshot.candidates, &self.snapshot.status) {
             self.open_choice_or_record(ctx, reference);

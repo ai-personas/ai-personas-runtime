@@ -339,9 +339,20 @@ pub(super) fn read(db: &Connection, actor: Option<&str>, reference: &str) -> Res
             |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
         event["snapshot"] = json!(format!("object:{snapshot}"));
-        event["provider_receipt"] = json!(receipt.map(|d| format!("object:{d}")));
-        event["character_use"] =
-            json!(store::head(db, "character_use", &item.id)?.map(|r| r.reference.handle()));
+        event["provider_receipt"] = json!(receipt.as_ref().map(|d| format!("object:{d}")));
+        let usage = receipt.as_deref().map_or(Ok(None), |r| {
+            let Some(input) = super::character::verified_supply(db, &item.id, r, &item.digest)? else {
+                return Ok(None);
+            };
+            if input["owner"] != item.actor || input["work"] != item.work {
+                return Err(failure("The character input belongs to a different decision"));
+            }
+            super::character::original_use(db, &item.id, &input)
+        });
+        event["character_use"] = json!(usage.as_ref().ok().and_then(Option::as_ref));
+        if let Err(error) = usage {
+            event["character_use_error"] = json!(error.to_string());
+        }
         let mut statement = db.prepare(
             "SELECT seq,kind,target FROM events WHERE work=?1 AND invocation=?2
             AND kind IN ('reply','message','delivery','asset_feedback','request_message_sent','request_review_sent') ORDER BY seq",

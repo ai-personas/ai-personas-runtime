@@ -53,7 +53,7 @@ impl App {
             Some(Action::Lab) => self.layout.editor = Editor::Character,
             Some(Action::Profile(id)) => self.show_person(&id),
             Some(Action::Generation(owner, change)) => {
-                self.open_generation(ui.ctx(), owner, change)
+                self.open_generation(ui.ctx(), owner, change, None)
             }
             Some(Action::Inspect(reference)) => self.open_resource(ui.ctx(), reference),
             None => {}

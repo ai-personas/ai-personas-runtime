@@ -325,6 +325,14 @@ Choose **Trace question history…** to follow a question across activities and 
 
 A retired question is marked **Closed**. Expand it to read the persona’s reason and open its **Closure decision**. An unanswered reply keeps its own interpretation status after the question closes.
 
+### Which character made the switch?
+
+In **Question history → Switch choices**, read **Input · epoch** first. That is the character supplied to the decision, even when the decision chose a different one. **Numerical paths…** opens that input’s appraisal and inclinations. The badge on the right identifies the epoch that the choice activated or restored. On Ren’s timeline, the choice at #64 received epoch 1 and activated epoch 2; the choice at #86 received epoch 2 and restored the original package as epoch 3.
+
+![Ren’s two switch choices, with the input epoch to the left of the resulting epoch](assets/studio-question-switches.jpg)
+
+Choose **Inspect later decisions →** for the new epoch. The comparison evaluates the two packages on each recorded input; it does not run another persona or test the quality of the work. **← Question history** reads the question again and returns to the same filter and page if available. A missing or inconsistent switch record leaves the accepted choice visible without a link to a generation. **Practice trail** is separate: the persona can try a method, interpret its result and keep the same character throughout. [What happened in Ren’s and Nell’s histories](maturation-transfer.md#read-the-model-on-each-side-of-a-decision).
+
 **Character Lab → Revisions** shows the initial activation, later adoptions and rollbacks for the selected persona. Choose **Inspect later decisions** on a change to see the decisions that actually received that generation. Under **Authored candidates**, **Try on recorded inputs** evaluates the candidate on inputs that received its preceding package. Both views run locally.
 
 Use **Baseline**, **Contextual** or the activity picker to narrow the list. The changed and equal counts cover the displayed page. Select a decision to compare its signed inclination values and open an individual **Weight path**. **Sent reply** opens the persona’s words. **Replies and reviews** opens directly linked responses and their targets. **Decision events and provider records** includes the underlying tool results, accepted choice and public receipt metadata. An older receipt with inline provider output opens as **Provider receipt metadata**. **Save metadata…** saves that view.

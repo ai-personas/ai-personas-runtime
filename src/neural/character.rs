@@ -320,11 +320,16 @@ pub(super) fn verified_supply(
         return Ok(None);
     }
     verify_input(db, &snapshot, call, &attempt)?;
+    Ok(Some(supply_body(&snapshot, &source, receipt, response, &attempt)))
+}
+
+/// Describe a frozen, verified input, independently of the current identity or library heads.
+pub(super) fn supply_body(snapshot: &Snapshot, source: &str, receipt: &str, response: &str, attempt: &Value) -> Value {
     let data = &snapshot.data;
     let contextual = &data["last_contextual_evaluation"];
     let audit = &attempt["audit"];
-    let body = json!({
-        "invocation":call,"owner":snapshot.actor,"work":snapshot.work,"epoch":snapshot.epoch,
+    json!({
+        "invocation":snapshot.invocation,"owner":snapshot.actor,"work":snapshot.work,"epoch":snapshot.epoch,
         "package":snapshot.model,"numerical":data["identity"]["numerical"],
         "contract":data["baseline_character"]["contract"],"configuration":format!("persona:{}@{}",snapshot.actor,snapshot.persona_revision),
         "baseline":data["baseline_character"],"contextual":contextual,
@@ -333,6 +338,31 @@ pub(super) fn verified_supply(
         "image_inputs":snapshot.image_blobs,"provider_image_audit":audit.get("image_inputs").cloned().unwrap_or_else(||json!([])),
         "snapshot":format!("object:{source}"),"provider_receipt":format!("object:{receipt}"),
         "response":format!("object:{response}"),"observation":"supplied"
-    });
-    Ok(Some(body))
+    })
+}
+
+/// A use is written once, on provider return. Its library head is not the
+/// authority for an older input. Only link the original first edition if the
+/// writer, identity, projection and all claims it contains match that call.
+pub(super) fn original_use(db: &Connection, call: &str, supplied: &Value) -> Result<Option<String>> {
+    let original = db.query_row(
+        "SELECT digest,invocation FROM versions WHERE kind='character_use' AND id=?1 AND revision=1",
+        [call], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?)),
+    ).optional()?;
+    let Some((digest, writer)) = original else { return Ok(None) };
+    let body: Value = store::object(db, &digest)?;
+    // A text-only receipt need not declare images. If either image field is
+    // present, or the call actually had images, require both ordered lists.
+    let image_fields = ["image_inputs", "provider_image_audit"];
+    let no_images_declared = image_fields.iter().all(|&k| body.get(k).is_none()
+        && supplied[k].as_array().is_some_and(Vec::is_empty));
+    let expected = supplied.as_object().ok_or_else(|| failure("Missing verified character input"))?;
+    if writer.as_deref() != Some(call) || !body.as_object().is_some_and(|fields| {
+        fields.keys().all(|k| expected.contains_key(k)) && expected.iter().all(|(k, value)| {
+            fields.get(k) == Some(value) || (no_images_declared && image_fields.contains(&k.as_str()))
+        })
+    }) {
+        return Err(failure("The original character-use record differs from the completed input or its writer"));
+    }
+    Ok(Some(format!("character_use:{call}@1")))
 }

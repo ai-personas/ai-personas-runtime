@@ -1,8 +1,31 @@
 use super::*;
+mod model;
 use std::{
     path::Path,
     sync::mpsc::{Receiver, TryRecvError},
 };
+
+pub(super) enum Action {
+    Record(String),
+    Paths { decision: String, owner: String, utc: String },
+    Generation { owner: String, decision: String, origin: Return },
+}
+
+/// A place to return to, not a cached report. Re-read the question on return.
+pub(super) struct Return {
+    reference: String,
+    title: String,
+    filter: Filter,
+    page: usize,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
+enum Filter {
+    #[default]
+    All,
+    Practice,
+    Switch,
+}
 
 #[derive(Default)]
 pub(super) struct History {
@@ -10,7 +33,7 @@ pub(super) struct History {
     pending: Option<Receiver<Result<Value, String>>>,
     result: Option<Result<Value, String>>,
     page: usize,
-    trail_only: bool,
+    filter: Filter,
 }
 
 impl History {
@@ -23,7 +46,7 @@ impl History {
     ) {
         let (sender, receiver) = mpsc::channel();
         if self.selection.as_ref().is_none_or(|(r, _)| r != &reference) {
-            self.trail_only = false;
+            self.filter = Filter::All;
         }
         self.selection = Some((reference.clone(), title));
         self.pending = Some(receiver);
@@ -39,12 +62,18 @@ impl History {
         });
     }
 
+    pub(super) fn reopen(&mut self, ctx: &egui::Context, root: &Path, origin: Return) {
+        self.open(ctx, root, origin.reference, origin.title);
+        self.filter = origin.filter;
+        self.page = origin.page;
+    }
+
     pub(super) fn show(
         &mut self,
         ctx: &egui::Context,
         root: &Path,
         status: &Value,
-    ) -> Option<String> {
+    ) -> Option<Action> {
         let (reference, title) = self.selection.as_ref()?;
         if let Some(rx) = &self.pending {
             match rx.try_recv() {
@@ -61,6 +90,7 @@ impl History {
         }
         let mut visible = true;
         let mut inspect = None;
+        let mut action = None;
         let mut refresh = false;
         let bounds = (ctx.content_rect().size() - egui::vec2(46., 92.)).max(egui::vec2(1., 1.));
         // In a short or highly zoomed window the labels and navigation must
@@ -104,16 +134,27 @@ impl History {
                             refresh = ui.small_button("Refresh").clicked();
                         });
                         ui.horizontal_wrapped(|ui| {
-                            let all = ui.selectable_value(&mut self.trail_only, false, "All decisions").changed();
-                            let trail = ui.selectable_value(&mut self.trail_only, true, "Practice trail").changed();
-                            if all || trail { self.page = 0; }
+                            for (filter, label) in [(Filter::All, "All decisions"), (Filter::Practice, "Practice trail"), (Filter::Switch, "Switch choices")] {
+                                if ui.selectable_value(&mut self.filter, filter, label).changed() { self.page = 0; }
+                            }
                         });
-                        if self.trail_only { ui.weak("Newest first · What was tried, what came back, and what the owner concluded."); }
-                        let rows: Vec<_> = report["decisions"].as_array().into_iter().flatten().filter(|r| {
-                            !self.trail_only || r["application"].is_string() || ["application_reads", "revisions_written"].iter()
-                                .any(|key| r[*key].as_array().is_some_and(|v| !v.is_empty()))
+                        let rows: Vec<_> = report["decisions"].as_array().into_iter().flatten().filter(|r| match self.filter {
+                            Filter::All => true,
+                            Filter::Practice => r["application"].is_string() || ["application_reads", "revisions_written"].iter()
+                                .any(|key| r[*key].as_array().is_some_and(|v| !v.is_empty())),
+                            Filter::Switch => matches!(r["next_model_choice"].as_str(), Some("activate" | "rollback")),
                         }).collect();
+                        match self.filter {
+                            Filter::Practice if rows.is_empty() => { ui.label("No practice entry on this timeline."); }
+                            Filter::Practice => { ui.weak("Newest first · What was tried, what came back, and what the owner concluded."); }
+                            Filter::Switch if rows.is_empty() => { ui.label("No decision on this timeline chose activation or rollback."); }
+                            Filter::All if rows.is_empty() => { ui.label("No related accepted decisions found."); }
+                            Filter::Switch => { ui.weak("Input shows what the persona received. A verified switch starts a new epoch."); }
+                            Filter::All => {}
+                        }
+                        if rows.is_empty() { return; }
                         const PAGE: usize = 8;
+                        self.page = self.page.min((rows.len() - 1) / PAGE);
                         ui.horizontal_wrapped(|ui| {
                             if ui
                                 .add_enabled(self.page > 0, egui::Button::new("← Newer"))
@@ -124,7 +165,7 @@ impl History {
                             let start = self.page * PAGE;
                             ui.small(format!(
                                 "{}–{} of {} decisions",
-                                usize::from(!rows.is_empty()) + start,
+                                start + 1,
                                 (start + PAGE).min(rows.len()),
                                 rows.len()
                             ));
@@ -149,8 +190,12 @@ impl History {
                                     let activity = work
                                         .map(|w| activity_title(&w["body"]))
                                         .unwrap_or(s(row, "work"));
-                                    card(ui).show(ui, |ui| {
-                                        if self.trail_only {
+                                    ui.push_id(s(row, "decision"), |ui| card(ui).show(ui, |ui| {
+                                        ui.set_min_width(ui.available_width());
+                                        if self.filter == Filter::Switch {
+                                            model::switch_heading(ui, row);
+                                            ui.small(excerpt(activity, 92)).on_hover_text(activity);
+                                        } else if self.filter == Filter::Practice {
                                             let phase = if row["findings_recorded"].as_array().is_some_and(|v| !v.is_empty()) { "Judged the outcome" }
                                                 else if row["application_detail"]["action"].is_object() { "Tried a practice" }
                                                 else if row["application"].is_string() { "Applied the question" }
@@ -219,9 +264,9 @@ impl History {
                                         });
                                         let detail = &row["application_detail"];
                                         if let Some(watch) = detail["watch_for"].as_str() {
-                                            let action = &detail["action"];
-                                            let role = match action["kind"].as_str() {
-                                                Some("operation") => format!("Named action · {} ({})", s(action, "tool"), s(action, "id")),
+                                            let tried = &detail["action"];
+                                            let role = match tried["kind"].as_str() {
+                                                Some("operation") => format!("Named action · {} ({})", s(tried, "tool"), s(tried, "id")),
                                                 Some("reply") => "Tried in the reply".into(),
                                                 _ => "Examined in this choice".into(),
                                             };
@@ -249,7 +294,12 @@ impl History {
                                             ui.strong(format!("Finding on this application · {}", s(finding, "finding")));
                                             ui.add(egui::Label::new(s(finding, "interpretation")).wrap());
                                         }
-                                        if let Some(reason) = row["reason"].as_str() {
+                                        let origin = || Return {
+                                            reference: reference.clone(), title: title.clone(), filter: self.filter, page: self.page,
+                                        };
+                                        model::at_choice(ui, row, s(report, "owner"), origin, &mut action);
+                                        let why = if self.filter == Filter::Switch { "next_model_reason" } else { "reason" };
+                                        if let Some(reason) = row[why].as_str() {
                                             ui.add(egui::Label::new(reason).wrap());
                                         }
                                         ui.horizontal_wrapped(|ui| {
@@ -259,25 +309,14 @@ impl History {
                                             if ui.small_button("Accepted decision ↗").clicked() {
                                                 inspect = Some(s(row, "decision").into());
                                             }
-                                            if let Some(usage) = row["character_use"].as_str() {
-                                                if ui
-                                                    .small_button(format!(
-                                                        "Character · epoch {} ↗",
-                                                        row["epoch"]
-                                                    ))
-                                                    .clicked()
-                                                {
-                                                    inspect = Some(usage.into());
-                                                }
-                                            }
                                         });
-                                    });
+                                    }));
                                     ui.add_space(6.);
                                 }
                         };
                         if compact { cards(ui); } else {
                             egui::ScrollArea::vertical()
-                                .id_salt(("question-history-rows", reference, self.trail_only, self.page))
+                                .id_salt(("question-history-rows", reference, self.filter, self.page))
                                 .show(ui, cards);
                         }
                     }
@@ -286,11 +325,11 @@ impl History {
         if refresh {
             self.open(ctx, root, reference.clone(), title.clone());
         }
-        if !visible || inspect.is_some() {
+        if !visible || inspect.is_some() || matches!(action, Some(Action::Generation { .. })) {
             self.selection = None;
             self.pending = None;
             self.result = None;
         }
-        inspect
+        action.or_else(|| inspect.map(Action::Record))
     }
 }
