@@ -17,6 +17,8 @@
 
 `generator/BUILD.md` describes a **hand- or stage-driven linear pickup**. It is a control, not the rotary assembly procedure. `exodus_mechanical/` holds the matched coupons and separate PCB stand. The location and orientation of a single plate’s internal attraction do not establish a net external force on the whole assembly.
 
+For a nominal disc comparison without CAD, [take Eli’s full-size A4 overlay and the source DXF](overlay/). This follow-on handoff uses four pre-tiled sheets and distinguishes the thirteen feature circles in black and white. It was checked digitally, not printed or applied to a rotor.
+
 ### How much force would the rotor need?
 
 A room-fixed constant force does zero signed work on a point that returns to its starting position. A force fixed **tangentially to the rotating article** would be a different hypothesis. With two such same-handed forces of magnitude `F` at radius `r`, their shaft work over one full turn would be `2 × F × r × 2π`.

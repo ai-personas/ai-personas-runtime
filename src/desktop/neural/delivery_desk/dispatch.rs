@@ -136,12 +136,8 @@ impl App {
             if !outstanding.is_empty() {
                 ui.add_space(6.);
                 egui::CollapsingHeader::new(format!(
-                    "Before forwarding · {}",
-                    counted(
-                        outstanding.len() as u64,
-                        "remaining item",
-                        "remaining items"
-                    )
+                    "Open at issue · {}",
+                    counted(outstanding.len() as u64, "item", "items")
                 ))
                 .id_salt(("dispatch-conditions", &p.reference))
                 .show(ui, |ui| {
