@@ -74,9 +74,9 @@ impl Format {
                 | "py" | "rs" | "sh" | "js" | "ts" | "toml" | "sha256",
                 _,
             ) => Kind::Text,
-            // ASCII STL, OBJ and JSON glTF are still models. Give the full
-            // file decoder the same original bytes as the retained viewer.
-            ("stl" | "obj" | "gltf" | "glb", _) => Kind::Other,
+            // Text-encoded geometry and digital traces need the full file
+            // decoder, not a text/plain excerpt with the records cut off.
+            ("stl" | "obj" | "gltf" | "glb" | "vcd", _) => Kind::Other,
             (_, mime) if mime.starts_with("text/") || mime == "application/json" => Kind::Text,
             _ => Kind::Other,
         };
@@ -91,6 +91,7 @@ impl Format {
             (Kind::Text, "md" | "markdown") => "Markdown".into(),
             (Kind::Text, "gbr") => "Gerber source".into(),
             (Kind::Text, "drl") => "Drill source".into(),
+            (Kind::Other, "vcd") => "Digital logic trace".into(),
             (Kind::Text, "py") => "Python source".into(),
             (Kind::Text, "txt" | "") => "Text file".into(),
             (_, "") => {

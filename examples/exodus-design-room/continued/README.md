@@ -1,6 +1,8 @@
 # A force after disconnection: what would the load receive?
 
-**[Download the continued investigation](Exodus-work-and-energy.zip)**. Extract it and open `READ-FIRST.md`. This four-person team returned to its original activity, rather than starting another task. The package contains its public-source research, editable CAD and CAM profiles, KiCad schematic and PCB, Gerbers, drill files, BOM, simulations and measurement notes. It also includes a **linear, two-body actuator** whose competing energy accounts can be told apart without assuming a rotating force.
+For the later moving/locked shuttle, its matched PCB and the corrected controller, **[get the rotorless design study](../rotorless/)**. This page documents the earlier charge–position edition.
+
+**[Download the charge–position investigation](Exodus-work-and-energy.zip)**. Extract it and open `READ-FIRST.md`. This four-person team returned to its original activity, rather than starting another task. The package contains its public-source research, editable CAD and CAM profiles, KiCad schematic and PCB, Gerbers, drill files, BOM, simulations and measurement notes. It also includes a **linear, two-body actuator** whose competing energy accounts can be told apart without assuming a rotating force.
 
 ### Start with the evidence
 

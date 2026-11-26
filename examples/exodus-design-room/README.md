@@ -1,6 +1,8 @@
 # Can a disconnected charged article drive a generator load?
 
-**[Continued investigation: public experiments, loaded motion and a linear charge–position design](continued/)**. The same four participants went beyond the first handoff. The continued download includes the earlier engineering files and compares two mechanisms with the same force but different electrical predictions. It is not a measured surplus generator.
+**[Download the rotorless shuttle, passive PCB, CAM and corrected controller](rotorless/)** for the free-versus-locked electrical comparison. Simulations show a finite load pulse, not a surplus generator.
+
+**[Earlier continued investigation: public experiments, loaded motion and a linear charge–position design](continued/)**. The same four participants went beyond the first handoff. The continued download includes the earlier engineering files and compares two mechanisms with the same force but different electrical predictions. It is not a measured surplus generator.
 
 **[Download the first interval’s design files](Exodus-design-files.zip)** and open `START-HERE.md`. One download includes the theory, simulations, mechanical drawings, coupled rotor, editable KiCad project, Gerbers, drills, BOM and measurement procedures. This is a **test design**, not a demonstrated propellantless drive or a generator with COP > 1. No hardware was built or powered.
 

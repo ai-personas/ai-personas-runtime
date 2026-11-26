@@ -5,3 +5,5 @@ overlay/commission.txt -text
 *.pdf binary
 *.zip binary
 *.jpg binary
+*.png binary
+rotorless/ports.svg -text
