@@ -209,11 +209,10 @@ pub(super) fn apply_organization(body: &mut Value, previous: &str, actor: &str, 
 fn maintenance(
     value: &Maintenance,
     operations: &[Operation],
-    predicate: fn(&str) -> bool,
-    optional: fn(&str) -> bool,
+    channel: tools::Channel,
     model_switch: bool,
 ) -> Result<()> {
-    let required = operations.iter().filter(|op| predicate(&op.tool))
+    let required = operations.iter().filter(|op| channel.required(&op.tool))
         .map(|op| (op.id.as_str(), op.tool.as_str())).collect::<BTreeMap<_, _>>();
     let reason = match value {
         Maintenance::Change { reason, .. } | Maintenance::NoChange { reason }
@@ -244,7 +243,7 @@ fn maintenance(
             if !unknown.is_empty() {
                 return Err(failure(format!("These IDs have no operation in this response: {}", serde_json::to_string(&unknown)?)));
             }
-            let applicable = operations.iter().filter(|op| predicate(&op.tool) || optional(&op.tool))
+            let applicable = operations.iter().filter(|op| channel.applicable(&op.tool))
                 .map(|op| (op.id.as_str(), op.tool.as_str())).collect::<BTreeMap<_, _>>();
             if !model_switch && !applicable.keys().any(|id| named.contains(id)) {
                 return Err(failure(format!("A change needs an applicable local operation ID. Available in this response: {}. With no applicable operations, choose no_change or defer.", serde_json::to_string(&applicable)?)));
@@ -357,7 +356,7 @@ fn internal(
                 .iter()
                 .filter_map(|(name, purpose)| {
                     match tools::matches(&q, &format!("{name} {purpose}")) {
-                        Ok(true) => Some(Ok(json!({"name":name,"purpose":purpose}))),
+                        Ok(true) => Some(Ok(tools::summary(name, purpose))),
                         Ok(false) => None,
                         Err(e) => Some(Err(e)),
                     }
@@ -1051,16 +1050,16 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         if switching&&!decision.operations.is_empty(){return Err(failure("activate/rollback in a separate response with no operations; the next call uses the replacement model"));}
         // Host commands may be read-only; explicit asset mutations must be acknowledged.
         match &decision.persona_maintenance {
-            PersonalMaintenance::Ordinary(choice) => maintenance(choice,&decision.operations,tools::model_mutation,|name|matches!(name,"persona.evaluate"|"persona.assess"|"development.update"),switching)
+            PersonalMaintenance::Ordinary(choice) => maintenance(choice,&decision.operations,tools::Channel::PersonaMaintenance,switching)
                 .map_err(|e|failure(format!("persona_maintenance: {e}")))?,
             PersonalMaintenance::Trial(trial) => {
-                if switching || !part.accepted || part.declined || decision.operations.iter().any(|op| tools::model_mutation(&op.tool)) {
+                if switching || !part.accepted || part.declined || decision.operations.iter().any(|op| tools::Channel::PersonaMaintenance.required(&op.tool)) {
                     return Err(failure("Propose one personal trial during accepted work, preserving your active character; assess or change its binding separately"));
                 }
                 super::development::trial::propose(db,snapshot,&persona,trial,decision.considered_experience.as_deref().unwrap_or(&[]))?;
             }
         }
-        maintenance(&decision.asset_maintenance,&decision.operations,tools::asset_mutation,|name|matches!(name,"result.review"|"asset.feedback"|"image.read"|"image.render_svg"|"document.print_html"|"document.render_pdf"|"command.run"|"command.local"|"geometry.render"|"geometry.inspect_stl"|"geometry.profile_stl"|"work.outcome"|"result.deliver"|"human.issue_packet"),false)
+        maintenance(&decision.asset_maintenance,&decision.operations,tools::Channel::AssetMaintenance,false)
             .map_err(|e|failure(format!("asset_maintenance: {e}")))?;
         super::development::practice::consider(db,snapshot,decision,part.accepted && !part.declined)?;
         super::development::record_applications(db,snapshot,decision)?;

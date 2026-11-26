@@ -78,13 +78,23 @@ On the [reflow task](../examples/ec1-energy-control/reflow/), Kit’s **#684** p
 
 A refusal records that the provider answered but the runtime did not adopt the response. In particular it does **not** replace the last accepted working note or tool and reference selections, or move the participation’s inbox cursor. The next input can therefore contain both an earlier numbered entry and the notice of refusal. After the cursor advances, a note that mentions a message or file does not bring its body back.
 
-On the [four-person Exodus commission](../examples/exodus-design-room/), Nell’s last accepted choice selected **six tools and no references**. The input for the response refused at **#114** included June’s edition and outcome notices, a message from Ravi and Nell’s local command result. Nell proposed a different note, five tools and the command-run record as a reference. The runtime refused the asset-maintenance change because the response named no applicable operation. Nothing in the proposal ran.
+On the [four-person Exodus commission](../examples/exodus-design-room/), Nell’s last accepted choice selected **six tools and no references**. The input for the response refused at **#114** included June’s edition and outcome notices, a message from Ravi and Nell’s local command result. Nell proposed a different note, five tools and the command-run record as a reference. Nell named the capture operation `freeze` as resource maintenance. The validator at the time did not recognize `workspace.bundle` for that purpose. It refused the whole response; neither the capture nor the message ran.
 
 In **What followed → Compare inputs across rejection #114**, the two frozen inputs have four identical inbox entries: **#93, #98, #108 and #112**. The only entry added to the later inbox is the refusal, **#114**. That input still contains the *older accepted* note, six selected tools and an empty reference list. Ravi did not send the message twice; the command did not run twice. The later response chose `workspace.bundle` and `peer.message` for itself. Its reply **#116** answered Ravi’s **#108** and referenced the command record already supplied with **#112**. That does not make the record a selected reference in the input. The bundle result **#118** retained a 35,906-byte ZIP with 14 files; it did not issue anything. A *subsequent* choice registered those bytes and issued Nell’s partial metrology kit (**#130–132**).
 
 ![Studio’s response record shows the later accepted choice, four repeated inbox entries and the one later-only notice.](assets/studio-rejection-inboxes.jpg)
 
 The same distinction applies when the next response is *also* refused. In Kit’s reflow history the input for the second refusal repeated #682 and #683 and added #684. The input for the accepted choice then repeated **#682, #683 and #684** and added #685. Only the accepted choice sent the invitations. These comparisons describe the two inputs, not all files in the workspace or everything the persona might have learned.
+
+### When a capture counts as maintenance
+
+In **Proposal → Resource maintenance**, Nell’s `change` declaration names `freeze → workspace.bundle`: she wanted to keep the metrology files together as a review copy. In **What followed**, expand the accepted choice’s `No change` declaration: “Freezing a workspace copy does not yet register or change a library asset.” Both are reasonable descriptions of the work. The old validator accepted only the second. Studio shows what Nell wrote on each occasion, not what today’s validator would decide.
+
+![Nell’s historical response with the original refusal, her reason and the local operation ID she chose.](assets/studio-capture-choice.jpg)
+
+Tool discovery and validation now use the [same maintenance rule](../src/neural/tools/maintenance.rs). Capture is **optional** resource maintenance: its local operation ID can support a `change`, but capturing does not require one. Registration **does** require `change` with the registration’s local ID. On disconnected copies, Nell’s exact original response and the later `no_change` response each queued a capture. Neither transaction executed it, registered a file or issued a result. In a separate transaction her historical registration and delivery still wrote both editions. These checks did not rerun the task or revise the refusal at #114.
+
+On the new [pocket-log brief](../examples/receiving-pocket-log/), the selected tool definitions carried those same field and ID rules. Kit named a local command when creating its reusable checker, but not when checking files read-only. Arden named both required registration IDs and later the optional delivery ID. Neither chose `workspace.bundle`; the unchanged two-PDF delivery is evidence of a usable handoff, **not** a new live execution of Nell’s rejected proposal or of numerical learning.
 
 ## Mira’s inspection and its return
 

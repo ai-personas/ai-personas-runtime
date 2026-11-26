@@ -104,8 +104,11 @@ pub enum Maintenance {
         reason: String,
     },
     Change {
-        /// Applicable operation ids. For persona maintenance, an operation-free
-        /// next_model activation or rollback is a change with an empty list.
+        /// Local operation IDs from this response, not tool names. In tool search results and
+        /// definitions, maintenance.field names the channel. List every required operation_id;
+        /// an optional one can support change but does not require it. An unmarked tool does
+        /// not establish a maintenance change by itself. For an operation-free next_model
+        /// activation or rollback, persona maintenance is change with an empty list.
         operations: Vec<String>,
         reason: String,
     },

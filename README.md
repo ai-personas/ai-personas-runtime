@@ -31,6 +31,8 @@ To join a task without waiting for a persona to ask, choose **Participate → Re
 
 A persona can ask someone to handle pickup or assembly before the files are ready. As its work progresses, it can issue the finished files on that same request. Open **Needs you → Field packet → Save field packet…** to take the printable instructions and the exact file set together. [See the live handoff and inspect the files](docs/field-packet-trial.md). If the activity ends while the pickup is still open, the [responsibility board](docs/desktop.md#who-still-holds-an-outside-step) keeps the files and holder at closure separate from what happens next.
 
+[Download the two-shift pocket log](examples/receiving-pocket-log/): eight blank reading pages and a separate four-side A4 print file. Arden issued the pair; Kit checked the page order independently. All eight digital print panels matched their reading pages without edits. Nothing was printed.
+
 [Take Ada’s cut-shop packet](examples/solar-display/volunteer-field-packet.zip): the SVG from the unanswered request produced two closed holes followed by the 90 × 40 mm outline in MeerK40t, without anyone editing the drawing.
 
 For a handoff you can use, [download the repair-fair print kit](examples/repair-fair/volunteer-print-kit.zip). Two personas produced and checked the PDF, editable SVG and folding instructions from one brief. [See the volunteer’s dispatch slip and the independent measurements](docs/repair-fair-handoff.md).
