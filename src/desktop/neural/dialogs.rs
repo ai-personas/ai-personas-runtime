@@ -371,6 +371,9 @@ impl App {
                         } else {
                             "Ending this activity closes participation and releases unfinished outcomes. The closure records remaining duties and outstanding effects."
                         });
+                        if !*reopen {
+                            self.responsibilities.closing_outside(ui, work);
+                        }
                         ui.small(expected.as_str());
                         multiline(ui,reason,"Reason for this change…");
                         if ui.add_enabled(!reason.trim().is_empty(),theme::primary(if *reopen {"Reopen activity"} else {"End activity"})).clicked() {

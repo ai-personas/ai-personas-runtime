@@ -242,13 +242,13 @@ A request may arrive before the design is finished. The persona can continue wor
 
 ![Studio showing Orin’s request for available lamp hardware, what to send back and the human response controls.](assets/studio-human-request.png)
 
-A volunteer who has information but is not taking the outside step can choose **Send observation**. The requester receives their named note and any attached evidence. This works before anyone takes the request and while a different human holds it. It does not change the holder, close the request or claim the physical step happened. **Correspondence** distinguishes a contributor observation from the holder’s progress report.
+A volunteer who has information but is not taking the outside step can choose **Send observation**. The note and any attached evidence are addressed to the requester. Check the receipt to see whether a later decision received them. This works before anyone takes the request and while a different human holds it. It does not change the holder, close the request or claim the physical step happened. **Correspondence** distinguishes a contributor observation from the holder’s progress report.
 
 An open request can be withdrawn by its author. Once taken, it stays with the named human until they release it or record its outcome. A running activity receives reports according to the persona's chosen wake conditions. A former participant's explicit stop stays in effect.
 
 An offline report still identifies the request edition its observer saw. If a newer packet was issued, the earlier report can be sent as progress. Reporting completion from a form requires the current materials. Opening an earlier handoff retrieves the files of that edition and identifies a newer packet if one exists at export.
 
-The **Responsibility board** keeps the source of the brief and the persona outcomes visible alongside **Outside steps**. Open a step there to see its current holder, files and correspondence in the Field desk. A holder is responsible for that step, not automatically for the whole activity.
+The **Responsibility board** keeps the source of the brief and the persona outcomes visible alongside **Current outside steps**. Open a step there to see its current holder, files and correspondence in the Field desk. A holder is responsible for that step, not automatically for the whole activity.
 
 In an activity with outside steps, the personas can look up `human.requests` before asking for the same help again. The list contains current edition addresses, titles, requesters, statuses and holders—not report bodies or attachments. The terminal equivalent is `neural outside-steps WORK`, with `--include-closed` for reported outcomes and withdrawals.
 
@@ -334,6 +334,18 @@ Choose **End activity…** on the board to record why the group is closing. The 
 Use the workspace library button to return to recently opened folders. When a run is active, the library opens in a second window. **Workspace settings → Back up workspace…** saves a consistent archive. **Restore a workspace archive…** in the library opens a restored copy under the chosen parent directory. Shared files and external provider credentials keep their original local references.
 
 The name entered during setup is recorded as the author of the starting profiles. The name in a workspace window’s title attributes its messages, invitations and reviews. [Open another operator desk](#working-under-another-operator-name) to use a different name, or supply `--operator NAME` when launching Studio.
+
+### Who still holds an outside step?
+
+Ending an activity does not cancel an order request, release a volunteer or report anyone’s work complete. In **Participate → Responsibility board**, **Current outside steps** shows the register now. Each **Closure at brief…** card keeps a separate **Outside steps at closure** list. It records the editions when the activity actually ended, not when someone opened the confirmation dialog.
+
+![In a disconnected Studio copy, Ada’s pickup is open at edition 4 but was held at edition 3 when the activity ended.](assets/studio-outside-at-closure.jpg)
+
+- **Read edition … at closure ↗** opens the retained request, including the action the volunteer was asked to take. **Save files at closure…** saves just that edition’s attachments. It does not save a later packet, include a contributor’s private return, send instructions or confirm receipt.
+- **Current request · edition … →** opens the Field desk. A volunteer can still report on an active request there. The new edition does not change the closure or resume the ended participation. **← Responsibility board** takes you back. **Open activity record** opens the timeline without addressing a new message to the requester.
+- An empty list means no known outside steps at that closure. **Not recorded** means that closure did not retain a list. A known request with conflicting or missing status is **unavailable**, not unclaimed. Reopening and ending an activity again makes a separate record.
+
+The same distinction is in `neural responsibilities WORK`: `outside_steps` is current; each dissolution’s `body.outside_steps_at_closure` is historical. [How the pickup and file checks were done](field-packet-trial.md#the-pickup-after-the-activity-ends).
 
 ### What did each persona agree to do?
 

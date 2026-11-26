@@ -10,7 +10,7 @@ enum Contents {
     PackageMember { reference: String, member: Member },
     Printed { source: print_preview::Source, document: print_preview::Document },
     Deliveries { work: Option<String>, label: String, editions: Vec<ListedEdition> },
-    Package(String),
+    Package { reference: String, closure_source: Option<String> },
     ReviewFile(ai_personas::neural::package_review::EvidenceFile),
     Dispatch { delivery: String, number: usize, recipient: String, files: usize, packet: bool },
     Handoff { reference: String, files: usize, format: HandoffFormat },
@@ -124,7 +124,13 @@ impl App {
     pub(super) fn export_package(&mut self, reference: &str, title: &str) {
         self.export_generation += 1;
         let name = title_stem(title, "Delivery");
-        self.export_dialog = Some(Dialog::new(self.export_generation, Contents::Package(reference.into()), format!("{name}.zip")));
+        self.export_dialog = Some(Dialog::new(self.export_generation, Contents::Package { reference: reference.into(), closure_source: None }, format!("{name}.zip")));
+    }
+    pub(super) fn export_closure_files(&mut self, reference: String, source: String, title: &str) {
+        self.export_generation += 1;
+        let revision = reference.rsplit_once('@').map_or("", |(_, n)| n);
+        let name = format!("{}-edition-{revision}.zip", title_stem(title, "Outside-step"));
+        self.export_dialog = Some(Dialog::new(self.export_generation, Contents::Package { reference, closure_source: Some(source) }, name));
     }
     pub(super) fn save_dispatch(&mut self, delivery: &str, number: usize, recipient: &str, files: usize, original: Option<&str>, packet: bool) {
         self.export_generation += 1;
@@ -240,7 +246,8 @@ impl App {
             Contents::Dispatch { files: 1, .. } => ("Save dispatch file", "This is the original file, not a new ZIP around it.", "Save original"),
             Contents::Dispatch { .. } => ("Save dispatch files", "Only the files on this slip are included, at their issued paths.", "Save ZIP"),
             Contents::ReviewFile(_) => ("Save reviewer’s file", "Save the named evidence from this published finding. It is not a file issued by the delivery owner.", "Save original"),
-            Contents::Package(_) => ("Save file package", "The ZIP contains the selected file revisions with their original names and folders.", "Save file"),
+            Contents::Package { closure_source: Some(_), .. } => ("Save files at closure", "Save a local ZIP of this historical request’s files. This does not take the step, confirm receipt or send a current instruction.", "Save ZIP"),
+            Contents::Package { .. } => ("Save file package", "The ZIP contains the selected file revisions with their original names and folders.", "Save file"),
             Contents::Handoff { reference, .. } if reference.starts_with("delivery:") =>
                 ("Save delivery handoff", "Send this edition as issued. The sheet separates the issuer’s instructions from reviews and citations verified when you save.", "Save handoff"),
             Contents::Handoff { .. } =>
@@ -315,6 +322,9 @@ impl App {
                 ui.label(description);
             }
             let file = !matches!(dialog.contents, Contents::Handoff { format: HandoffFormat::Folder, .. } | Contents::Deliveries { .. });
+            if let Contents::Package { reference, closure_source: Some(source) } = &dialog.contents {
+                ui.small(reference).on_hover_text(source);
+            }
             if let Contents::PackageMember { reference, member } = &dialog.contents {
                 let edition = reference.rsplit_once('@').map(|(_, n)| n).unwrap_or(reference);
                 if let Some(entry) = &member.entry {
@@ -425,8 +435,14 @@ impl App {
                         let db = data::open(&root).map_err(|e| e.to_string())?;
                         file.save(&db, &path).map_err(|e| e.to_string())?;
                     }
-                    Contents::Package(reference) => {
-                        let db = data::open(&root).map_err(|e|e.to_string())?;
+                    Contents::Package { reference, closure_source } => {
+                        let db = data::open(&root).map_err(|e| e.to_string())?;
+                        if let Some(source) = closure_source {
+                            let selected = ai_personas::neural::store::exact(&db, &reference).map_err(|e| e.to_string())?;
+                            if selected.reference.kind != "human_request" || source.strip_prefix("object:") != Some(&selected.reference.digest) {
+                                return Err("The retained request differs from the edition recorded at closure. No files were saved.".into());
+                            }
+                        }
                         ai_personas::neural::human_requests::export_package(&db, &reference, &path).map_err(|e|e.to_string())?;
                     }
                     Contents::Handoff { reference, format, .. } => {

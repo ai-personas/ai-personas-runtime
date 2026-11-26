@@ -6,16 +6,23 @@ use std::{
 };
 
 mod humans;
+mod outside;
 mod terms;
 
 pub(super) enum Action {
     SetRole(Command),
     Inspect(String),
     OpenRequest(String),
+    SaveOutside { reference: String, source: String, title: String },
     RoleReceipts(String),
     Message { person: String, text: String },
     Invite(String),
     ChangeActivity { reopen: bool, brief: String },
+}
+
+enum ReturnFrom {
+    Record(String),
+    Request(String),
 }
 
 #[derive(Default)]
@@ -24,7 +31,7 @@ pub(super) struct Board {
     cursor: i64,
     role_draft: Option<humans::Draft>,
     terms: Option<terms::Panel>,
-    source: Option<String>,
+    return_from: Option<ReturnFrom>,
     pending: Option<Receiver<Result<Value, String>>>,
     report: Option<Value>,
     error: Option<String>,
@@ -33,15 +40,23 @@ pub(super) struct Board {
 impl App {
     pub(super) fn open_board_source(&mut self, ctx: &egui::Context, reference: String) {
         self.open_resource(ctx, reference.clone());
-        self.responsibilities.source = Some(reference);
+        self.responsibilities.return_from = Some(ReturnFrom::Record(reference));
+    }
+    pub(super) fn open_board_request(&mut self, id: String) {
+        self.show_human_request(&id);
+        self.responsibilities.return_from = Some(ReturnFrom::Request(id));
     }
     pub(super) fn board_return(&mut self, ui: &mut Ui) {
         let board = &mut self.responsibilities;
-        let Some(reference) = &board.source else { return };
-        if self.layout.editor != Editor::Artifacts || self.selected_reference != *reference || self.work != board.work {
-            board.source = None;
+        let same_page = match &board.return_from {
+            Some(ReturnFrom::Record(r)) => self.layout.editor == Editor::Artifacts && self.selected_reference == *r,
+            Some(ReturnFrom::Request(id)) => self.layout.editor == Editor::Inbox && self.inbox.showing(id),
+            None => return,
+        };
+        if !same_page || self.work != board.work {
+            board.return_from = None;
         } else if ui.link("← Responsibility board").clicked() {
-            board.source = None;
+            board.return_from = None;
             self.layout.editor = Editor::Responsibilities;
         }
     }
@@ -200,13 +215,16 @@ impl Board {
                         ui.add_space(8.);
                     }
                 }
-                if let Some(open) = outside_steps(ui, members, items(report, "outside_steps")) {
+                if let Some(open) = outside::current(ui, members, items(report, "outside_steps")) {
                     action = Some(open);
                 }
                 ui.add_space(10.);
                 for closure in items(report,"dissolutions").iter().rev() {
                     let body=&closure["body"];
-                    ui.group(|ui| {
+                    card(ui).show(ui, |ui| {
+                        ui.set_min_width(ui.available_width());
+                        let edition = s(body,"brief").rsplit_once('@').map_or("?", |(_, n)| n);
+                        eyebrow(ui, &format!("Activity record  /  Closure at brief {edition}"));
                         ui.horizontal_wrapped(|ui|{
                             ui.strong(format!("Activity ended by {}",s(body,"operator")));
                             if ui.small_button("Closure record ↗").clicked() { action=Some(Action::Inspect(handle(closure))); }
@@ -214,14 +232,19 @@ impl Board {
                         ui.label(s(body,"reason"));
                         ui.small(format!("At closure · Unfinished outcomes {} · Effects observed {} · Open jobs {} · Outstanding calls {}",
                             items(body,"unfinished_outcomes").len(),items(body,"effect_observations").len(),items(body,"open_jobs_observed").len(),items(body,"inference_observations").len()));
-                        ui.push_id(handle(closure), |ui| ui.collapsing("Participation at closure", |ui| {
-                            for member in items(body,"members") {
-                                let name=person(members,s(member,"actor"));
-                                if let Some(commitment)=member["commitment"]["record"]["commitment"].as_str() {
-                                    ui.label(format!("{name} · {commitment}"));
-                                } else { ui.small(format!("{name} · No current commitment")); }
+                        ui.push_id(handle(closure), |ui| {
+                            if let Some(a) = outside::at_end(ui, members, body, items(report, "outside_steps")) {
+                                action = Some(a);
                             }
-                        }));
+                            ui.collapsing("Participation at closure", |ui| {
+                                for member in items(body,"members") {
+                                    let name=person(members,s(member,"actor"));
+                                    if let Some(commitment)=member["commitment"]["record"]["commitment"].as_str() {
+                                        ui.label(format!("{name} · {commitment}"));
+                                    } else { ui.small(format!("{name} · No current commitment")); }
+                                }
+                            });
+                        });
                     });
                 }
                 for departure in items(report, "departures").iter().rev() {
@@ -338,40 +361,6 @@ fn person<'a>(members: &'a [Value], actor: &'a str) -> &'a str {
         .and_then(|m| m["label"].as_str())
         .unwrap_or(actor)
 }
-// An outside step has its own lifecycle; it isn't an unowned persona outcome.
-fn outside_steps(ui: &mut Ui, members: &[Value], steps: &[Value]) -> Option<Action> {
-    if steps.is_empty() { return None; }
-    let mut action = None;
-    ui.add_space(10.);
-    card(ui).show(ui, |ui| {
-        ui.set_min_width(ui.available_width());
-        eyebrow(ui, "Field desk  /  This activity");
-        ui.label(RichText::new("Outside steps").size(19.).strong());
-        for step in steps {
-            ui.separator();
-            let reference = s(step, "reference");
-            ui.push_id(reference, |ui| {
-                if ui.link(s(step, "title")).on_hover_text(reference).clicked() {
-                    if let Some((id, _)) = reference.strip_prefix("human_request:").and_then(|s| s.rsplit_once('@')) {
-                        action = Some(Action::OpenRequest(id.into()));
-                    }
-                }
-                ui.horizontal_wrapped(|ui| {
-                    let requester = s(step, "requester");
-                    let (status, color) = inbox::phase(s(step, "state"));
-                    theme::badge(ui, status, color);
-                    ui.small(format!("Requested by {}", person(members, requester)));
-                    if let Some(holder) = step["claimed_by"].as_str() {
-                        let verb = if step["state"] == "in_progress" { "Held by" } else { "Reported by" };
-                        ui.small(format!("{verb} {holder}"));
-                    } else if step["state"] == "open" { ui.small("Not yet taken"); }
-                });
-            });
-        }
-    });
-    action
-}
-
 fn outcome_card(ui: &mut Ui, record: &Value, report: &Value, members: &[Value]) -> Option<Action> {
     let reference = handle(record);
     let body = &record["body"];
