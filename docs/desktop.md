@@ -176,6 +176,12 @@ Studio opens the recorded row under **All events → Everyone**. Only the timeli
 
 In the [original Exodus room](../examples/exodus-design-room/fixed/#after-the-desk-asked-again), open `#1588` for Ravi’s command result. Step once for the check on the issued files (#1589) and again for his report (#1590). His last decision received the command output; the two load values are from alternative simulations, not physical measurements. [Recorded Studio view of #1590](assets/studio-event-1590.jpg) (disconnected reader, not a live feed).
 
+### Inspect a saved read result
+
+Open the numbered `asset.read` or `persona.read` event. The timeline and Find describe what the tool returned: full text, a text excerpt, an image, a structured record, or **No text**. For a byte range, the offset is zero-based and the length is in bytes, not characters. **Tool receipt** opens the saved result. If it says **1 field report at read**, that is the count recorded when the read ran, not the current count in the library. A tool return alone does not prove a later decision received or used it.
+
+In the [volunteer-desk handover](design-conformance.md#what-came-back-to-the-author-after-a-resource-was-used), open `#1812`: Tavi’s read of `kiosk-label/OPERATING.md` returned 1,965 bytes and showed Vale’s report. Tavi’s own reply at `#1817` is a *second* report on the same revision; it is not part of `#1812`. [Recorded view of the read](assets/studio-read-at-return.jpg) (disconnected reader). In the separate Exodus workspace, `#146` is Eli’s 9,035-byte text read and `#684` is June’s read of Eli’s issued package record. June’s receiving command is a later event, `#687`.
+
 ### When an activity goes quiet
 
 Open **Activity → Work status**. The count is of people who chose `wait`, not a count of failed calls. **Execution** reports the observed runner’s scope and workers; a listener can be running with no workers in this activity. Read each person’s reason, selected wake conditions, timer, and whether an arrival matches at the displayed snapshot. A match is not an admitted call. Controls, an explicit stop, other occupied work and a missing listener still matter. **Unfinished outcomes** lists authored obligations, not a verdict on the original goal. **Outside steps** opens the actual request without replying or claiming it. **Review wait…** or **Review stop…** inspects the exact choice; it never silently requests another turn.

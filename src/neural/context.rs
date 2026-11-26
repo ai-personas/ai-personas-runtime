@@ -16,6 +16,7 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
 mod tool_run;
+pub mod read_observations;
 mod read_scope;
 pub(in crate::neural) mod roster;
 
@@ -930,19 +931,7 @@ pub(super) fn prepare_when(
         }
         let mut seen_images=BTreeSet::new();
         image_blobs.retain(|(blob,_)|seen_images.insert(blob.clone()));
-        let mut supplied_bodies=selected.iter().filter(|v|v.get("text").is_some()||v.get("record").is_some())
-            .filter(|v|v.get("record").is_some()||(v["range"][0]==0&&v["range"][1]==v["bytes"]))
-            .filter_map(|v|v["reference"].as_str().map(str::to_owned)).collect::<BTreeSet<_>>();
-        supplied_bodies.insert(work.reference.handle());
-        for event in &mut supplied_events {
-            if matches!(event["body"]["tool"].as_str(),Some("asset.read"|"persona.read")) {
-                if let Some(reference)=event["supplied_result"]["reference"].as_str() {
-                    if supplied_bodies.contains(reference) {
-                        event["supplied_result"]=json!({"reference":reference,"observed_range":event["supplied_result"]["range"],"body_already_supplied":true,"location":"selected_resources or mandatory work record","exact_read_receipt":event["body"]["result"]});
-                    }
-                }
-            }
-        }
+        read_observations::share_bodies(&mut supplied_events, &selected, (!bootstrap).then_some(&work));
         let mut tool_names=participation.tools.clone();
         let unavailable_tools:Vec<_>=tool_names.iter().filter(|name|!tools::NAMES.iter().any(|(n,_)|name==n)).cloned().collect();
         tool_names.retain(|name|!unavailable_tools.contains(name));
