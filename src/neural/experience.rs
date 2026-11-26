@@ -85,7 +85,7 @@ pub(super) fn search(db: &Connection, actor: &str, query: &ExperienceQuery) -> R
     )
 }
 
-fn locate(db: &Connection, actor: Option<&str>, reference: &str) -> Result<Experience> {
+fn lookup(db: &Connection, actor: Option<&str>, reference: &str) -> Result<Option<Experience>> {
     let id = reference
         .strip_prefix("experience:")
         .and_then(|r| r.strip_suffix("@1"))
@@ -101,15 +101,52 @@ fn locate(db: &Connection, actor: Option<&str>, reference: &str) -> Result<Exper
         let sql = format!("{DECISIONS} AND i.id=?2 AND (?1 IS NULL OR i.actor=?1)");
         db.query_row(&sql, params![actor, id], Experience::row).optional()?
     };
-    // Missing and inaccessible records must remain indistinguishable. Echo
-    // only the caller's handle, never another identity's private metadata.
-    let item = item.ok_or_else(|| failure(format!(
-        "Experience {reference} is unavailable in this read scope. Use experience.search or history.search to discover an accessible handle, or ask a peer to share the relevant evidence."
-    )))?;
-    if item.id != id {
+    if item.as_ref().is_some_and(|item| item.id != id) {
         return Err(failure("Noncanonical experience identity"));
     }
     Ok(item)
+}
+
+fn locate(db: &Connection, actor: Option<&str>, reference: &str) -> Result<Experience> {
+    // Missing and inaccessible records must remain indistinguishable.
+    lookup(db, actor, reference)?.ok_or_else(|| failure(format!(
+        "Experience {reference} is unavailable in this read scope. Use experience.search or history.search to discover an accessible handle, or ask a peer to share the relevant evidence."
+    )))
+}
+
+/// Only classify experience addresses actually attached to the message. Use
+/// the recipient's ordinary discovery scope, never open the linked bodies.
+/// Other resource kinds (including explicitly shared notes) have their own rules.
+pub(super) fn linked_history(
+    db: &Connection,
+    recipient: &str,
+    body: &Value,
+) -> Result<Option<Value>> {
+    let mut links = serde_json::Map::new();
+    for r in body["references"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter(|r| r.starts_with("experience:"))
+    {
+        if !links.contains_key(r) {
+            let visible = lookup(db, Some(recipient), r)?.is_some();
+            links.insert(r.into(), json!(if visible { "in_history" } else { "unavailable" }));
+        }
+    }
+    Ok((!links.is_empty()).then_some(Value::Object(links)))
+}
+
+pub(super) fn incoming_links(db: &Connection, reader: &str, event: &Value) -> Result<Option<Value>> {
+    if event["target"] == reader
+        && event["actor"] != reader
+        && event["invocation"].is_string()
+        && matches!(event["kind"].as_str(), Some("message" | "request_reply" | "requester_message" | "requester_review"))
+    {
+        return linked_history(db, reader, &event["body"]);
+    }
+    Ok(None)
 }
 
 pub(super) fn metadata(db: &Connection, actor: Option<&str>, reference: &str) -> Result<Value> {
@@ -328,6 +365,11 @@ pub(super) fn read(db: &Connection, actor: Option<&str>, reference: &str) -> Res
     let mut event = item.metadata();
     event["body"] = store::object(db, &item.digest)?;
     let mut result = json!({"reference":reference});
+    if let Some(reader) = actor {
+        if let Some(links) = incoming_links(db, reader, &event)? {
+            result["linked_experience_scope"] = links;
+        }
+    }
     if item.kind == "delivery_check" {
         match receiving::link(db, &item, &event["body"]) {
             Ok(linked) => result["issuance_checked"] = json!({"decision":format!("experience:{}@1",linked.call),

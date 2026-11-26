@@ -269,9 +269,11 @@ pub(super) fn exchange(db: &Connection, event: &Event) -> Result<Value> {
             Err(error) => unverified.push(json!({"event":seq,"reason":error.to_string()})),
         }
     }
+    let history = crate::neural::experience::linked_history(db, &event.target, &event.body)?;
     Ok(
         json!({"kind":"peer_exchange","work":event.work,"message":handle,"sent_at":event.created,
         "sender":event.actor,"recipient":event.target,"text":event.body["text"],"references":event.body["references"],
+        "recipient_experience_scope_now":history,
         "sent":sent,"sending_window":timing,"received":received,"replies":replies,"unverified_inputs":gaps,"unverified_replies":unverified,
         "through_event":db.query_row("SELECT max(seq) FROM events",[],|r|r.get::<_,i64>(0))?}),
     )
