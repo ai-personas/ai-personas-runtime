@@ -37,17 +37,7 @@ impl Launcher {
     pub fn show(&mut self, ctx: &egui::Context, root: &Path, operator: &str) -> Option<String> {
         let name = self.name.as_mut()?;
         let bounds = ctx.content_rect().shrink(6.);
-        let style = ctx.style();
-        let frame = egui::Frame::window(&style);
-        let title = egui::TextStyle::Heading.resolve(&style);
-        let title_height = ctx
-            .fonts_mut(|fonts| fonts.row_height(&title))
-            .max(style.spacing.interact_size.y);
-        let chrome = frame.total_margin().sum()
-            + egui::vec2(
-                0.,
-                title_height + frame.inner_margin.sum().y + frame.stroke.width,
-            );
+        let chrome = super::theme::titled_window_chrome(ctx);
         let room = (bounds.size() - chrome).max(egui::vec2(1., 1.));
         let size = egui::vec2(390., 218.).min(room);
         let mut visible = true;

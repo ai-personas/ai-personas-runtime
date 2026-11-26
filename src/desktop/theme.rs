@@ -77,6 +77,16 @@ impl Palette {
 pub fn palette(ui: &Ui) -> Palette {
     Palette::new(ui.visuals().dark_mode)
 }
+/// `Window::max_size` bounds its content, not its title, margins or border.
+pub fn titled_window_chrome(ctx: &egui::Context) -> egui::Vec2 {
+    let style = ctx.style();
+    let frame = egui::Frame::window(&style);
+    let heading = egui::TextStyle::Heading.resolve(&style);
+    let title_height = ctx.fonts_mut(|fonts| fonts.row_height(&heading)).max(style.spacing.interact_size.y);
+    frame.total_margin().sum()
+        + egui::vec2(0., title_height + frame.inner_margin.sum().y + frame.stroke.width)
+}
+
 pub fn install_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     for (name, bytes, family) in [

@@ -1,5 +1,6 @@
 //! Inspect a completed response the runtime refused, without replaying adoption.
 //! A later completion and a later input containing the refusal are distinct.
+mod inputs;
 use super::{context::Snapshot, Event};
 use crate::neural::{
     accepted_choice::Choice, character, development, failure, provider_evidence, store, Result,
@@ -125,10 +126,10 @@ fn received(input: &Snapshot, event: &Event) -> Result<bool> {
     Ok(true)
 }
 
-fn following(db: &Connection, origin: &Event) -> Result<Vec<Value>> {
+fn following(db: &Connection, origin: &Event, first_input: &Snapshot) -> Result<Vec<Value>> {
     // Admission order, not seconds on the clock. Keep intermediate refusals;
     // the next accepted choice need not be a retry, or even receive this notice.
-    let mut q = db.prepare("SELECT id,state FROM invocations WHERE actor=?1 AND work=?2
+    let mut q = db.prepare("SELECT id,state,snapshot FROM invocations WHERE actor=?1 AND work=?2
         AND state IN ('rejected','accepted') AND rowid>(SELECT rowid FROM invocations WHERE id=?3) ORDER BY rowid")?;
     let mut rows = q.query(params![origin.target, origin.work, origin.invocation])?;
     let mut following = Vec::new();
@@ -136,13 +137,15 @@ fn following(db: &Connection, origin: &Event) -> Result<Vec<Value>> {
         let call = row.get_ref(0)?.as_str()?;
         let state = row.get_ref(1)?.as_str()?;
         let result = (|| -> Result<Value> {
+            let input = format!("object:{}", row.get_ref(2)?.as_str()?);
             if state == "accepted" {
                 let choice = Choice::recorded(db, &origin.target, call)?;
                 let a = &choice.accepted;
                 let inbox = received(&a.snapshot, origin)?;
                 return Ok(
                     json!({"invocation":call,"state":state,"received_notice":inbox,"choice":proposal(&a.response),
-                    "binding":a.binding,"decision":format!("experience:{call}@1")}),
+                    "binding":a.binding,"decision":format!("experience:{call}@1"),"input":input,
+                        "compared_inputs":inputs::compare(first_input,&a.snapshot)}),
                 );
             }
             let seq = db.query_row(
@@ -158,7 +161,7 @@ fn following(db: &Connection, origin: &Event) -> Result<Vec<Value>> {
             let inbox = received(&a.input, origin)?;
             Ok(
                 json!({"invocation":call,"state":state,"received_notice":inbox,"notice_event":seq,"notice_source":format!("object:{}",e.digest),"binding":a.links["binding"],
-                "choice":a.response.as_ref().map(proposal)}),
+                "choice":a.response.as_ref().map(proposal),"input":input,"compared_inputs":inputs::compare(first_input,&a.input)}),
             )
         })();
         following.push(
@@ -195,7 +198,7 @@ fn report(db: &Connection, seq: i64) -> Result<Value> {
         json!({"event":seq,"notice":e.reference(),"source":format!("object:{}",e.digest),"reason":e.body["reason"],
         "work":e.work,"persona":e.target,"invocation":s.invocation,"records":a.links,"proposed":a.response.as_ref().map(proposal),
         "cited_for_character":citations,"selected":selected,"incoming_count":s.data["new_events"].as_array().map(Vec::len),
-        "following":following(db,&e)?}),
+        "following":following(db,&e,s)?}),
     )
 }
 
