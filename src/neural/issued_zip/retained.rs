@@ -1,7 +1,7 @@
 //! Persona-selected content inspection. A library file may be a draft. Unlike
 //! the delivery desk, these operands make no assertion of issuance or review.
 use super::inspection::registered;
-use super::{failure, fingerprint, paths, Difference, Result};
+use super::{failure, fingerprint, paths, Difference, MemberAddress, Result};
 use rusqlite::Connection;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -23,6 +23,9 @@ pub struct RegisteredQuery {
     /// Chosen enclosing folder prefix in the selected ZIP, or empty for original paths.
     #[serde(default)]
     pub selected_root: String,
+    /// Instead of a path comparison page, locate one source member’s bytes anywhere in the other ZIP. Use the full original path; offset and page_size select matching paths.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locate: Option<MemberAddress>,
     /// Case-insensitive literal substring of the compared path. Counts still describe all regular files.
     #[serde(default)]
     pub query: String,
@@ -37,6 +40,9 @@ impl RegisteredQuery {
     pub(in crate::neural) fn validate(&self) -> Result<()> {
         if self.page_size == 0 {
             return Err(failure("Use a positive ZIP comparison page size"));
+        }
+        if self.locate.is_some() && (!self.query.is_empty() || self.differences_only) {
+            return Err(failure("Location lookup searches every path in the other ZIP. Omit query and differences_only."));
         }
         if [&self.baseline, &self.selected]
             .iter()
@@ -63,6 +69,10 @@ pub fn compare_registered(db: &Connection, actor: &str, q: &RegisteredQuery) -> 
     };
     drop(right);
     let comparison = paths::compare(files, other, &q.baseline_root, &q.selected_root)?;
+    let basis = "Exact registered bytes; not evidence that either file was issued, used, reviewed or accepted.";
+    if let Some(anchor) = &q.locate {
+        return Ok(json!({"baseline":a,"selected":b,"locations":comparison.locate(anchor,q.offset,q.page_size)?,"basis":basis}));
+    }
     let mut counts = [0; 4];
     let mut total = 0usize;
     let mut items = Vec::new();
@@ -85,6 +95,6 @@ pub fn compare_registered(db: &Connection, actor: &str, q: &RegisteredQuery) -> 
         "baseline_enclosing_folder":comparison.baseline_enclosing_folder,"selected_enclosing_folder":comparison.selected_enclosing_folder,
         "counts":{"same":counts[Difference::Same as usize],"changed":counts[Difference::Changed as usize],"only_baseline":counts[Difference::OnlyBaseline as usize],"only_selected":counts[Difference::OnlySelected as usize]},
         "matching":total,"offset":q.offset,"next_offset":(end<total).then_some(end),"items":items,"scope":comparison.scope,
-        "basis":"Exact registered bytes; not evidence that either file was issued, used, reviewed or accepted."}),
+        "basis":basis}),
     )
 }

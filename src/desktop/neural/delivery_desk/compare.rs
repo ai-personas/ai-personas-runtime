@@ -1,9 +1,10 @@
 //! Compare the actual member bytes of two chosen, issued ZIPs. Opening this
 //! window does not run a check on behalf of a persona or record a package review.
+mod locations;
 use super::*;
 use ai_personas::neural::{
     issued_files::Source,
-    issued_zip::{self, Comparison, Difference, Fingerprint},
+    issued_zip::{self, Comparison, Difference, Locations, MemberAddress, Side},
     tools::DeliveryScope,
 };
 use std::sync::OnceLock;
@@ -24,6 +25,10 @@ pub(super) struct Window {
     choose_page: usize,
     compare: Option<Arc<OnceLock<Result<Comparison, String>>>>,
     member_query: String,
+    locations: Option<Result<Locations, String>>,
+    pending_lookup: Option<(MemberAddress, usize)>,
+    open_member: Option<(String, String, artifacts::MemberTarget)>,
+    scroll_top: bool,
     baseline_root: String,
     selected_root: String,
     differences_only: bool,
@@ -80,6 +85,10 @@ impl Window {
             choose_page: 0,
             compare: None,
             member_query: String::new(),
+            locations: None,
+            pending_lookup: None,
+            open_member: None,
+            scroll_top: false,
             baseline_root: String::new(),
             selected_root: String::new(),
             differences_only: true,
@@ -175,10 +184,10 @@ impl Window {
             )
             .clicked()
         {
-            self.begin(ui);
+            self.begin(ui.ctx(), None);
         }
     }
-    fn begin(&mut self, ui: &Ui) {
+    fn begin(&mut self, ctx: &egui::Context, address: Option<(MemberAddress, usize)>) {
         let (Some(b), Some(t)) = (self.baseline, self.target) else {
             return;
         };
@@ -190,9 +199,12 @@ impl Window {
             t.file.clone(),
         );
         let (br, tr) = (self.baseline_root.clone(), self.selected_root.clone());
-        let (ctx, root) = (ui.ctx().clone(), self.root.clone());
+        let (ctx, root) = (ctx.clone(), self.root.clone());
         let state = Arc::new(OnceLock::new());
         self.compare = Some(state.clone());
+        self.locations = None;
+        self.pending_lookup = address;
+        self.scroll_top = true;
         self.counts = None;
         self.member_page = 0;
         self.visible_members.clear();
@@ -337,7 +349,7 @@ impl Window {
                 apply=ui.add_enabled(self.baseline_root!=files.baseline_root || self.selected_root!=files.selected_root,theme::primary("Compare at these folders")).clicked();
             });
             if apply {
-                self.begin(ui);
+                self.begin(ui.ctx(), None);
                 return;
             }
         }
@@ -413,20 +425,27 @@ impl Window {
                         .selectable(true),
                 );
                 ui.collapsing(label, |ui| {
-                    for (side, root, fp) in [
-                        ("Baseline", &files.baseline_root, &m.baseline),
-                        ("Selected", &files.selected_root, &m.selected),
+                    for (side, label, root, entry) in [
+                        (Side::Baseline, "Baseline", &files.baseline_root, &m.baseline),
+                        (Side::Selected, "Selected", &files.selected_root, &m.selected),
                     ] {
-                        if let Some(Fingerprint { bytes, sha256 }) = fp {
+                        if let Some(entry) = entry {
+                            let issued_zip::Fingerprint { bytes, sha256 } = &entry.fingerprint;
                             if !root.is_empty() {
                                 ui.add(
-                                    egui::Label::new(format!("{side} path: {root}{}", m.path))
+                                    egui::Label::new(format!("{label} path: {root}{}", m.path))
                                         .wrap()
                                         .selectable(true),
                                 );
                             }
-                            ui.small(format!("{side} · {bytes} bytes · SHA-256"));
+                            ui.small(format!("{label} · {bytes} bytes · SHA-256"));
                             ui.add(egui::Label::new(sha256).wrap().selectable(true));
+                            let other = if side == Side::Baseline { "selected" } else { "baseline" };
+                            if ui.link(format!("Locate these bytes in {other} ZIP →")).clicked() {
+                                let anchor = MemberAddress { side, path: format!("{root}{}", m.path) };
+                                self.locations = Some(files.locate(&anchor, 0, PAGE).map_err(|e| e.to_string()));
+                                self.scroll_top = true;
+                            }
                         }
                     }
                 });
@@ -439,10 +458,43 @@ impl Window {
             self.choose(ui, p);
             return;
         };
+        if std::mem::take(&mut self.scroll_top) { ui.scroll_to_cursor(Some(egui::Align::Min)); }
+        if let Some(Ok(r)) = state.get() {
+            if let Some((address, offset)) = self.pending_lookup.take() {
+                self.locations = Some(r.contents.locate(&address, offset, PAGE).map_err(|e| e.to_string()));
+            }
+        }
         match state.get() {
+            Some(Ok(r)) if self.locations.is_some() => {
+                match self.locations.as_ref().unwrap() {
+                    Ok(found) => match locations::show(app, ui, r, found) {
+                        Some(locations::Action::Back) => self.locations = None,
+                        Some(locations::Action::Page(offset)) => {
+                            self.locations = Some(r.contents.locate(&found.source, offset, PAGE).map_err(|e| e.to_string()));
+                        }
+                        Some(locations::Action::Open(side, path)) => {
+                            let zip = locations::source(r, side);
+                            if let Some(entry) = r.contents.at_original(side, &path) {
+                                let member = artifacts::MemberTarget::from_zip(zip.sha256.clone(), zip.path.clone(), entry.index, path);
+                                self.open_member = Some((zip.edition.clone(), zip.file.clone(), member));
+                            }
+                        }
+                        None => {}
+                    },
+                    Err(reason) => {
+                        ui.colored_label(ui.visuals().error_fg_color, reason);
+                        if ui.button("Back to differences").clicked() { self.locations = None; }
+                    }
+                }
+                return;
+            }
             Some(Ok(r)) => self.result(app, ui, r),
             Some(Err(e)) => {
                 ui.colored_label(ui.visuals().error_fg_color, e);
+                if ui.button("Check these ZIPs again").clicked() {
+                    let address = self.pending_lookup.take();
+                    self.begin(ui.ctx(), address);
+                }
             }
             None => {
                 ui.spinner();
@@ -459,6 +511,25 @@ impl Window {
             self.counts = None;
             self.visible_members.clear();
         }
+    }
+}
+/// Return to the same pair and original path, not to cached proof of issue.
+/// Keep the picker settings but release the old fingerprint table while away.
+pub(super) struct Return {
+    window: Window,
+    edition: String,
+    address: MemberAddress,
+    offset: usize,
+}
+impl Return {
+    pub(super) fn reopen(self, app: &mut App, ctx: &egui::Context) {
+        let Self { mut window, edition, address, offset } = self;
+        if window.root != app.root { return; }
+        app.open_issued_package(ctx, &edition);
+        if app.layout.editor != Editor::Delivery || app.layout.delivery != edition { return; }
+        app.refresh_delivery_model();
+        window.begin(ctx, Some((address, offset)));
+        app.delivery_desk.compare = Some(window);
     }
 }
 fn display_root(prefix: &str) -> &str {
@@ -493,7 +564,25 @@ impl App {
                 ui.set_max_width(ui.available_width());
                 w.show(self, ui, p);
             });
-        if open {
+        if let Some((edition, file, member)) = w.open_member.take() {
+            // Re-open the real edition on the chosen side (which can belong to
+            // a different activity). The Save and Back actions must follow it.
+            self.open_issued_package(ctx, &edition);
+            if self.layout.delivery == edition && self.layout.editor == Editor::Delivery {
+                self.open_package_file(ctx, &edition, &file);
+                self.preview_member = Some(member);
+                if let (Some(Ok(found)), Some(state)) = (w.locations.take(), w.compare.take()) {
+                    if let Some(Ok(r)) = state.get() {
+                        // The enclosing-folder controls may contain an unapplied draft.
+                        w.baseline_root.clone_from(&r.contents.baseline_root);
+                        w.selected_root.clone_from(&r.contents.selected_root);
+                    }
+                    self.delivery_desk.lookup_return = Some(Return {
+                        window: w, edition: p.reference.clone(), address: found.source, offset: found.offset,
+                    });
+                }
+            }
+        } else if open {
             self.delivery_desk.compare = Some(w);
         }
     }

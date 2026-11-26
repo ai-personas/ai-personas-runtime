@@ -70,6 +70,16 @@ For an archive of several editions, **Artifacts → Export deliveries…** shows
 
 When the issuer prepares **Dispatch slips**, each recipient has their own instructions and file selection. Choose a recipient and click a filename to preview its exact edition. **Copy instructions** copies the issuer’s wording; **Before forwarding** shows the open items they recorded for the edition. Long selections have pages, but saving includes the entire slip, not just the visible page. **Save original file…** copies a single file byte for byte, including a ZIP meant for direct upload. **Save selected files ZIP…** keeps the listed files at their issued paths, without adding the rest of the delivery. Both actions save locally; neither sends anything, places an order nor answers a request. The slips also appear on the printable handoff sheet.
 
+### Find a member’s bytes under another name
+
+In a delivery, choose **Compare ZIPs…**, select a baseline and **Compare member bytes**. Find the path, expand its row, then choose **Locate these bytes in selected ZIP →** (or the reverse). The lookup checks **all** regular files in the other ZIP by uncompressed length and SHA-256, even if you filtered the differences or aligned enclosing folders. It reports the original case-sensitive paths, including all duplicates. The badge separately tells you whether the original path is absent, unchanged or now contains different bytes.
+
+![Studio locates the original pickup guide in the combined issue while identifying the changed version at its old path](assets/studio-member-lookup.jpg)
+
+In the [four-person design room](../examples/exodus-design-room/), the older 5,037-byte guide occurs at `generator/BUILD.md` among 129 checked files. **Inspect source** opens Eli’s guide; **Inspect 5043 bytes there** opens the changed guide at the same name in Ravi’s issue. Clicking **generator/BUILD.md** opens the byte match in Ravi’s issue. **Save member…** saves just that file. **Back to member lookup** checks both editions again; **This member’s delivery** opens the delivery that actually supplied the file you’re viewing. None of this sends feedback, proves a rename, or changes an issue.
+
+Offline, append `locate baseline 'FULL/Original/path'` or `locate selected 'FULL/Original/path'` to `neural compare-issued-zips BASELINE_EDITION BASELINE_ASSET EDITION ASSET`. Use `--offset` and `--page-size` after the lookup path to page through matches. `at_original_path` is the fingerprint on the other side or `null`; `paths` contains matching original names, not file bodies. A [persona’s registered-file lookup](editable-persona-models.md#comparing-registered-zips) does not by itself establish that either file was issued.
+
 ### Working under another operator name
 
 Choose **+ New → Operator desk…** (or **Workspace settings → Open another desk…**). Enter the other name and choose **Open desk**. Check the name and workspace in the new window’s title before writing. Both windows see the same published work. Each keeps its own unsent messages, forms and attachment selections; switch back to the **original window** to finish a draft. Closing a window is not a way to save its drafts. If the request changed while you were away, review the new edition before sending. [Opening a second desk in Studio](assets/studio-operator-desk.jpg)

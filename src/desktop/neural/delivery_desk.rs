@@ -31,6 +31,7 @@ pub(super) struct Desk {
     updates: updates::Updates,
     origins: Option<origins::Window>,
     compare: Option<compare::Window>,
+    lookup_return: Option<compare::Return>,
     cam: Option<cam::Window>,
     file_search: String,
     origin: Option<(String, ReturnTo)>,
@@ -79,6 +80,7 @@ impl Desk {
     }
 
     pub(super) fn set_return(&mut self, inspected: &str, target: Option<ReturnTo>) {
+        self.lookup_return = None;
         self.origin = target.map(|target| (inspected.into(), target));
     }
 }
@@ -223,13 +225,20 @@ impl App {
         let Some(target) = self.delivery_desk.return_for(&self.selected_reference) else {
             return;
         };
-        if ui
-            .link("← Back to delivery")
-            .on_hover_text(&target.package)
-            .clicked()
-        {
-            self.return_to_issued_file(&target);
-        }
+        ui.horizontal_wrapped(|ui| {
+            let from_lookup = self.delivery_desk.lookup_return.is_some();
+            if from_lookup && ui.link("← Back to member lookup")
+                .on_hover_text("Check both issued ZIPs again and return to the same lookup").clicked() {
+                if let Some(saved) = self.delivery_desk.lookup_return.take() {
+                    saved.reopen(self, ui.ctx());
+                }
+            }
+            let label = if from_lookup { "This member’s delivery ↗" } else { "← Back to delivery" };
+            if ui.link(label).on_hover_text(&target.package).clicked() {
+                self.delivery_desk.lookup_return = None;
+                self.return_to_issued_file(&target);
+            }
+        });
     }
 
     pub(super) fn return_to_issued_file(&mut self, target: &ReturnTo) {

@@ -1,0 +1,4 @@
+# Preserve the exact commission and the received/downloadable design bytes.
+commission.txt -text
+*.zip binary
+*.jpg binary
