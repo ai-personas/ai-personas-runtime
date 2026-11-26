@@ -1,5 +1,7 @@
 //! Activity-scoped observations, retained events, and human participation.
 pub(super) mod draft;
+mod feed;
+use feed::Hold;
 mod tool_result;
 mod journal;
 mod work_status;
@@ -153,7 +155,7 @@ pub(super) struct Board {
     person: String,
     indexed: usize,
     matches: Vec<usize>,
-    paused_at: Option<i64>,
+    hold: Option<Hold>,
     limit: usize,
     jump_to_latest: bool,
     work_focus: Option<WorkSection>,
@@ -173,7 +175,7 @@ impl Default for Board {
             person: String::new(),
             indexed: 0,
             matches: Vec::new(),
-            paused_at: None,
+            hold: None,
             limit: PAGE,
             jump_to_latest: true,
             work_focus: None,
@@ -196,17 +198,17 @@ impl Board {
         self.pane = Pane::Timeline;
         self.filter = Filter::All;
         self.person = person.to_owned();
-        self.paused_at = None;
+        self.hold = None;
         self.reset_filter();
     }
 
-    pub(super) fn show_event(&mut self, work: &str, sequence: i64) {
+    pub(super) fn show_event(&mut self, work: &str, sequence: i64, observed: i64) {
         self.show_activity(work);
         self.pane = Pane::Timeline;
         self.filter = Filter::All;
         self.person.clear();
         self.reset_filter();
-        self.paused_at = Some(sequence);
+        self.hold = Some(Hold::new(sequence, observed));
         self.expanded = Some(sequence);
     }
 
@@ -238,52 +240,6 @@ impl Board {
         self.expanded = None;
         self.limit = PAGE;
         self.jump_to_latest = true;
-    }
-
-    fn follow_control(&mut self, ui: &mut Ui, events: &[Value], cursor: i64) -> usize {
-        self.index(events);
-        let latest = self.matches.len();
-        let end = self.paused_at.map_or(latest, |at| {
-            self.matches
-                .partition_point(|i| events[*i]["event"].as_i64().unwrap_or(0) <= at)
-        });
-        let new = latest - end;
-        let paused = self.paused_at.is_some();
-        let show_count_beside = new > 0 && ui.available_size_before_wrap().x >= 190.;
-        let label = match (paused, new) {
-            (false, _) => "Pause feed".to_owned(),
-            (true, n) if n > 0 && !show_count_beside => format!("Latest · {n} new"),
-            (true, _) => "Return to latest".to_owned(),
-        };
-        // Keep the same tab stop and footprint when reading or resuming.
-        let toggle = ui
-            .add_sized(
-                [116., ui.spacing().interact_size.y],
-                egui::Button::new(RichText::new(label).small())
-                    .truncate()
-                    .selected(paused),
-            )
-            .on_hover_text(if paused {
-                "Return to the newest event and follow new arrivals"
-            } else {
-                "Keep your place while new events arrive"
-            });
-        if show_count_beside {
-            let count = RichText::new(format!("{new} new"))
-                .small()
-                .color(theme::palette(ui).ink(theme::ACCENT));
-            ui.add(egui::Label::new(count).truncate());
-        }
-        if toggle.clicked() {
-            toggle.request_focus();
-            if paused {
-                self.paused_at = None;
-                self.jump_to_latest = true;
-                return latest;
-            }
-            self.paused_at = Some(cursor);
-        }
-        end
     }
 
     fn index(&mut self, events: &[Value]) {
@@ -1294,6 +1250,11 @@ impl App {
                 let result = scroll.show(ui, |ui| {
                     if end == 0 {
                         ui.add_space(14.);
+                        if let Some(hold) = self.live_board.hold.filter(|_| !self.live_board.matches.is_empty()) {
+                            ui.strong(format!("No matching events through #{}", hold.at));
+                            ui.weak("Use Next event to read the first later match, or Return to latest to follow the feed.");
+                            return;
+                        }
                         ui.strong("No events in this view");
                         if self.live_board.filter == Filter::All
                             && self.live_board.person.is_empty()
@@ -1331,8 +1292,8 @@ impl App {
                         self.live_board.limit = self.live_board.limit.saturating_add(PAGE);
                     }
                 });
-                if self.live_board.paused_at.is_none() && result.state.offset.y > 32. {
-                    self.live_board.paused_at = Some(self.cursor);
+                if self.live_board.hold.is_none() && result.state.offset.y > 32. {
+                    self.live_board.hold = Some(Hold::new(self.cursor, self.cursor));
                 }
                 match action {
                     Some(EventAction::CommandReceipt(reference)) => {
@@ -1357,7 +1318,7 @@ impl App {
                     Some(EventAction::Rejection(seq)) => self.open_rejection(ui.ctx(), seq),
                     Some(EventAction::Expand(seq)) => {
                         if seq.is_some() {
-                            self.live_board.paused_at.get_or_insert(self.cursor);
+                            self.live_board.hold.get_or_insert(Hold::new(self.cursor, self.cursor));
                         }
                         self.live_board.expanded = seq;
                     }
@@ -1397,18 +1358,9 @@ impl App {
         let body = &event["body"];
         let result = &event["tool_outcome"];
         let actor = s(event, "actor");
-        let operator = operator_desk::author(event);
-        let runtime = actor == "runtime" && operator.is_none();
+        let runtime = actor == "runtime" && operator_desk::author(event).is_none();
         let persona = event["invocation"].is_string() && !runtime;
-        let who = if let Some(name) = operator {
-            format!("Operator {name}")
-        } else if persona {
-            self.label(actor).to_owned()
-        } else if runtime {
-            "Runtime".into()
-        } else {
-            actor.to_owned()
-        };
+        let who = self.event_author(event);
         let tint = if persona {
             p.ink(self.color(actor))
         } else if runtime {
@@ -1453,13 +1405,16 @@ impl App {
                         egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(true),
                         |ui| {
                             ui.set_min_width(info_width);
+                            if self.live_board.hold.is_some_and(|h| h.at == seq) {
+                                theme::badge(ui, &format!("#{seq}"), p.accent);
+                            }
                             ui.label(RichText::new(&who).size(14.).strong().color(tint))
                                 .on_hover_text(actor);
                             ui.label(RichText::new(heading).size(13.).color(p.muted));
                         },
                     );
                     let stamp = time_label(event["created"].as_i64().unwrap_or(0));
-                    if ui
+                    let timestamp = ui
                         .add(
                             egui::Button::new(
                                 RichText::new(stamp.trim_end_matches(" UTC"))
@@ -1470,9 +1425,15 @@ impl App {
                             .small()
                             .frame(false),
                         )
-                        .on_hover_text(format!("{} · open saved event", s(event, "created_utc")))
-                        .clicked()
-                    {
+                        .on_hover_text(format!("Event #{seq} · {} · open saved event", s(event, "created_utc")));
+                    timestamp.context_menu(|ui| {
+                        ui.small(format!("Event #{seq}"));
+                        if ui.button("Copy event address").clicked() {
+                            ui.ctx().copy_text(reference());
+                            ui.close();
+                        }
+                    });
+                    if timestamp.clicked() {
                         action = Some(EventAction::Open(reference()));
                     }
                 });
@@ -1768,6 +1729,19 @@ impl App {
             });
         });
         action
+    }
+
+    pub(super) fn event_author(&self, event: &Value) -> String {
+        let actor = s(event, "actor");
+        if let Some(name) = operator_desk::author(event) {
+            format!("Operator {name}")
+        } else if actor == "runtime" {
+            "Runtime".into()
+        } else if event["invocation"].is_string() {
+            self.label(actor).to_owned()
+        } else {
+            actor.to_owned()
+        }
     }
 
     pub(super) fn event_heading(&self, event: &Value) -> String {

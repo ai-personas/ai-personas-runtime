@@ -1,7 +1,8 @@
 use super::*;
 
+mod event;
 mod index;
-use index::{Entry, Index, Kind};
+use index::{Index, Kind};
 
 const SHORTCUT: egui::KeyboardShortcut =
     egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::K);
@@ -81,6 +82,7 @@ impl App {
                 self.profile_view = people::ProfileView::Overview;
             }
             Kind::Activity => self.open_home_activity(&reference),
+            Kind::Event => event::open(self, &reference, &work),
             Kind::TaskRole => self.open_task_board(&work),
             Kind::Delivery => self.open_home_delivery(&reference, &work),
             Kind::Request => {
@@ -160,7 +162,7 @@ impl Finder {
                 let field = ui.add(
                     egui::TextEdit::singleline(&mut self.query)
                         .id(field_id)
-                        .hint_text("Name, title, filename or reference")
+                        .hint_text("Name, filename, reference or #event number")
                         .desired_width(f32::INFINITY),
                 );
                 if opening {
@@ -175,6 +177,8 @@ impl Finder {
                 let scroll = egui::ScrollArea::vertical()
                     .id_salt((OVERLAY, "results"))
                     .auto_shrink([false, true])
+                    // A short previous query is not a cap on the next one's results.
+                    .min_scrolled_height(body_height)
                     .max_height(body_height);
                 let scroll = if opening || up || down || field.changed() {
                     scroll.vertical_scroll_offset(0.)
@@ -185,6 +189,12 @@ impl Finder {
                     let changed_kind = self.kind_filters(ui);
                     if changed_kind {
                         field.request_focus();
+                    }
+                    if self.kind.is_none() {
+                        if let Some(address) = event::Address::parse(&self.query) {
+                            chosen = address.result(ui, app, enter);
+                            return;
+                        }
                     }
                     let changed = opening || field.changed() || changed_kind;
                     let refreshed = self.index.generation != Some(app.home_index.generation);
@@ -227,7 +237,17 @@ impl Finder {
                     for position in start..end {
                         let entry = &self.index.entries[self.hits[position]];
                         let active = position == self.cursor;
-                        if result_row(ui, entry, active).clicked() || (active && enter) {
+                        if result_row(
+                            ui,
+                            entry.kind,
+                            &entry.reference,
+                            &entry.title,
+                            &entry.subtitle,
+                            active,
+                        )
+                        .clicked()
+                            || (active && enter)
+                        {
                             chosen =
                                 Some((entry.kind, entry.reference.clone(), entry.work.clone()));
                         }
@@ -286,7 +306,7 @@ impl Finder {
         let previous = self.kind;
         let mut choices = |ui: &mut Ui| {
             ui.selectable_value(&mut self.kind, None, "All");
-            for kind in Kind::ALL {
+            for kind in Kind::FILTERS {
                 ui.selectable_value(&mut self.kind, Some(kind), kind.filter());
             }
         };
@@ -304,7 +324,14 @@ impl Finder {
     }
 }
 
-fn result_row(ui: &mut Ui, entry: &Entry, selected: bool) -> egui::Response {
+fn result_row(
+    ui: &mut Ui,
+    kind: Kind,
+    reference: &str,
+    heading: &str,
+    detail: &str,
+    selected: bool,
+) -> egui::Response {
     let p = theme::palette(ui);
     let width = ui.available_width();
     let narrow = width < 235.;
@@ -320,8 +347,8 @@ fn result_row(ui: &mut Ui, entry: &Entry, selected: bool) -> egui::Response {
         job.wrap.break_anywhere = rows == 1;
         ui.painter().layout_job(job)
     };
-    let title = line(&entry.title, 16., p.text, if narrow { 3 } else { 1 });
-    let subtitle = line(&entry.subtitle, 13., p.muted, if narrow { 2 } else { 1 });
+    let title = line(heading, 16., p.text, if narrow { 3 } else { 1 });
+    let subtitle = line(detail, 13., p.muted, if narrow { 2 } else { 1 });
     let clipped = title.elided || subtitle.elided;
     let height = (title.size().y + subtitle.size().y + 10.).max(47.);
     let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
@@ -338,7 +365,7 @@ fn result_row(ui: &mut Ui, entry: &Entry, selected: bool) -> egui::Response {
             rect.left_center() + egui::vec2(16., 0.),
             egui::vec2(17., 17.),
         );
-        theme::paint_icon(ui.painter(), icon, entry.kind.icon(), p.accent);
+        theme::paint_icon(ui.painter(), icon, kind.icon(), p.accent);
     }
     let top = rect.left_top() + egui::vec2(inset, 4.);
     let second = top + egui::vec2(0., title.size().y + 2.);
@@ -349,13 +376,13 @@ fn result_row(ui: &mut Ui, entry: &Entry, selected: bool) -> egui::Response {
             egui::WidgetType::SelectableLabel,
             ui.is_enabled(),
             selected,
-            format!("{} · {}", entry.title, entry.subtitle),
+            format!("{heading} · {detail}"),
         )
     });
     response.context_menu(|ui| {
-        ui.small(&entry.reference);
+        ui.small(reference);
         if ui.button("Copy reference").clicked() {
-            ui.ctx().copy_text(entry.reference.clone());
+            ui.ctx().copy_text(reference.to_owned());
             ui.close();
         }
     });
@@ -378,19 +405,14 @@ fn result_row(ui: &mut Ui, entry: &Entry, selected: bool) -> egui::Response {
             };
             let rows = ((viewport.height() * 0.35) / 20.).floor().clamp(1., 6.) as usize;
             ui.add(
-                egui::Label::new(preview(&entry.title, 16., ui.visuals().text_color(), rows))
+                egui::Label::new(preview(heading, 16., ui.visuals().text_color(), rows))
                     .wrap()
                     .show_tooltip_when_elided(false),
             );
             ui.add(
-                egui::Label::new(preview(
-                    &entry.subtitle,
-                    13.,
-                    ui.visuals().weak_text_color(),
-                    2,
-                ))
-                .wrap()
-                .show_tooltip_when_elided(false),
+                egui::Label::new(preview(detail, 13., ui.visuals().weak_text_color(), 2))
+                    .wrap()
+                    .show_tooltip_when_elided(false),
             );
             ui.weak("Open result for full details");
         })

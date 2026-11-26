@@ -681,7 +681,7 @@ impl App {
                     v["reference"].as_str().filter(|r| r.starts_with("work:") && v["prior_brief"].is_string())) {
                     self.select_activity(work);
                     self.layout.editor = Editor::Studio;
-                    self.live_board.show_event(work, event);
+                    self.live_board.show_event(work, event, self.cursor);
                     format!("Amendment saved · brief {}", brief_terms::revision(brief))
                 } else if v["reference"].as_str().is_some_and(|r| r.starts_with("human_task_role:")) {
                     if v["state"] == "left" { "You left your task role".into() } else { "Your part in the task was saved".into() }

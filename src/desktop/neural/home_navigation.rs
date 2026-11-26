@@ -62,7 +62,7 @@ impl App {
             self.persona = person.clone();
             self.address_in_live(&person);
         }
-        self.live_board.show_event(work, sequence);
+        self.live_board.show_event(work, sequence, self.cursor);
     }
 
     pub(super) fn open_home_delivery(&mut self, reference: &str, work: &str) {
