@@ -22,6 +22,15 @@ pub(super) enum Selection<'db> {
     },
 }
 
+enum Member<'a, 'db> {
+    Issued(&'a Edition<'db>),
+    Direct {
+        db: &'db Connection,
+        path: String,
+        digest: String,
+    },
+}
+
 pub struct File {
     pub path: String,
     pub digest: String,
@@ -65,9 +74,9 @@ impl<'db> Materials<'db> {
         }
     }
 
-    pub fn read(&self, file: &str) -> Result<File> {
-        let delivery = match &self.0 {
-            Selection::Delivery(issue) => issue,
+    fn member(&self, file: &str) -> Result<Member<'_, 'db>> {
+        match &self.0 {
+            Selection::Delivery(issue) => Ok(Member::Issued(issue)),
             Selection::Request {
                 db,
                 record,
@@ -96,7 +105,7 @@ impl<'db> Materials<'db> {
                     .iter()
                     .find(|e| e.members().iter().any(|r| r == file))
                 {
-                    issue
+                    Ok(Member::Issued(issue))
                 } else {
                     if !record.body["field_packet"].is_null() || !contains(first) {
                         return Err(failure(format!(
@@ -104,16 +113,36 @@ impl<'db> Materials<'db> {
                         )));
                     }
                     let source = delivery::content_before(db, file, first, seq)?;
-                    let bytes = provider_evidence::resource_bytes(db, &source.blob)?;
-                    return Ok(File {
+                    Ok(Member::Direct {
+                        db,
                         path: source.path,
                         digest: source.blob,
-                        bytes,
-                    });
+                    })
                 }
             }
+        }
+    }
+
+    /// Check the registered path and its original write without opening the file body.
+    pub(super) fn path_at_issue(&self, file: &str) -> Result<String> {
+        Ok(match self.member(file)? {
+            Member::Issued(issue) => issue.source(file)?.path,
+            Member::Direct { path, .. } => path,
+        })
+    }
+
+    pub fn read(&self, file: &str) -> Result<File> {
+        let (source, bytes) = match self.member(file)? {
+            Member::Issued(issue) => issue.read(file, None)?,
+            Member::Direct { db, path, digest } => {
+                let bytes = provider_evidence::resource_bytes(db, &digest)?;
+                return Ok(File {
+                    path,
+                    digest,
+                    bytes,
+                });
+            }
         };
-        let (source, bytes) = delivery.read(file, None)?;
         Ok(File {
             path: source.path,
             digest: source.sha256,

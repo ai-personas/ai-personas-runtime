@@ -292,6 +292,16 @@ Open **Needs you** to see requests across the workspace. Each request identifies
 
 A request may arrive before the design is finished. The persona can continue working and put a **Field packet** on the same request, even after someone takes it. The card shows the issuer’s instructions for that edition, its supported use, and the file count. **Save field packet…** saves the instructions and files together; **Inspect delivery →** opens the issued files and their qualifications. **Correspondence** keeps links to previous packet editions. A packet being ready for pickup is separate from anyone reporting the pickup.
 
+#### Compare field packet editions
+
+On a timeline entry where a persona issued files, choose **Packet changes at issue**. **Current request →** instead opens the latest holder, status and materials. From the Field desk, use **What changed?** on the current packet, or choose **Packet changes at #…** on an earlier correspondence entry. The terminal equivalent is `neural packet-changes EVENT_NUMBER`.
+
+**File changes** compares the attachments immediately before and after that publication. Expand **No longer attached** to open a file from the preceding request edition. For a replaced path, **Before** and **At issue** open the two file revisions; the verified attachment label identifies the edition you are reading. **← Packet changes at #…** takes you back. The comparison is by path and exact revision, not by inferred rename, byte difference or individual ZIP member. **Instructions at issue** separates the issuer’s directions for that packet from the original action and requested return. None of these links answers the request or starts a decision.
+
+![Two packet publications on the same Exodus request: nine attachments become twelve at #1558; twelve become one do-not-order notice at #1573.](assets/studio-packet-changes.jpg)
+
+#### Take the outside step or send an observation
+
 1. Open the request and choose **Take request** to let others know you are handling it.
 2. Choose **Save handoff… → Shareable ZIP** to send the request outside Studio as one file, or **Folder** to open it locally. Open or print the unpacked `Request.html` for the action, what to send back, and the qualifications on each file. An explicitly included delivery carries its author's declared scope, supported use and remaining work. When there are attachments, `Files.zip` contains the exact revisions with their original names and folders. **Save files as ZIP…** also saves the files alone.
 3. To return an observation offline, fill out **Field report** in `Request.html` and choose **Save field report**. Bring the downloaded JSON and its selected original evidence files back together. In the request’s **Your response** panel, choose **Import field report…**, then **Attach files…** for the originals. Studio checks their names, sizes and SHA-256 digests. Review the request edition and the observer’s words before sending as the current operator.

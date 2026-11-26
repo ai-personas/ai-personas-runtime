@@ -854,6 +854,7 @@ impl eframe::App for App {
         self.sources_window(ctx);
         self.intake_window(ctx);
         self.message_receipt_window(ctx);
+        self.packet_changes_window(ctx);
         self.rejection_window(ctx);
         self.role_receipts_window(ctx);
         self.export_window(ctx);

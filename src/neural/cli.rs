@@ -143,6 +143,8 @@ pub enum Command {
     MessageReceipt { event: i64 },
     /// Inspect a refused response, its frozen input and the subsequent decisions in this participation.
     RejectedDecision { event: i64 },
+    /// Compare the attachments immediately before and at one field-packet publication.
+    PacketChanges { event: i64 },
     /// Read a physical request's original issue, human updates and explicitly addressed requester responses.
     RequestCorrespondence {
         reference: String,
@@ -644,6 +646,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
         Command::TaskRoleReceipts{reference,before,page_size}=>super::task_roles::received(&store::open_inspection(root)?,&reference,before,page_size),
         Command::RejectedDecision{event}=>super::live::rejected_decision(&store::open_inspection(root)?,event),
         Command::MessageReceipt{event}=>super::live::message_receipt(&store::open_inspection(root)?,event),
+        Command::PacketChanges{event}=>Ok(serde_json::to_value(super::human_requests::PacketChanges::at(&store::open_inspection(root)?,event)?)?),
         Command::ParticipationTerms{work,persona}=>super::live::participation_terms(&store::open_inspection(root)?,&work,&persona),
         Command::Find(query)=>super::discovery::find(&store::open_inspection(root)?,None,&query),
         Command::ReceivedBriefs{persona,query}=>Ok(serde_json::to_value(super::briefs::search(&store::open_inspection(root)?,&persona,&query)?)?),

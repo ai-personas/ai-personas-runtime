@@ -243,7 +243,7 @@ impl App {
                             ui.add_space(3.);
                         }
                         ui.push_id(s(row, "experience"), |ui| {
-                            self.correspondence_row(ui, row, requester)
+                            self.correspondence_row(ui, row, requester, work)
                         });
                     }
                 });
@@ -251,7 +251,7 @@ impl App {
         }
     }
 
-    fn correspondence_row(&mut self, ui: &mut Ui, row: &Value, requester: &str) {
+    fn correspondence_row(&mut self, ui: &mut Ui, row: &Value, requester: &str, work: &str) {
         let p = theme::palette(ui);
         let kind = s(row, "kind");
         let human = matches!(kind, "human_report" | "human_progress");
@@ -327,6 +327,11 @@ impl App {
         let source = s(row, "experience");
         self.source_file_links(ui, &row["attachments"], source);
         if kind == "field_packet" {
+            if let (Some(seq), Some(edition)) = (seq, row["request"].as_str()) {
+                if ui.link(format!("Packet changes at #{seq}")).on_hover_text(edition).clicked() {
+                    self.open_packet_changes(ui.ctx(), seq, edition, work);
+                }
+            }
             for delivery in row["deliveries"].as_array().into_iter().flatten().filter_map(Value::as_str) {
                 if ui.link("Open this issued delivery").on_hover_text(delivery).clicked() {
                     self.open_issued_package(ui.ctx(), delivery);
