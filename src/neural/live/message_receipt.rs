@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 mod pdf_pages;
 mod command_inputs;
+mod outside;
 mod exchange;
 mod answers;
 mod rejection;
@@ -400,6 +401,7 @@ fn receipt(db: &Connection, event: i64) -> Result<Value> {
         update.kind,
         serde_json::to_string(&needles)?
     ])?;
+    let mut asking = (update.kind == "user_message" && request.is_some()).then(|| outside::Asking::trace(db, &update));
     let mut received = Value::Null;
     let mut mounts = command_inputs::Mounts::default();
     let mut bodies = BTreeMap::new();
@@ -437,6 +439,7 @@ fn receipt(db: &Connection, event: i64) -> Result<Value> {
             };
             let Some(via) = via else { continue };
             received = proof.clone();
+            if let Some(Ok(asking)) = asking.as_mut() { asking.received(s); }
             mounts = command_inputs::inspect(db, &update, order, &addresses)?;
             received["via"] = json!(via);
             pages.after_message_receipt(order);
@@ -489,6 +492,12 @@ fn receipt(db: &Connection, event: i64) -> Result<Value> {
         "received":received,"read_elsewhere":read_elsewhere,"attachments":files,
         "unverified_candidates":unverified,"unverified_elsewhere":unverified_elsewhere,
         "unverified_command_inputs":mounts.unverified});
+    if let Some(trace) = asking {
+        match trace {
+            Ok(asking) => report["requesting_action"] = asking.view(db),
+            Err(error) => report["requesting_action_error"] = json!(error.to_string()),
+        }
+    }
     if update.kind == "user_message" {
         let (answers, gaps) = answers::list(db, &update)?;
         report["replies"] = json!(answers);

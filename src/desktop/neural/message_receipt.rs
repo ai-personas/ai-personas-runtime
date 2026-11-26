@@ -1,6 +1,7 @@
 use super::*;
 use ai_personas::neural::live::RunnerObservation;
 mod peer;
+mod outside;
 pub(super) use peer::is_peer_message;
 
 #[derive(Default)]
@@ -10,6 +11,7 @@ pub(super) struct Window {
     trail: Vec<i64>,
     decisions: usize,
     cursor: i64,
+    asking: outside::Asking,
     reader: Option<mpsc::Receiver<Result<Value, String>>>,
     report: Option<Result<Value, String>>,
 }
@@ -46,12 +48,18 @@ impl App {
         if let Some(reader) = &self.message_receipt.reader {
             match reader.try_recv() {
                 Ok(result) => {
+                    if let Some(reference) = self.message_receipt.asking.checked(&result) {
+                        self.message_receipt = Default::default();
+                        self.open_choice_or_record(ctx, reference);
+                        return;
+                    }
                     self.message_receipt.report = Some(result);
                     self.message_receipt.reader = None;
                 }
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    self.message_receipt.report =
-                        Some(Err("The receipt reader stopped.".to_owned()));
+                    let error = Err("The receipt reader stopped.".to_owned());
+                    self.message_receipt.asking.checked(&error);
+                    self.message_receipt.report = Some(error);
                     self.message_receipt.reader = None;
                 }
                 Err(mpsc::TryRecvError::Empty) => {}
@@ -65,11 +73,11 @@ impl App {
         let mut open_file = None;
         let mut open_package = None;
         let mut refresh = false;
-        let feedback = self.message_receipt.report.as_ref()
-            .and_then(|r| r.as_ref().ok())
-            .is_some_and(|r| r["delivery"].is_string());
-        let peer = self.message_receipt.peer || self.message_receipt.report.as_ref().and_then(|r| r.as_ref().ok()).is_some_and(|r| r["kind"] == "peer_exchange");
-        let title = if peer { "Peer exchange" } else if feedback { "Feedback receipt" } else { "Delivery status" };
+        let report = self.message_receipt.report.as_ref().and_then(|r| r.as_ref().ok());
+        let peer = self.message_receipt.peer || report.is_some_and(|r| r["kind"] == "peer_exchange");
+        let title = if peer { "Peer exchange" } else if report.is_some_and(|r| r["delivery"].is_string()) { "Feedback receipt" }
+            else if report.is_some_and(|r| r["kind"] == "user_message" && r["request"].is_string()) { "Outside report" }
+            else { "Delivery status" };
         let viewport = ctx.content_rect().shrink(6.);
         let chrome = theme::titled_window_chrome(ctx);
         let available = (viewport.size() - chrome).max(egui::vec2(1., 1.));
@@ -96,7 +104,7 @@ impl App {
                     }
                     return;
                 }
-                let recipient = self.label(s(report, "recipient"));
+                let recipient = self.label(s(report, "recipient")).to_owned();
                 let delivery = report["delivery"].as_str();
                 let (heading, noun) = if delivery.is_some() {
                     ("Package feedback", "feedback")
@@ -126,7 +134,8 @@ impl App {
                     theme::badge(ui, "Received in a decision", TEAL);
                     let when = time_label(report["received"]["accepted_at"].as_i64().unwrap_or(0));
                     ui.label(format!("{recipient} received this {noun} in a decision accepted at {when}."));
-                    if ui.button("Inspect decision").clicked() {inspect=Some(call.to_owned());}
+                    let label = if report["request"].is_string() {"Inspect receiving decision"} else {"Inspect decision"};
+                    if ui.button(label).clicked() {inspect=Some(call.to_owned());}
                 } else {
                     theme::badge(ui, &format!("{heading} recorded"), PURPLE);
                     ui.label(format!("No verified receipt in {recipient}’s decisions in the original activity."));
@@ -134,6 +143,7 @@ impl App {
                         ui.weak("No activity runner is currently observed in this workspace.");
                     }
                 }
+                self.message_receipt.asking.show(ui, report, &recipient, self.message_receipt.reader.is_some(), &mut refresh);
                 if let Some(answers) = report["replies"].as_array() {
                     ui.add_space(8.);
                     ui.separator();
@@ -236,7 +246,7 @@ impl App {
                             });
                         }
                         if let Some(pages) = file["pdf_pages"].as_array() {
-                            if let Some(reference) = page_receipts(ui, file, pages, recipient) {
+                            if let Some(reference) = page_receipts(ui, file, pages, &recipient) {
                                 inspect = Some(reference);
                             }
                         }

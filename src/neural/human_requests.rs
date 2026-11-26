@@ -15,6 +15,7 @@ pub(super) mod packet;
 pub(super) use packet::issue as issue_packet;
 mod correspondence;
 pub use correspondence::correspondence;
+pub(super) use correspondence::report_source;
 pub(crate) mod register;
 pub(super) mod following;
 pub use register::Lookup;

@@ -74,6 +74,18 @@ On new ordinary inputs, `previous_work_decision.addresses_without_observation` i
 
 On the [reflow task](../examples/ec1-energy-control/reflow/), Kit’s **#684** proposal included valid invitation tools *and* `peer_invite_placeholder`. Nothing in it ran. The next response received #684 and was itself refused at **#685** for `peer_invite.invalid`. The accepted choice received **both** notices and proposed three actual invitations. Offers **#686, #688 and #690** and three separate acceptances establish the team, not the earlier lists of intended operations. Use [Studio’s response record](desktop.md#inspect-a-rejected-response) to follow either rejection into the accepted decision journal. No human coaching, numerical revision or user verdict is implied by correcting an operation.
 
+## Which decision asked for the outside report?
+
+On the [stores task](../examples/ec1-energy-control/stores/), Kit explained that Noor had not asked stores and would not do so. Kit chose `cards` (`human.request`) to ask once for **both card transcriptions**. That action published request **#528**, edition 1. A different decision put the pending-offers packet on it at **#541**, edition 2. Stores desk’s **#548** answered #528 on that updated request, recording edition 3. It reported the transcription complete, not an inspection of a capacitor or a verdict on the packet.
+
+**What Kit actually saw:** the first accepted input containing #548 also contained events #545 and #546. Its only `development.action_results` card concerned #546. Kit cited the report and its prior waiting choice, said it had not read the attachment, and selected the file. Neither the asking choice nor the packet choice was that prior decision. The 812 bytes reached the input for the refusal at #549 and subsequently an accepted decision; Kit’s addressed reply was #558.
+
+**What can be recovered:** the report reader ties the exact operator-written edition and event to the accepted `human.request`, its publication and its operation receipt. **Why Kit asked** shows Kit’s original judgment and the numerical input to *that* choice. A plain claim or release isn’t a report. A packet issued later doesn’t become the asking action, and an unverified link supplies no action card. In a separate, **unsent** preparation at the #548 boundary, the same inbox and selections carried both the original #546 card and the new `outside_report` card. No later inference, appraisal, weight edit or improved decision was observed. The actual #548 input remains unchanged.
+
+![Studio’s outside-report receipt separates Kit’s requesting choice, the reported edition and the card absent from the receiving input.](assets/studio-stores-asking-choice.jpg)
+
+A contribution need not close a request. In a separate `gpt-6.1-sol` history, Workshop host reported a part listed out of stock (**#1723**) without taking Sol’s qualification request. The verified action is Sol’s `qualify_A` at **#1101**; the operator’s new edition was still **open**, with no holder. Sol’s receiving choice cited the report and replied at **#1730** without treating it as procurement authorization. That older input had two other action cards, not one for #1723. This is an attributed availability observation, not a current stock check or an additional Astra trial.
+
 ## What survives a rejected response
 
 A refusal records that the provider answered but the runtime did not adopt the response. In particular it does **not** replace the last accepted working note or tool and reference selections, or move the participation’s inbox cursor. The next input can therefore contain both an earlier numbered entry and the notice of refusal. After the cursor advances, a note that mentions a message or file does not bring its body back.

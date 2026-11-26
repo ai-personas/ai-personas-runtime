@@ -34,8 +34,14 @@ pub(in crate::neural) fn origin(
     let review = if meta["kind"] == "package_review" {
         super::peer_review(db, owner, &super::locate(db, Some(owner), event)?, &envelope)?
     } else { None };
+    let report = if meta["kind"] == "user_message" && meta["target"] == owner && meta["invocation"].is_null()
+        && envelope["human_request"].is_string() && envelope["reply_to"].is_string() {
+        Some(crate::neural::human_requests::report_source(db, owner, work, event, &envelope)?)
+    } else { None };
     let (call, parent) =
-        if let Some(edition) = &review {
+        if let Some((call, _)) = &report {
+            (Some(call.clone()), None)
+        } else if let Some(edition) = &review {
             (Some(edition.issue.invocation.clone()), None)
         } else if let Some(check) = &check {
             (Some(check.call.clone()), None)
@@ -98,7 +104,7 @@ pub(in crate::neural) fn origin(
         || boundary.body["owner"] != owner
         || boundary.body["work"] != work
         || boundary.body["response"] != metadata(db, Some(owner), &choice)?["source"]
-        || ((parent.is_some() || check.is_some() || review.is_some())
+        || ((parent.is_some() || check.is_some() || review.is_some() || report.is_some())
             && boundary.body["last_event"]
                 .as_i64()
                 .is_none_or(|n| n >= seq))
@@ -106,7 +112,9 @@ pub(in crate::neural) fn origin(
         return Ok(None);
     }
     let ops = r["operations"].as_array().into_iter().flatten();
-    let (relation, performed) = if let Some(edition) = review {
+    let (relation, performed) = if let Some((_, performed)) = report {
+        ("outside_report", performed)
+    } else if let Some(edition) = review {
         ("peer_package_review", json!({"endpoint":{"kind":"operation","id":edition.operation,"tool":"result.deliver"},
             "delivery":edition.issue.record.reference.handle(),"review":envelope["reference"],"reviewed_by":meta["actor"]}))
     } else if let Some(check) = check {
@@ -198,7 +206,9 @@ pub(in crate::neural) fn origin(
     let mut view = json!({"decision":choice,"outcome":event,"relation":relation,"owner":owner,"work":work,"performed":performed,
         "judgment_before":r["work"]["reason"],"character_then":{"model":s.model,"epoch":s.epoch,"basis":if ctx["outputs"].is_object(){"contextual"}else{"baseline"}},
         "source_response":boundary.body["response"],"response_binding":accepted.binding});
-    view["return_kind"] = json!(if relation == "peer_package_review" {
+    view["return_kind"] = json!(if relation == "outside_report" {
+        "request_reported"
+    } else if relation == "peer_package_review" {
         "issued_edition_reviewed"
     } else if relation == "receiving_check" {
         "issued_files_checked"

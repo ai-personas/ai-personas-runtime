@@ -459,7 +459,7 @@ fn pause_card(ui: &mut Ui, frame: &Value, received: bool, status: &Value, refres
     open
 }
 
-fn inclination_bar(ui: &mut Ui, value: f64) {
+pub(super) fn inclination_bar(ui: &mut Ui, value: f64) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(76., 12.), egui::Sense::hover());
     let center = rect.center();
     let painter = ui.painter();
