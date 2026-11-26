@@ -12,17 +12,17 @@ pub(super) struct Actions {
     records: Vec<(String, Value)>,
 }
 impl Actions {
-    pub(super) fn load(db: &Connection, id: &str) -> Result<Self> {
+    pub(super) fn load(db: &Connection, id: &str, through: i64) -> Result<Self> {
         let mut actions = Self {
             commands: BTreeMap::new(),
             results: BTreeMap::new(),
             records: Vec::new(),
         };
-        let mut q=db.prepare("WITH editions(handle) AS (SELECT 'human_request:'||id||'@'||revision FROM versions WHERE kind='human_request' AND id=?1)
+        let mut q=db.prepare("WITH editions(handle,n) AS (SELECT 'human_request:'||id||'@'||revision,revision FROM versions WHERE kind='human_request' AND id=?1 AND revision<=?2)
             SELECT v.id,v.digest FROM versions v JOIN objects o ON o.digest=v.digest WHERE v.kind='operator_request' AND v.revision=1 AND
-            (json_extract(CAST(o.bytes AS TEXT),'$.command.human_respond.request') IN editions OR
-             json_extract(CAST(o.bytes AS TEXT),'$.result.reference') IN editions)")?;
-        let mut r = q.query(params![id])?;
+            (json_extract(CAST(o.bytes AS TEXT),'$.command.human_respond.request') IN (SELECT handle FROM editions WHERE n<?2) OR
+             json_extract(CAST(o.bytes AS TEXT),'$.result.reference') IN (SELECT handle FROM editions WHERE n>1))")?;
+        let mut r = q.query(params![id, through])?;
         while let Some(row) = r.next()? {
             let action: Value = store::object(db, &row.get::<_, String>(1)?)?;
             let i = actions.records.len();

@@ -203,7 +203,8 @@ pub(super) fn responses_to_call(
         WHERE {VISIBLE} AND e.work=?2 AND (e.actor<>?1 OR e.invocation IS NULL) AND (
           (e.kind IN ('message','reply','user_message','request_reply','requester_message','requester_review') AND
             json_extract(CAST(b.bytes AS TEXT),'$.reply_to') IN (SELECT 'experience:event-'||parent.seq||'@1'
-            FROM events parent WHERE parent.work=?2 AND parent.invocation=?3))
+            FROM events parent WHERE parent.work=?2 AND parent.invocation=?3 AND (parent.kind<>'human_request'
+            OR (e.kind='user_message' AND e.invocation IS NULL AND json_type(CAST(b.bytes AS TEXT),'$.human_request')='text'))))
           OR (e.kind='user_message' AND e.invocation IS NULL AND e.target=?1 AND EXISTS (
             SELECT 1 FROM versions v WHERE v.kind='delivery' AND v.invocation=?3
             AND 'delivery:'||v.id||'@'||v.revision=json_extract(CAST(b.bytes AS TEXT),'$.delivery')))
@@ -216,6 +217,16 @@ pub(super) fn responses_to_call(
     for row in statement.query_map(params![actor, work, call], Experience::row)? {
         let e = row?;
         let body: Value = store::object(db, &e.digest)?;
+        if e.kind == "user_message" && e.invocation.is_none() && body["human_request"].is_string() {
+            let experience = format!("experience:{}@1", e.id);
+            if let Ok((source, action)) = super::human_requests::report_source(db, actor, work, &experience, &body) {
+                if source == call {
+                    replies.push(json!({"experience":experience,"sequence":e.id[6..].parse::<i64>()?,"author":e.actor,"kind":e.kind,
+                        "relation":"outside_report","target":action["publication"],"request":action["request"],"response_base":action["response_base"],"reported_request":action["reported_request"],"operator_action":action["operator_action"]}));
+                }
+            }
+            continue;
+        }
         let package = if e.kind=="user_message" && e.invocation.is_none() {
             body["delivery"].as_str().map(|r| super::delivery_feedback::issued(db,r)).transpose()?
         } else { None };

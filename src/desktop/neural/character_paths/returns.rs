@@ -23,6 +23,7 @@ pub(super) fn show(
                     "addressed_response" => "Addressed response",
                     "issued_edition_reviewed" => "Peer finding",
                     "issued_files_checked" => "Receiving check",
+                    "request_reported" => "Outside report",
                     "dispatched_result" => "Tool return",
                     "in_transaction_receipt" => "Operation receipt",
                     _ => "Observed return",
@@ -36,7 +37,9 @@ pub(super) fn show(
                     }
                     ui.weak("→");
                     let from = s(row, "author_of_return");
-                    if matches!(
+                    if row["return_kind"] == "request_reported" {
+                        ui.label(format!("{kind} from {from}"));
+                    } else if matches!(
                         s(row, "return_kind"),
                         "addressed_response" | "issued_edition_reviewed" | "issued_files_checked"
                     ) {

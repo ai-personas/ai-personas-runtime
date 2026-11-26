@@ -36,6 +36,7 @@ fn relation(value: &str) -> String {
         "later_in_activity" => "Later event in the same activity".into(),
         "later_elsewhere" => "Later event in another activity".into(),
         "direct_reply" => "Direct reply to this choice".into(),
+        "outside_report" => "Human report on the original request".into(),
         "operation_result" => "Result of this choice’s operation".into(),
         "delivery_feedback" => "Feedback on the issued package".into(),
         "receiving_check" => "Receiving run on the issued package".into(),

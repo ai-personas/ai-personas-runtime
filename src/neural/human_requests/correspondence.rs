@@ -44,12 +44,19 @@ impl Event {
     }
 }
 
+struct Origin {
+    choice: Choice,
+    publication: i64,
+    operation: String,
+    detail: Value,
+}
+
 fn origin(
     db: &Connection,
     first: &store::Record,
     work: &str,
     requester: &str,
-) -> Result<(i64, Value)> {
+) -> Result<Origin> {
     let reference = first.reference.handle();
     let call: String=db.query_row("SELECT invocation FROM versions WHERE kind='human_request' AND id=?1 AND revision=1 AND digest=?2",
         params![first.reference.id,first.reference.digest],|r|r.get(0))?;
@@ -100,7 +107,7 @@ fn origin(
     for key in ["title", "action", "return_requested", "artifacts"] {
         detail[key] = b[key].clone();
     }
-    Ok((event.seq, detail))
+    Ok(Origin { choice, publication: event.seq, operation: op.id, detail })
 }
 
 pub(super) fn issued_origin(db: &Connection, selected: &store::Record) -> Result<Option<Value>> {
@@ -123,7 +130,7 @@ pub(super) fn issued_origin(db: &Connection, selected: &store::Record) -> Result
     let who = first.body["requester"]
         .as_str()
         .ok_or_else(|| failure("Missing original requester"))?;
-    Ok(Some(origin(db, &first, work, who)?.1))
+    Ok(Some(origin(db, &first, work, who)?.detail))
 }
 
 struct Entry {
@@ -324,21 +331,15 @@ fn withdrawal(
     Ok(seq)
 }
 
-/// Read the logical correspondence of one exact physical request, including
-/// newer editions. Rows are newest first. A report’s delivery to model input
-/// is a separate question handled by the exact event’s message receipt.
-pub fn correspondence(
-    db: &Connection,
-    reference: &str,
-    offset: usize,
-    page_size: usize,
-) -> Result<Value> {
-    if !(1..=100).contains(&page_size) {
-        return Err(failure(
-            "Choose between 1 and 100 correspondence rows per page",
-        ));
-    }
-    let selected = exact(db, reference)?;
+struct Timeline {
+    origin: Origin,
+    entries: Vec<Entry>,
+    unverified: usize,
+}
+
+/// Stop at this edition. A later packet, message, withdrawal or damaged head
+/// cannot establish (or erase) who asked for an earlier report.
+fn through(db: &Connection, selected: &store::Record) -> Result<Timeline> {
     let id = &selected.reference.id;
     let first = exact(db, &format!("human_request:{id}@1"))?;
     let work = first.body["work"]
@@ -347,32 +348,26 @@ pub fn correspondence(
     let requester = first.body["requester"]
         .as_str()
         .ok_or_else(|| failure("Missing original requester"))?;
-    let (source, issued) = origin(db, &first, work, requester)?;
+    let issued = origin(db, &first, work, requester)?;
+    let source = issued.publication;
     let origin_handle = format!("experience:event-{source}@1");
-    let current = store::required(db, "human_request", id)?;
-    if selected.reference.revision > current.reference.revision {
-        return Err(failure(
-            "The selected request is outside its recorded lineage",
-        ));
-    }
     let sql=format!("SELECT {FIELDS},json_extract(CAST(o.bytes AS TEXT),'$.human_request') FROM events e JOIN objects o ON o.digest=e.digest
         WHERE e.work=?1 AND e.target=?2 AND e.invocation IS NULL AND e.kind IN ('user_message','human_request_progress')
-        AND json_extract(CAST(o.bytes AS TEXT),'$.human_request') IN (SELECT 'human_request:'||id||'@'||revision FROM versions WHERE kind='human_request' AND id=?3)");
+        AND json_extract(CAST(o.bytes AS TEXT),'$.human_request') IN (SELECT 'human_request:'||id||'@'||revision FROM versions WHERE kind='human_request' AND id=?3 AND revision BETWEEN 2 AND ?4)");
     let mut stmt = db.prepare(&sql)?;
     let mut updates = BTreeMap::<String, Vec<Event>>::new();
-    for row in stmt.query_map(params![work, requester, id], |r| {
+    for row in stmt.query_map(params![work, requester, id, selected.reference.revision], |r| {
         Ok((r.get::<_, String>(7)?, Event::load(r)?))
     })? {
         let (revision, event) = row?;
         updates.entry(revision).or_default().push(event);
     }
     let mut entries = Vec::new();
-    let mut parents = BTreeMap::new();
     let mut previous = first.clone();
     let mut previous_event = source;
-    let actions = operator::Actions::load(db, id)?;
-    let (mut reports, mut progress, mut packets, mut unverified) = (0, 0, 0, 0);
-    for n in 2..=current.reference.revision {
+    let actions = operator::Actions::load(db, id, selected.reference.revision)?;
+    let mut unverified = 0;
+    for n in 2..=selected.reference.revision {
         let handle = format!("human_request:{id}@{n}");
         let edition = exact(db, &handle)?;
         if !same_terms(&edition.body, &first.body) {
@@ -388,7 +383,6 @@ pub fn correspondence(
             if seq <= previous_event { return Err(failure("Field packet is out of order")); }
             let event = db.query_row(&format!("SELECT {FIELDS} FROM events e WHERE e.seq=?1"), [seq], Event::load)?;
             entries.push(Entry { event, request:handle, kind:"field_packet", binding:"accepted_packet_issue".into(), action:"issue" });
-            packets += 1;
             previous_event = seq;
         } else if let Some(call) = writer {
             previous_event = withdrawal(db, &edition, &call, &previous.body, previous_event)?;
@@ -420,12 +414,6 @@ pub fn correspondence(
             if valid.len() == 1 {
                 let (event, data) = valid.pop().unwrap();
                 previous_event = event.seq;
-                if data.kind == "human_report" {
-                    reports += 1;
-                } else {
-                    progress += 1;
-                }
-                parents.insert(event.reference(), entries.len());
                 entries.push(Entry {
                     event,
                     request: handle,
@@ -439,11 +427,38 @@ pub fn correspondence(
         }
         previous = edition;
     }
-    if previous.reference != current.reference {
+    if previous.reference != selected.reference {
         return Err(failure(
             "The request head differs from its exact retained edition",
         ));
     }
+    Ok(Timeline { origin: issued, entries, unverified })
+}
+
+mod report;
+pub(in crate::neural) use report::source as report_source;
+
+/// Read the logical correspondence of one exact physical request, including
+/// newer editions. Rows are newest first. A report’s delivery to model input
+/// is a separate question handled by the exact event’s message receipt.
+pub fn correspondence(db: &Connection, reference: &str, offset: usize, page_size: usize) -> Result<Value> {
+    if !(1..=100).contains(&page_size) {
+        return Err(failure("Choose between 1 and 100 correspondence rows per page"));
+    }
+    let selected = exact(db, reference)?;
+    let id = &selected.reference.id;
+    let current = store::required(db, "human_request", id)?;
+    if selected.reference.revision > current.reference.revision {
+        return Err(failure("The selected request is outside its recorded lineage"));
+    }
+    let Timeline { origin: issued, mut entries, unverified } = through(db, &current)?;
+    let work = current.body["work"].as_str().ok_or_else(|| failure("Missing request activity"))?;
+    let requester = current.body["requester"].as_str().ok_or_else(|| failure("Missing requester"))?;
+    let count = |kind| entries.iter().filter(|e| e.kind == kind).count();
+    let (reports, progress, packets) = (count("human_report"), count("human_progress"), count("field_packet"));
+    let parents: BTreeMap<_, _> = entries.iter().enumerate()
+        .filter(|(_, e)| matches!(e.kind, "human_report" | "human_progress"))
+        .map(|(i, e)| (e.event.reference(), i)).collect();
     let mut reply_count = 0;
     let mut unverified_replies = 0;
     if !parents.is_empty() {
@@ -487,7 +502,7 @@ pub fn correspondence(
         .map(|row| row.display(db))
         .collect::<Result<Vec<_>>>()?;
     Ok(
-        json!({"request":reference,"current_request":current.reference.handle(),"work":work,"requester":requester,"origin":issued,
+        json!({"request":reference,"current_request":current.reference.handle(),"work":work,"requester":requester,"origin":issued.detail,
          "rows":rows,"offset":offset,"page_size":page_size,"total":entries.len(),"report_count":reports,"progress_count":progress,"packet_count":packets,
         "reply_count":reply_count,"unverified_report_count":unverified,"unverified_reply_count":unverified_replies}),
     )
