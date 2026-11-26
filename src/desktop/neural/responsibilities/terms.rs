@@ -225,7 +225,8 @@ pub(super) fn show(
                         ui.horizontal_wrapped(|ui| {
                             ui.small("Wake on:");
                             let triggers = items(c, "on_events");
-                            if triggers.is_empty() {
+                            let peers: Vec<_> = live_board::peer_wakes(c).collect();
+                            if triggers.is_empty() && peers.is_empty() {
                                 ui.label("Any new arrival");
                             }
                             for (index, trigger) in
@@ -246,6 +247,7 @@ pub(super) fn show(
                                     ui.label(trigger.replace('_', " "));
                                 }
                             }
+                            for peer in peers { ui.label(peer); }
                             if let Some(time) = c["wake_at_unix"].as_i64() {
                                 ui.label(format!("or {}", time_label(time)));
                             }

@@ -23,6 +23,7 @@ pub mod activity_tree;
 pub mod activity_sources;
 mod accepted_choice;
 mod peer_timing;
+mod peer_wait;
 pub mod package_review;
 pub mod relationships;
 mod character;

@@ -425,12 +425,16 @@ pub fn events(db: &Connection, work: &str, actor: &str, after: i64) -> Result<Ve
     rows.into_iter().map(|(seq,actor,target,kind,digest,invocation,created)| Ok(json!({"event":seq,"experience":format!("experience:event-{seq}@1"),"actor":actor,"target":target,"kind":kind,"body":object::<Value>(db,&digest)?,"digest":digest,"invocation":invocation,"created":created}))).collect()
 }
 
-/// An actual arrival or a changed register edition on this participation's chosen wait.
+/// An actual arrival, followed outside-step edition, or peer choice selected by this wait.
 /// This does not deliver a message, override a stop, or include time-based wakes.
 pub fn waiting_arrival(db: &Connection, part: &super::protocol::Participation) -> Result<bool> {
-    let super::protocol::Continuation::Wait { on_events, .. } = &part.continuation else { return Ok(false) };
-    Ok(has_arrival(db, &part.work, &part.persona, part.cursor, on_events)?
-        || !super::human_requests::following::changes(db, part)?.is_empty())
+    let super::protocol::Continuation::Wait { on_events, on_peer_settled, .. } = &part.continuation else { return Ok(false) };
+    // No selections means any arrival. A peer-only watch is narrower, not
+    // an empty event filter accidentally satisfied by an unrelated delivery.
+    Ok(((!on_events.is_empty() || on_peer_settled.is_empty())
+        && has_arrival(db, &part.work, &part.persona, part.cursor, on_events)?)
+        || !super::human_requests::following::changes(db, part)?.is_empty()
+        || !super::peer_wait::changes(db, part)?.is_empty())
 }
 
 pub fn has_arrival(db:&Connection, work:&str, actor:&str, after:i64, kinds:&[String])->Result<bool> {
