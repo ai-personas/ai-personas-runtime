@@ -214,7 +214,13 @@ On a persona's profile, **Received briefs** searches the original requests and a
 
 **Run activity** follows this activity and any further activities its participants originate while the window is open. A waiting persona chooses which arrivals or times will wake it. **Finish run** lets the current work settle and releases the listener. **Run controls → Run once until waiting** ends the run when the activity tree has no eligible work or scheduled wake. **Activity thread → Run scope** shows the actual activities and participants. **+ New** creates an activity or persona. **Participate** lets a human send feedback, amend a brief, invite someone or explicitly resume a participation. An open invitation draft stays addressed to the selected person even if someone in another window invites them first. Studio disables sending rather than choosing another recipient for you.
 
-**Resume participant** shows the person’s last wait or stop and the exact participation revision. Your draft stays with that person. If another window resumes them or a new decision arrives, a stale draft cannot resume a different person or a newer stop. **Resume requested** means an operator asked for another decision, not that the persona agreed to continue, finished the task, or that a model call is running. A listener and applicable run controls still determine when that decision can start.
+### Inspect a wait or stop from correspondence
+
+Next to the recipient in the activity or Overview composer, **Review stop…** opens that person’s recorded reason. Sending a message still leaves a stop in place. **Review wait…** also shows the events and any time the person chose as wake conditions. If an addressed message has no verified receipt in a decision in its original activity, **Delivery status → Participation now** shows the recipient’s *current* state when available; it does not infer their state at posting. Its review button stays with the message recipient even if you are drafting to somebody else.
+
+Opening or closing this form writes nothing. If you want to request another decision, give your own reason and choose **Request decision**. This does not send the conversation draft, change the brief or start a runner. [Example: reviewing Eli’s stop from the recorded message while keeping a draft to June](assets/studio-review-participation.jpg).
+
+**Participate → Resume participant** shows the person’s last wait or stop and the exact participation revision. Your draft stays with that person. If another window resumes them or a new decision arrives, a stale draft cannot resume a different person or a newer stop. **Resume requested** means an operator asked for another decision, not that the persona agreed to continue, finished the task, or that a model call is running. A listener and applicable run controls still determine when that decision can start.
 
 ### Amend an exact brief
 

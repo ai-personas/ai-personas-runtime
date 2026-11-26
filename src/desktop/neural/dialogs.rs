@@ -4,6 +4,7 @@ mod amendment;
 mod invitation;
 mod connection;
 mod resume;
+pub(super) use resume::RecipientState;
 
 #[derive(Default)]
 pub(super) struct SourceFiles {
@@ -118,7 +119,7 @@ impl Dialog {
             Self::Activity { edition: Some(_), .. } => "New brief from edition",
             Self::Activity { .. } => "New task",
             Self::Participation { action, .. } => action.title(),
-            Self::Resume(_) => "Resume a participant",
+            Self::Resume(_) => "Review participation",
             Self::Persona { .. } => "New persona",
             Self::Review(_) => "Review delivery",
             Self::Amendment(_) => "Amend the brief",
@@ -173,6 +174,20 @@ impl App {
 
     pub(super) fn resume_dialog(&self) -> Dialog {
         Dialog::Resume(resume::Form::new(self))
+    }
+
+    pub(super) fn review_continuation(&mut self, choice: resume::Choice) -> bool {
+        if self.dialog.is_some() || self.busy {
+            return false;
+        }
+        if let Some(form) = resume::Form::review(self, choice) {
+            self.error = None;
+            self.dialog = Some(Dialog::Resume(form));
+            true
+        } else {
+            self.notice = "The selected participation changed. Nothing was requested.".into();
+            false
+        }
     }
 
     pub(super) fn amend_brief(&mut self) {
@@ -267,7 +282,7 @@ impl App {
             match &draft {
                 Dialog::Settings(_) => "Settings",
                 Dialog::Reasoning { .. } => "Reasoning",
-                Dialog::Resume(_) => "Resume",
+                Dialog::Resume(_) => "Participation",
                 Dialog::Review(_) => "Review",
                 Dialog::Agreement(_) => "Agreement",
                 Dialog::Activity { social: true, .. } => "Conversation",
@@ -287,8 +302,14 @@ impl App {
             let initial = egui::vec2(552.0_f32.min(width), 575.0_f32.min((bounds.height()-84.).max(64.)));
             window = window.default_pos(bounds.center()-initial*0.5).default_height(initial.y);
         }
+        let window_id = if invitation { "studio-invitation" } else if matches!(draft, Dialog::Resume(_)) {
+            let bounds = ctx.content_rect();
+            let initial = egui::vec2(510.0_f32.min(width), 460.0_f32.min((bounds.height()-84.).max(64.)));
+            window = window.default_pos(bounds.center()-initial*0.5).default_height(initial.y);
+            "studio-participation-choice"
+        } else { "studio-dialog" };
         window
-            .id(egui::Id::new(if invitation {"studio-invitation"} else {"studio-dialog"}))
+            .id(egui::Id::new(window_id))
             .open(&mut open)
             .default_width(510.0_f32.min(width))
             .resizable(true)
