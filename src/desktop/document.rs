@@ -49,11 +49,11 @@ pub fn markdown(ui: &mut Ui, text: &str) {
 }
 
 pub fn markdown_at(ui: &mut Ui, text: &str, base: Option<&std::path::Path>) {
-    render_markdown(ui,text,base,false);
+    render_markdown(ui, text, Reading::File(base));
 }
 
 pub fn message_markdown(ui:&mut Ui,text:&str){
-    render_markdown(ui,text,None,true);
+    render_markdown(ui, text, Reading::Message);
 }
 
 /// The reading view interprets Markdown. The transcript uses the submitted
@@ -85,7 +85,22 @@ pub fn message_edition(ui: &mut Ui, id: egui::Id, text: &str, start_as_sent: boo
     }
 }
 
-fn render_markdown(ui: &mut Ui, text: &str, base: Option<&std::path::Path>, preserve_lines:bool) {
+enum Reading<'a> {
+    File(Option<&'a std::path::Path>),
+    Message,
+    Issued(std::ops::Range<usize>),
+}
+
+/// Parse the whole document (reference definitions may be in another section).
+/// Issued documents have no local base, remote actions or executable content.
+/// Their reader offers separate navigation to exact files in the same edition.
+pub(super) fn issued_section(ui: &mut Ui, text: &str, section: std::ops::Range<usize>) {
+    render_markdown(ui, text, Reading::Issued(section));
+}
+
+fn render_markdown(ui: &mut Ui, text: &str, reading: Reading<'_>) {
+    let preserve_lines = matches!(reading, Reading::Message);
+    let base = match &reading { Reading::File(path) => *path, _ => None };
     let p = theme::palette(ui);
     let link_color = ui.visuals().hyperlink_color;
     let mut job = egui::text::LayoutJob::default();
@@ -111,7 +126,8 @@ fn render_markdown(ui: &mut Ui, text: &str, base: Option<&std::path::Path>, pres
             if !links.is_empty() {
                 ui.horizontal_wrapped(|ui| {
                     for (label, url) in links.drain(..) {
-                        if url.starts_with("https://") || url.starts_with("http://") {
+                        if !matches!(reading, Reading::Issued(_))
+                            && (url.starts_with("https://") || url.starts_with("http://")) {
                             ui.hyperlink_to(label, url);
                         } else {
                             ui.label(RichText::new(format!("{label} · {url}")).small().weak());
@@ -120,10 +136,13 @@ fn render_markdown(ui: &mut Ui, text: &str, base: Option<&std::path::Path>, pres
                 });
             }
         };
-    for event in Parser::new_ext(
+    for (event, span) in Parser::new_ext(
         text,
         Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS,
-    ) {
+    ).into_offset_iter() {
+        if matches!(&reading, Reading::Issued(section) if !section.contains(&span.start)) {
+            continue;
+        }
         if let Some((language, source)) = &mut code_block {
             match event {
                 Event::End(TagEnd::CodeBlock) => {

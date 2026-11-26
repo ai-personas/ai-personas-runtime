@@ -4,6 +4,7 @@ use super::*;
 mod cam;
 mod compare;
 mod dispatch;
+mod issued_document;
 mod origins;
 mod preview;
 mod receiving;
@@ -20,6 +21,7 @@ pub(super) struct Desk {
     selected: usize,
     inline: Inline,
     focus_preview: bool,
+    document_trail: Vec<(String, String)>, // bounded path through this edition's documents
     slip: usize,
     slip_page: usize,
     show_references: bool,
@@ -278,6 +280,7 @@ impl App {
                 desk.file_search.clear();
                 desk.file_folders.directory.clear();
                 desk.focus_preview = false;
+                desk.document_trail.clear();
                 desk.inline.clear();
             }
             desk.package.clone_from(&self.layout.delivery);
@@ -462,6 +465,22 @@ impl App {
                     {
                         jump = Some(Jump::Files);
                     }
+                    if p.files.iter().any(|f| f.format.markdown()) {
+                        ui.menu_button("Read document…", |ui| {
+                            ui.set_max_width((ui.ctx().content_rect().width()-40.).clamp(170., 600.));
+                            ui.small("Markdown files in this edition");
+                            egui::ScrollArea::vertical().max_height(270.).show(ui, |ui| {
+                                for (i, f) in p.files.iter().enumerate().filter(|(_, f)| f.format.markdown()) {
+                                    if ui.add(egui::Button::selectable(false, &f.path).wrap()).on_hover_text(&f.reference).clicked() {
+                                        self.delivery_desk.selected = i;
+                                        self.delivery_desk.focus_preview = true;
+                                        self.delivery_desk.document_trail.clear();
+                                        ui.close();
+                                    }
+                                }
+                            });
+                        });
+                    }
                     if !p.files.is_empty()
                         && ui
                             .link("File origins…")
@@ -549,6 +568,8 @@ impl App {
             SaveEntry(ZipFile),
             SaveViewed(artifacts::ViewedMember),
             InspectEntry(artifacts::MemberTarget),
+            FollowDocumentPath(String, String),
+            BackToDocument(usize),
             Measure(Option<String>),
             Overlay,
         }
@@ -576,6 +597,15 @@ impl App {
                     .response
                     .on_hover_text(&p.files[desk.selected].path);
                 let file = &p.files[desk.selected];
+                match desk.document_trail.last() {
+                    Some((from, to)) if *to == file.reference => {
+                        if let Some(&i) = p.by_reference.get(from) {
+                            let link = ui.link("← Back to document").on_hover_text(&p.files[i].path);
+                            if link.clicked() { action = Some(Action::BackToDocument(i)); }
+                        }
+                    }
+                    _ => desk.document_trail.clear(),
+                }
                 ui.horizontal_wrapped(|ui| {
                     ui.small(if desk.inline.detected_pdf(&file.reference) {
                         "PDF document"
@@ -603,7 +633,9 @@ impl App {
                     }
                     ui.add_space(3.);
                 }
-                desk.inline.show(ui, &self.root, &p.reference, file);
+                if let Some((path, reference)) = desk.inline.show(ui, &self.root, &p.reference, file) {
+                    action = Some(Action::FollowDocumentPath(path, reference));
+                }
                 ui.add_space(4.);
                 ui.horizontal_wrapped(|ui| {
                     let inner = desk.inline.viewed_member();
@@ -662,6 +694,34 @@ impl App {
         }
         let file = &p.files[desk.selected];
         match action {
+            Some(Action::BackToDocument(index)) => {
+                desk.document_trail.pop();
+                desk.selected = index;
+                desk.focus_preview = true;
+                ui.ctx().request_repaint();
+            }
+            Some(Action::FollowDocumentPath(path, target)) => {
+                // Both the path and revision have to match the verified list.
+                // The preview worker verifies the target itself before display.
+                if let Some(&i) = p
+                    .by_reference
+                    .get(&target)
+                    .filter(|&&i| p.files[i].path == path)
+                {
+                    if desk.document_trail.len() == 32 {
+                        desk.document_trail.remove(0);
+                    }
+                    desk.document_trail.push((file.reference.clone(), target));
+                    desk.selected = i;
+                    desk.focus_preview = true;
+                    ui.ctx().request_repaint();
+                } else {
+                    self.error = Some(
+                        "This file no longer matches the selected edition. Reopen the delivery."
+                            .into(),
+                    );
+                }
+            }
             Some(Action::Overlay) => {
                 desk.cam = Some(cam::Window::new(ui.ctx(), &self.root, p, file));
             }

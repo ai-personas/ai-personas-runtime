@@ -1,5 +1,7 @@
 # Can a disconnected charged article drive a generator load?
 
+**[Can the battery recharge itself while a 20 W load is on?](battery/)** The same room modeled a charging current with the load on, then checked whether the battery recovered the energy it spent at startup. Download the separate battery-only model and follow the seven-file handoff.
+
 **[Download the rotorless shuttle, passive PCB, CAM and corrected controller](rotorless/)** for the free-versus-locked electrical comparison. Simulations show a finite load pulse, not a surplus generator.
 
 **[Earlier continued investigation: public experiments, loaded motion and a linear charge–position design](continued/)**. The same four participants went beyond the first handoff. The continued download includes the earlier engineering files and compares two mechanisms with the same force but different electrical predictions. It is not a measured surplus generator.

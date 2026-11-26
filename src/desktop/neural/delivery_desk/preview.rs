@@ -1,6 +1,6 @@
 //! A bounded in-page preview of a single immutable package member.
-use super::*;
 use super::super::super::data_view;
+use super::{issued_document, *};
 use ai_personas::neural::issued_files::{Edition, Source};
 use std::{
     io::Cursor,
@@ -31,6 +31,7 @@ enum Kind {
     Html,
     Archive,
     Table(bool), // true for TSV
+    Markdown,
     Text,
     Other,
 }
@@ -65,13 +66,12 @@ impl Format {
                 "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "image/tiff"
                 | "image/bmp" | "image/x-icon",
             ) => Kind::Raster,
-            _ if print_preview::is_html(path, media) => {
-                Kind::Html
-            }
+            _ if print_preview::is_html(path, media) => Kind::Html,
+            ("md" | "markdown", _) | (_, "text/markdown") => Kind::Markdown,
             (
-                "md" | "markdown" | "txt" | "json" | "yaml" | "yml" | "xml" | "net"
-                | "gbr" | "drl" | "kicad_sch" | "kicad_pcb" | "cir" | "spice"
-                | "py" | "rs" | "sh" | "js" | "ts" | "toml" | "sha256",
+                "txt" | "json" | "yaml" | "yml" | "xml" | "net" | "gbr" | "drl" | "kicad_sch"
+                | "kicad_pcb" | "cir" | "spice" | "py" | "rs" | "sh" | "js" | "ts" | "toml"
+                | "sha256",
                 _,
             ) => Kind::Text,
             // Text-encoded geometry and digital traces need the full file
@@ -88,7 +88,7 @@ impl Format {
             (Kind::Archive, _) => "ZIP archive".into(),
             (Kind::Table(false), _) => "CSV table".into(),
             (Kind::Table(true), _) => "TSV table".into(),
-            (Kind::Text, "md" | "markdown") => "Markdown".into(),
+            (Kind::Markdown, _) => "Markdown".into(),
             (Kind::Text, "gbr") => "Gerber source".into(),
             (Kind::Text, "drl") => "Drill source".into(),
             (Kind::Other, "vcd") => "Digital logic trace".into(),
@@ -113,6 +113,9 @@ impl Format {
     }
     pub fn html(&self) -> bool {
         matches!(self.kind, Kind::Html)
+    }
+    pub fn markdown(&self) -> bool {
+        matches!(self.kind, Kind::Markdown)
     }
     pub fn archive(&self) -> bool {
         matches!(self.kind, Kind::Archive)
@@ -140,6 +143,7 @@ enum Content {
     Table(Vec<Vec<String>>),
     Studio(Arc<tempfile::TempDir>, PathBuf, String),
     Text(String, bool),
+    Document(issued_document::Document),
 }
 struct Identity {
     source: Source,
@@ -204,6 +208,7 @@ enum View {
     Table(Vec<Vec<String>>, data_view::TableView),
     Text(String, bool),
     Studio,
+    Document(issued_document::Document),
     Note(String),
 }
 
@@ -314,8 +319,17 @@ impl Inline {
         };
     }
 
-    pub fn show(&mut self, ui: &mut Ui, root: &Path, edition: &str, file: &File) {
-        if self.reference != file.reference || self.edition != edition || self.file_bytes != file.bytes {
+    pub fn show(
+        &mut self,
+        ui: &mut Ui,
+        root: &Path,
+        edition: &str,
+        file: &File,
+    ) -> Option<(String, String)> {
+        if self.reference != file.reference
+            || self.edition != edition
+            || self.file_bytes != file.bytes
+        {
             self.clear();
             self.file_bytes = file.bytes;
             self.reference.clone_from(&file.reference);
@@ -371,6 +385,7 @@ impl Inline {
                     Ok(Content::Archive(listing)) => View::Archive(self.directory.take().unwrap_or(listing)),
                     Ok(Content::Table(rows)) => View::Table(rows, Default::default()),
                     Ok(Content::Text(body, truncated)) => View::Text(body, truncated),
+                    Ok(Content::Document(doc)) => View::Document(doc),
                     Ok(Content::Studio(directory, path, sha256)) => {
                         let viewer = self.studio.get_or_insert_with(|| artifacts::Viewer::new(ui.ctx(), self.gl.as_ref()));
                         match viewer.open_snapshot(directory, path, sha256, None) {
@@ -401,6 +416,7 @@ impl Inline {
         }
         let p = theme::palette(ui);
         let mut selected = None;
+        let mut follow = None;
         match &mut self.view {
             View::Pending if document => self.pages.loading(ui),
             View::Pending => {
@@ -451,8 +467,19 @@ impl Inline {
                     ui.small(note.as_str());
                 }
             }
+            View::Document(doc) => {
+                if let Some(identity) = &self.identity {
+                    let hash = identity
+                        .member
+                        .as_ref()
+                        .map_or(&identity.source.sha256, |m| &m.2);
+                    follow = doc.show(ui, (edition, reference, hash));
+                }
+            }
             View::Text(body, truncated) => {
-                ui.small(if *truncated {
+                ui.small(if *truncated && matches!(kind, Kind::Markdown) {
+                    "Source excerpt · open the full file for this document"
+                } else if *truncated {
                     "Source excerpt"
                 } else {
                     "File contents"
@@ -500,15 +527,21 @@ impl Inline {
             self.html_source = false;
             self.request(ui, root, file);
         }
+        follow
     }
 }
 
 fn load(job: &Job, cancelled: impl Fn() -> bool) -> ai_personas::neural::Result<(Identity, Content)> {
     let db = data::open(&job.root)?;
-    let (source, bytes) = Edition::open(&db, &job.edition)?.read(&job.reference, Some(SOURCE_LIMIT))?;
+    let edition = Edition::open(&db, &job.edition)?;
+    let (source, bytes) = edition.read(&job.reference, Some(SOURCE_LIMIT))?;
     if source.path != job.file_path || source.sha256 != job.file_digest {
         return Err(ai_personas::neural::failure("The file differs from the selection on the delivery desk."));
     }
+    let paths = (matches!(job.kind, Kind::Markdown)
+        && job.member.is_none()
+        && bytes.len() <= issued_document::LIMIT)
+        .then(|| edition.into_paths());
     drop(db);
     let (member, bytes) = match &job.member {
         Some(entry) => {
@@ -517,13 +550,21 @@ fn load(job: &Job, cancelled: impl Fn() -> bool) -> ai_personas::neural::Result<
         }
         None => (None, bytes),
     };
-    Ok((Identity { source, member }, render(job, bytes, cancelled)?))
+    Ok((
+        Identity { source, member },
+        render(job, bytes, paths.as_ref(), cancelled)?,
+    ))
 }
 
-fn render(job: &Job, bytes: Vec<u8>, cancelled: impl Fn() -> bool) -> ai_personas::neural::Result<Content> {
+fn render(
+    job: &Job,
+    bytes: Vec<u8>,
+    paths: Option<&BTreeMap<PathBuf, String>>,
+    cancelled: impl Fn() -> bool,
+) -> ai_personas::neural::Result<Content> {
     let pdf_header = match job.kind {
         Kind::Other => ai_personas::pdf_preview::is_pdf(&bytes),
-        Kind::Text | Kind::Html | Kind::Table(_) => bytes.starts_with(b"%PDF-"),
+        Kind::Text | Kind::Markdown | Kind::Html | Kind::Table(_) => bytes.starts_with(b"%PDF-"),
         _ => false,
     };
     let kind = if pdf_header {
@@ -582,8 +623,16 @@ fn render(job: &Job, bytes: Vec<u8>, cancelled: impl Fn() -> bool) -> ai_persona
         }
         Kind::Html => Ok(Content::Html(html::Preview::read(&bytes)?)),
         Kind::Archive => Ok(Content::Archive(archive::Listing::read(&bytes)?)),
-        Kind::Table(tsv) => Ok(Content::Table(data_view::delimited_rows(std::str::from_utf8(&bytes)?, tsv)?)),
-        Kind::Text => {
+        Kind::Table(tsv) => Ok(Content::Table(data_view::delimited_rows(
+            std::str::from_utf8(&bytes)?,
+            tsv,
+        )?)),
+        Kind::Text | Kind::Markdown => {
+            if matches!(kind, Kind::Markdown) {
+                if let Some(doc) = issued_document::Document::read(&bytes, &job.path, paths) {
+                    return Ok(Content::Document(doc));
+                }
+            }
             if bytes.contains(&0) {
                 return Err(ai_personas::neural::failure(
                     "The file contains binary data.",

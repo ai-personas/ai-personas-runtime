@@ -21,6 +21,12 @@ impl<'db> Edition<'db> {
         &self.verified.members
     }
 
+    /// Logical paths on this verified edition, not authorization to open a
+    /// local path. Reading even a listed target still requires `Edition::read`.
+    pub fn into_paths(self) -> std::collections::BTreeMap<std::path::PathBuf, String> {
+        self.verified.paths
+    }
+
     pub(in crate::neural) fn source(&self, file: &str) -> Result<Source> {
         let issue = &self.verified.issue;
         let edition = issue.record.reference.handle();

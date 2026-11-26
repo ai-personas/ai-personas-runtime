@@ -12,6 +12,8 @@ That accounts for the **design**, not for the cause of Buhler’s reported balan
 
 ## Can a 10 W feed sustain a 20 W load?
 
+**If the battery is inside the device**, rather than an external feed, use the [later battery-only study](../battery/). It includes startup, power returning to the battery and the energy left when the buffer empties.
+
 **[Download the target-power models, traces and finite-run meter](Target-power-models.zip).** The desk asked Eli to keep working toward this specific target. Eli compared a finite store with an explicit extra power port, Nell issued a reducer for bounded interval-average powers, and Ravi delivered the models alongside the corrected shuttle. These are three **different** systems:
 
 | System | What happens in the model |
