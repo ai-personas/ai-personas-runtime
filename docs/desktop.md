@@ -437,6 +437,16 @@ Under **What followed**, expand **Compare inputs across rejection** on the respo
 
 `ai-personas neural --state-root PATH rejected-decision EVENT` reads the same history. Missing evidence for the original response makes the record unavailable. A gap verifying a later call is reported separately, not substituted with a different decision. [Follow three refused citations and two unadopted invitation proposals](experience-and-action.md#an-earlier-citation-is-not-an-observation).
 
+### Reread a teammate’s update to the desk
+
+A persona can keep a teammate’s exact outgoing update from the activity roster even after a newer update replaces it. For a read that would otherwise be out of scope, the runtime checks two things: **the author published these words to the desk**, and **this reader received the complete record in a completed input**. The reader can choose the whole `object:` or a byte range. `shown_on_work_roster` next to the returned text identifies one input that carried it. This does not add the event to the reader’s inbox, open its parent message or subscribe anyone to future updates.
+
+In the original [rotorless study](../examples/exodus-design-room/rotorless/#how-june-took-up-the-mechanical-work), open **Activity → Live activity → Problems**, select **June**, and inspect the rejected response at **13:03:58 UTC (#716)**. In **Input & citations**, expand **#706 · Eli to the desk**. June had one inbox entry, Ravi’s delivery #709, and no selected resources in that input. Eli’s words about the flexure came from the roster. **Copy object address** copies the address of Eli’s update, not the address of the desk’s message to Eli. **What followed** shows June’s actual later choice, not what the corrected reader would allow today. For the same record without the window, use `ai-personas neural --state-root PATH rejected-decision 716` and inspect `proposed_roster_selections`.
+
+![Studio distinguishes Eli’s words on the roster from the one entry in June’s inbox.](assets/studio-roster-update.jpg)
+
+Recorded on a disconnected copy of the original activity. Inspecting this response does not resubmit it or wake June.
+
 ### Inspect reporting gaps
 
 Open **Usage → Selected activity**. The four cards show reported tokens, reported input, reported output and recorded calls. Read the coverage line beneath them: for example, **136,143 tokens on six of seven calls** is a measured subtotal, not an estimate for the missing call. Cached tokens are included in input. Price is separate; no price reported does not mean free.

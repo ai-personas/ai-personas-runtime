@@ -15,6 +15,7 @@ pub use rejection::inspect as rejected_decision;
 mod participation;
 pub use participation::participation_terms;
 pub(in crate::neural) use answers::operator_answer;
+pub(in crate::neural) use exchange::roster_publication;
 
 struct Event {
     seq: i64,

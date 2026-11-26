@@ -52,6 +52,32 @@ fn working_note(ui: &mut Ui, comparison: &Value) {
     }
 }
 
+pub(super) fn roster(ui: &mut Ui, app: &App, report: &Value) {
+    let Some(rows) = report["proposed_roster_selections"].as_array() else { return };
+    ui.add_space(6.);
+    ui.strong("Desk updates proposed for the next input");
+    ui.small("The response named these updates. Its selections were not adopted.");
+    for (i, row) in rows.iter().enumerate() {
+        let source = &row["shown_on_work_roster"];
+        let Some(event) = source["event"].as_i64() else { ui.weak(s(row, "unavailable")); continue };
+        let label = format!("#{event} · {} to the desk", app.label(s(source, "author")));
+        egui::CollapsingHeader::new(label).id_salt((s(report,"invocation"),"roster",i)).show(ui, |ui| {
+            ui.small(format!("Shown on {}’s team roster, not in their inbox.", app.label(s(source, "shown_to"))));
+            ui.add(egui::Label::new(s(row, "text")).wrap().selectable(true));
+            let selected = &row["selection"];
+            if let Some(reference) = selected.as_str().or_else(|| selected["reference"].as_str()) {
+                ui.horizontal_wrapped(|ui| {
+                    address(ui, reference);
+                    if ui.small_button("Copy object address").clicked() { ui.ctx().copy_text(reference.to_owned()); }
+                });
+            }
+            if let (Some(start), Some(end)) = (selected["start"].as_u64(), selected["end"].as_u64()) {
+                ui.small(format!("Proposed bytes {start}–{end} (end exclusive)"));
+            } else { ui.small("Proposed the whole update"); }
+        });
+    }
+}
+
 /// Show the later input's ordered selection, not operations proposed or run.
 fn selection(ui: &mut Ui, label: &str, choices: &Value) {
     let Some(items) = choices["later"].as_array() else {

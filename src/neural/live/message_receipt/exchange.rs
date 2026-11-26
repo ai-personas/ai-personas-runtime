@@ -27,12 +27,13 @@ fn published(db: &Connection, event: &Event) -> Result<(Choice, Value)> {
             [call],
             |r| r.get(0),
         )?;
-        if unique != 1
-            || event.target != "user"
-            || !answer["reply"].is_string()
-            || !answer["reply_to"].is_string()
-            || event.body
-                != json!({"operational_persona":true,"text":answer["reply"],"reply_to":answer["reply_to"]})
+        let mut body = json!({"operational_persona":true,"text":answer["reply"]});
+        if !answer["reply_to"].is_null() {
+            body["reply_to"] = json!(answer["reply_to"].as_str().ok_or_else(|| failure("Invalid reply address"))?);
+        }
+        // An unthreaded desk update is a publication, not a direct answer.
+        // direct() independently requires the exact observed parent.
+        if unique != 1 || event.target != "user" || !answer["reply"].is_string() || event.body != body
         {
             return Err(failure(
                 "The published reply differs from the accepted answer",
@@ -58,6 +59,24 @@ fn published(db: &Connection, event: &Event) -> Result<(Choice, Value)> {
     sent["operation"] = json!(op.id);
     sent["receipt"] = json!(format!("experience:event-{seq}@1"));
     Ok((choice, sent))
+}
+
+/// A roster card names an outgoing publication, not its author's inbox. This
+/// lookup does not follow reply_to or attached references. Since it authorizes
+/// raw bytes, require the publisher's serialization, not just equal JSON.
+pub(in crate::neural) fn roster_publication(db: &Connection, seq: i64, work: &str, author: &str, card: &Value) -> Result<bool> {
+    let Some(e) = Event::get(db, seq)? else { return Ok(false) };
+    if e.target != "user" || e.work != work || e.actor != author || card["author"] != author
+        || card["kind"] != e.kind || card["created"] != e.created || card["record"] != e.body
+        || card["reference"] != format!("object:{}", e.digest) { return Ok(false) }
+    let bytes = match e.kind.as_str() {
+        "reply" => serde_json::to_vec(&e.body)?,
+        "message" => serde_json::to_vec(&serde_json::from_value::<tools::Message>(e.body.clone())?)?,
+        _ => return Ok(false),
+    };
+    if crate::store::sha256_bytes(&bytes) != e.digest { return Ok(false) }
+    published(db, &e)?;
+    Ok(true)
 }
 
 // Count only an actual copy of this attributed message in the provider input.
