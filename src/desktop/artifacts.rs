@@ -1,5 +1,6 @@
 //! Produced-file browser, with decoding isolated from the foreground UI.
 use super::{data_view, design, document, mesh, theme};
+use super::page_view::{self, Orientation};
 use eframe::{egui, glow};
 use std::{
     collections::BTreeSet,
@@ -117,6 +118,8 @@ pub struct Viewer {
     serial: u64,
     cancel: Arc<native_preview::Cancellation>,
     native_page: usize,
+    page_jump: String,
+    orientation: Orientation,
     native_info: String,
     context: String,
     recorded: bool,
@@ -197,6 +200,8 @@ impl Viewer {
             serial: 0,
             cancel: Arc::new(native_preview::Cancellation::default()),
             native_page: 0,
+            page_jump: String::new(),
+            orientation: Orientation::Original,
             native_info: String::new(),
             context: String::new(),
             recorded: true,
@@ -324,6 +329,8 @@ impl Viewer {
         self.cancel.cancel();
         self.cancel = Arc::new(native_preview::Cancellation::default());
         self.native_page = 0;
+        self.page_jump.clear();
+        self.orientation = Orientation::Original;
         self.native_info.clear();
         self.decoded = None;
         self.native_document = None;
@@ -477,7 +484,10 @@ impl Viewer {
                     match result {
                         Ok(page) => {
                             if let Body::Image(image, info) = &page.body {
-                                self.texture = Some(ctx.load_texture("native-page", image.clone(), egui::TextureOptions::LINEAR));
+                                let sampling = if self.native_document.as_ref().is_some_and(|doc| doc.pdf_count().is_some()) {
+                                    page_view::SAMPLING
+                                } else { egui::TextureOptions::LINEAR };
+                                self.texture = Some(ctx.load_texture("native-page", image.clone(), sampling));
                                 self.native_info = info.clone();
                             } else {
                                 self.texture = None;
@@ -783,7 +793,14 @@ impl Viewer {
         if let Some(document) = self.native_document() {
             let mut page = self.native_page;
             ui.horizontal_wrapped(|ui| {
-                if document.labels.len() > 1 {
+                if let Some(count) = document.pdf_count() {
+                    let mut number = page + 1;
+                    ui.push_id(("page-reader", self.serial), |ui| {
+                        page_view::navigation(ui, &mut number, Some(count), &mut self.page_jump);
+                        if self.orientation.control(ui) { self.image_pan = egui::Vec2::ZERO; }
+                    });
+                    page = number - 1;
+                } else if document.labels.len() > 1 {
                     if ui.add_enabled(page > 0, egui::Button::new("Previous")).clicked() { page -= 1; }
                     egui::ComboBox::from_id_salt("native-preview-page")
                         .selected_text(&document.labels[page])
@@ -873,8 +890,8 @@ impl Viewer {
         let mut archive_entry = None;
         match &decoded.body {
             Body::Animation(sequence) => sequence.ui(ui, &mut self.animation, &mut self.texture, &mut self.image_zoom, &mut self.image_pan, &mut self.white_paper),
-            Body::Image(_, info) => image_preview(ui, self.texture.as_ref(), &mut self.image_zoom, &mut self.image_pan, &mut self.white_paper, info),
-            Body::Native(_) => image_preview(ui, self.texture.as_ref(), &mut self.image_zoom, &mut self.image_pan, &mut self.white_paper, &self.native_info),
+            Body::Image(_, info) => image_preview(ui, self.texture.as_ref(), &mut self.image_zoom, &mut self.image_pan, &mut self.white_paper, info, self.orientation),
+            Body::Native(_) => image_preview(ui, self.texture.as_ref(), &mut self.image_zoom, &mut self.image_pan, &mut self.white_paper, &self.native_info, self.orientation),
             Body::Mesh(mesh) => self.model.ui(ui, mesh),
             Body::Wasm(module, size) => {
                 ui.heading("WebAssembly module");
@@ -1145,7 +1162,7 @@ impl Viewer {
         });
     }
 }
-fn image_preview(ui: &mut egui::Ui, texture: Option<&egui::TextureHandle>, zoom: &mut f32, pan: &mut egui::Vec2, white: &mut bool, info: &str) {
+fn image_preview(ui: &mut egui::Ui, texture: Option<&egui::TextureHandle>, zoom: &mut f32, pan: &mut egui::Vec2, white: &mut bool, info: &str, orientation: Orientation) {
     ui.horizontal_wrapped(|ui| {
         if ui.button("Fit").clicked() { *zoom = 1.0; *pan = egui::Vec2::ZERO; }
         ui.add(egui::Slider::new(&mut *zoom, 0.2..=8.0).logarithmic(true).show_value(false).text("Zoom"));
@@ -1161,13 +1178,13 @@ fn image_preview(ui: &mut egui::Ui, texture: Option<&egui::TextureHandle>, zoom:
     if response.hovered() { *zoom = (*zoom * (ui.input(|i| i.smooth_scroll_delta.y) * 0.003).exp()).clamp(0.2, 8.0); }
     if response.double_clicked() { *zoom = 1.0; *pan = egui::Vec2::ZERO; }
     if let Some(texture) = texture {
-        let size = texture.size_vec2();
+        let size = orientation.size(texture.size_vec2());
         let pad = (rect.width().min(rect.height()) * 0.035).min(18.);
         let stage = rect.shrink(pad);
         let factor = (stage.width() / size.x).min(stage.height() / size.y) * *zoom;
         let target = egui::Rect::from_center_size(rect.center() + *pan, size * factor);
         if *white { painter.rect_filled(target, 0, egui::Color32::WHITE); }
-        painter.image(texture.id(), target, egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+        orientation.paint(&painter, texture.id(), target);
     }
     painter.rect_stroke(rect, 8, egui::Stroke::new(1.,p.border),egui::StrokeKind::Inside);
 }

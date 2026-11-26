@@ -138,7 +138,7 @@ impl Route {
 enum DerivedKind { Svg, Mesh, Json, Image }
 enum Pages {
     Derived(PathBuf, DerivedKind),
-    Pdf(PathBuf),
+    Pdf(PathBuf, usize),
     Svg(Vec<PathBuf>),
     Board(PathBuf),
     Video(PathBuf, f64),
@@ -154,6 +154,15 @@ pub(super) struct Document {
     pub summary: String,
     pub diagnostics: String,
     pub white_background: bool,
+}
+
+impl Document {
+    pub fn pdf_count(&self) -> Option<usize> {
+        match self.pages {
+            Pages::Pdf(_, count) => Some(count),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -353,7 +362,7 @@ pub(super) fn prepare(
             std::fs::write(&pdf, printed.pdf).map_err(|e|e.to_string())?;
             let count = printed.pages as usize;
             if count == 0 { return Err("The printed document contains no pages.".into()); }
-            (Pages::Pdf(pdf), (1..=count).map(|p|format!("Page {p} of {count}")).collect(), "HTML print layout".into())
+            (Pages::Pdf(pdf, count), Vec::new(), "HTML print layout".into())
         }
         Kind::Pdf | Kind::Office => {
             let pdf = if matches!(route.kind, Kind::Office) {
@@ -388,7 +397,7 @@ pub(super) fn prepare(
             let summary = if matches!(route.kind, Kind::Office) {
                 "LibreOffice page rendering; layout depends on installed fonts. Spreadsheets use their print layout. The isolated conversion profile disables macros and active content and blocks untrusted document links. This is a derived preview, not an edit to the original."
             } else { "PDF pages rendered by Poppler. Interactive forms, embedded programs, and annotations are not executed." };
-            (Pages::Pdf(pdf), (1..=count).map(|i| format!("Page {i}")).collect(), summary.to_owned())
+            (Pages::Pdf(pdf, count), Vec::new(), summary.to_owned())
         }
         Kind::Board => (Pages::Board(input), vec!["Front copper + silkscreen + outline".into(), "Back copper + silkscreen + outline (mirrored)".into(), "Board outline".into()],
             "KiCad PCB SVG rendering of the named layers. Inner copper, 3D component models, electrical checks, and fabrication validation are not included. Open a produced GLB/STL/OBJ separately for 3D geometry.".into()),
@@ -458,7 +467,7 @@ pub(super) fn page(
     cancel: &Cancellation,
 ) -> Result<Decoded, String> {
     cancelled(cancel)?;
-    if index >= document.labels.len() {
+    if index >= document.pdf_count().unwrap_or(document.labels.len()) {
         return Err("The requested preview page is unavailable.".into());
     }
     let folder = document.directory.path();
@@ -467,7 +476,7 @@ pub(super) fn page(
     let path = match &document.pages {
         Pages::Derived(path, _) => path.clone(),
         Pages::Svg(paths) => paths[index].clone(),
-        Pages::Pdf(input) => {
+        Pages::Pdf(input, _) => {
             let path = base.with_extension("png");
             if !path.is_file() {
                 let mut command = args(&[
@@ -587,6 +596,9 @@ pub(super) fn page(
         _ => false,
     };
     if !supported { return Err("Compatible renderer returned an unsupported representation.".into()); }
-    decoded.note = format!("{} · {}", document.summary, document.labels[index]);
+    decoded.note = match document.pdf_count() {
+        Some(count) => format!("{} · Page {} of {count}", document.summary, index + 1),
+        None => format!("{} · {}", document.summary, document.labels[index]),
+    };
     Ok(decoded)
 }

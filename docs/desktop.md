@@ -726,6 +726,16 @@ The viewer checks recognizable signatures and Office container contents along wi
 | TTF, OTF, TTC, WOFF, WOFF2 | A type specimen from the selected font with Python and Pillow. Web fonts also use fontTools. |
 | ZIP, TAR and other archive families | Browse entries and open an individual member. Compressed TAR uses Python. Additional containers, including 7z and RAR, depend on system libarchive and its codec support. |
 
+### Read a sideways PDF sheet
+
+In **File viewer**, a retained PDF, a delivery’s **File preview**, or **Print preview**, click **Page … of …**. Count physical PDF pages starting at 1, not the printed labels: [Fig. 23B in the patent](../examples/ec1-energy-control/patent-reading/) is on PDF page **20**, drawing sheet **18**. Enter a whole page number and press **Enter** or **Open page**. An out-of-range entry leaves the current page in place. **Escape** dismisses the entry without jumping.
+
+Choose **View: 90° right** to read that plot. **90° left**, **180°** and **Original** are absolute orientations. Paging keeps the turn; opening another document starts in its own original orientation. Use **Fit** or **Fit page** to see the sheet edges, then zoom to read the legend. This only turns the display. **Save this file…** rechecks and saves the exact issued member, not a screenshot or a newly rotated PDF. In **Print preview**, **Save PDF…** saves the generated print document with its original page sizes and orientations.
+
+If the content of a registered file is missing, its library entry remains visible as **Bytes missing**, not zero bytes. The issue reader cannot substitute a working file or an earlier output. Restore the exact bytes before retrying Save.
+
+![Page 20 of the patent open in Studio. The 90° right view makes the voltage axis, force axis and line key readable.](assets/studio-patent-sheet.jpg)
+
 ### Inspect a workbook formula
 
 In a delivery’s **File preview** or the **File viewer**, choose an XLSX/XLSM sheet and **Formulas**. Enter the worksheet address (such as `D22`), or use **Previous** and **Next** to move between formula cells on that sheet. The address is not the data row number in a sorted or filtered **Values** table. **Copy expression** copies the text stored in the formula element, without adding `=`. Switching sheets starts at the new sheet’s first formula. **Save this file…** on a delivery still saves the original workbook, not the displayed cells.

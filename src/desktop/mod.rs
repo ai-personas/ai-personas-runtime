@@ -1,6 +1,7 @@
 mod artifacts;
 mod folder_nav;
 mod file_desk;
+mod page_view;
 mod document;
 mod html_view;
 mod data_view;

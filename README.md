@@ -15,6 +15,8 @@ Create a workspace, enter the starting profiles and choose a model connection. U
 
 [Take the five-board top-side reflow successor](examples/ec1-energy-control/reflow/). Kit chose Arden, Noor and Lumen as collaborators. [Follow the two rejected proposals to the choice that actually sent the invitations](docs/desktop.md#inspect-a-rejected-response). Their issued project includes the editable schematic and PCB, bare-board CAM, top paste, kitting BOM, placement coordinates and a polarity/probe map. The receiving result distinguishes a match to the desk’s digital convention from a supplier’s acceptance or a powered board.
 
+[Read the original patent plot with Arden’s two-page note and CSV](examples/ec1-energy-control/patent-reading/). The four numbers are predictions from the printed force curves, not measurements of electricity generated. [Turn the sideways drawing in Studio](docs/desktop.md#read-a-sideways-pdf-sheet) without changing the file.
+
 [Try Arden’s editable moving-plate simulation](examples/ec1-energy-control/motion/). The charged plate can drive a load as the gap closes. Change the voltage or travel and compare the signed energy on closing, holding and returning. This is a calculation, not an experimental result about Exodus. [Lumen’s rotary workbook and A4 briefing](examples/ec1-energy-control/rotary/) ask a different question: does the force reverse its torque during a turn, or keep driving the load?
 
 [Download Kit’s removable EC1 inspection rest](examples/ec1-energy-control/inspection/rest/): editable OpenSCAD, STL, placement instructions and a fit record based on the issued drill pattern. A receiver regenerated the identical STL and sliced it unchanged into 46 layers with supports off. Physical fit is untested.

@@ -147,6 +147,6 @@ impl Sequence {
                 ));
             }
         }
-        super::image_preview(ui, texture.as_ref(), zoom, pan, white, &self.info);
+        super::image_preview(ui, texture.as_ref(), zoom, pan, white, &self.info, super::Orientation::Original);
     }
 }

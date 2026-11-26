@@ -214,6 +214,7 @@ pub(super) struct Inline {
     latest: Arc<AtomicU64>,
     reference: String,
     edition: String,
+    file_bytes: Option<u64>,
     identity: Option<Identity>,
     pages: pdf::Pages,
     html_source: bool,
@@ -244,6 +245,7 @@ impl Inline {
         self.latest.fetch_add(1, Ordering::Relaxed);
         self.reference.clear();
         self.edition.clear();
+        self.file_bytes = None;
         self.identity = None;
         if let Some(viewer) = &mut self.studio { viewer.clear_selection(); }
         self.pages = Default::default();
@@ -280,7 +282,8 @@ impl Inline {
         ui.ctx().request_repaint();
         self.identity = None;
         self.view = match (file.bytes, &file.digest) {
-            (None, _) | (_, None) => View::Note("The file metadata is unavailable.".into()),
+            (None, Some(digest)) => View::Note(format!("Missing retained file bytes for {} (object:{digest})", file.path)),
+            (_, None) => View::Note("The file metadata is unavailable.".into()),
             (Some(n), _) if n > SOURCE_LIMIT => {
                 View::Note("This file is too large for an inline preview.".into())
             }
@@ -311,8 +314,9 @@ impl Inline {
     }
 
     pub fn show(&mut self, ui: &mut Ui, root: &Path, edition: &str, file: &File) {
-        if self.reference != file.reference || self.edition != edition {
+        if self.reference != file.reference || self.edition != edition || self.file_bytes != file.bytes {
             self.clear();
+            self.file_bytes = file.bytes;
             self.reference.clone_from(&file.reference);
             self.edition = edition.into();
             self.html_source = false;
@@ -389,7 +393,8 @@ impl Inline {
             let inner_open = matches!(self.view, View::Studio) && self.studio.as_ref().is_some_and(|v| v.inside_archive());
             identity.show(ui, inner_open);
         }
-        let document = matches!(kind, Kind::Pdf) || self.pages.count.is_some();
+        let document = file.bytes.is_some_and(|n| n <= SOURCE_LIMIT)
+            && (matches!(kind, Kind::Pdf) || self.pages.count.is_some());
         if document && self.pages.navigation(ui, reference) {
             self.request(ui, root, file);
         }

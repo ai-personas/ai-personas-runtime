@@ -29,11 +29,7 @@ impl<'db> Edition<'db> {
             .verified_member(self.db, file)
             .map_err(|e| failure(format!("Cannot verify the file {file} in {edition}: {e}")))?;
         let record = store::exact(self.db, file)?;
-        let bytes: i64 = self.db.query_row(
-            "SELECT length(bytes) FROM objects WHERE digest=?1",
-            [&asset.blob],
-            |r| r.get(0),
-        )?;
+        let bytes = store::file_size(self.db, &asset.path, &asset.blob)?;
         Ok(Source {
             edition,
             title: issue.record.body["title"]
@@ -49,7 +45,7 @@ impl<'db> Edition<'db> {
             content_author: asset.author,
             path: asset.path,
             sha256: asset.blob,
-            bytes: u64::try_from(bytes)?,
+            bytes,
         })
     }
 

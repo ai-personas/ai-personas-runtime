@@ -1,10 +1,8 @@
 //! Paging and local zoom for a single rendered PDF page.
 use super::*;
+use crate::desktop::page_view::{self, Orientation};
 
-pub(super) const SAMPLING: egui::TextureOptions = egui::TextureOptions {
-    mipmap_mode: Some(egui::TextureFilter::Linear),
-    ..egui::TextureOptions::LINEAR
-};
+pub(super) use crate::desktop::page_view::SAMPLING;
 
 pub(super) fn render(
     bytes: &[u8],
@@ -49,6 +47,8 @@ pub(super) struct Pages {
     pub count: Option<u32>,
     pub height_limit: Option<f32>,
     zoom: Zoom,
+    page_jump: String,
+    orientation: Orientation,
 }
 
 impl Default for Pages {
@@ -58,6 +58,8 @@ impl Default for Pages {
             count: None,
             height_limit: None,
             zoom: Default::default(),
+            page_jump: String::new(),
+            orientation: Orientation::Original,
         }
     }
 }
@@ -65,39 +67,28 @@ impl Default for Pages {
 impl Pages {
     pub fn navigation(&mut self, ui: &mut Ui, reference: &str) -> bool {
         let original = self.page;
-        ui.horizontal_wrapped(|ui| {
-            if ui
-                .add_enabled(self.page > 1, egui::Button::new("Previous").small())
-                .on_hover_text("Previous PDF page")
-                .clicked()
-            {
-                self.page -= 1;
-            }
-            let position = self.count.map_or_else(
-                || format!("Page {}", self.page),
-                |n| format!("Page {} of {n}", self.page),
-            );
-            ui.label(RichText::new(position).small().strong());
-            if ui
-                .add_enabled(
-                    self.count.is_some_and(|n| self.page < n),
-                    egui::Button::new("Next").small(),
-                )
-                .on_hover_text("Next PDF page")
-                .clicked()
-            {
-                self.page += 1;
-            }
-            egui::ComboBox::from_id_salt(("delivery-pdf-zoom", reference))
-                .width(90.)
-                .selected_text(self.zoom.label())
-                .show_ui(ui, |ui| {
-                    for zoom in [Zoom::Page, Zoom::Width, Zoom::TwiceWidth] {
-                        ui.selectable_value(&mut self.zoom, zoom, zoom.label());
-                    }
-                })
-                .response
-                .on_hover_text("Page zoom");
+        ui.push_id(("pdf-reader", reference), |ui| {
+            ui.horizontal_wrapped(|ui| {
+                let mut number = self.page as usize;
+                page_view::navigation(
+                    ui,
+                    &mut number,
+                    self.count.map(|n| n as usize),
+                    &mut self.page_jump,
+                );
+                self.page = number as u32;
+                egui::ComboBox::from_id_salt("delivery-pdf-zoom")
+                    .width(90.)
+                    .selected_text(self.zoom.label())
+                    .show_ui(ui, |ui| {
+                        for zoom in [Zoom::Page, Zoom::Width, Zoom::TwiceWidth] {
+                            ui.selectable_value(&mut self.zoom, zoom, zoom.label());
+                        }
+                    })
+                    .response
+                    .on_hover_text("Page zoom");
+                self.orientation.control(ui);
+            })
         });
         self.page != original
     }
@@ -118,7 +109,7 @@ impl Pages {
     pub fn show(&self, ui: &mut Ui, texture: &egui::TextureHandle, path: &str, reference: &str) {
         page_frame(ui).show(ui, |ui| {
             let available = viewport(ui, self.height_limit);
-            let pixels = texture.size_vec2();
+            let pixels = self.orientation.size(texture.size_vec2());
             let width_scale = (available.x - 14.).max(1.) / pixels.x;
             let scale = match self.zoom {
                 Zoom::Page => width_scale.min((available.y - 14.).max(1.) / pixels.y),
@@ -131,14 +122,16 @@ impl Pages {
                     available.x.max(image_size.x + 12.),
                     available.y.max(image_size.y + 12.),
                 );
-                let (rect, _) = ui.allocate_exact_size(area, egui::Sense::hover());
+                let (rect, response) = ui.allocate_exact_size(area, egui::Sense::hover());
+                response.widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Image,
+                        true,
+                        format!("{path}, page {}", self.page),
+                    )
+                });
                 let bounds = egui::Rect::from_center_size(rect.center(), image_size);
-                ui.place(
-                    bounds,
-                    egui::Image::new((texture.id(), pixels))
-                        .fit_to_exact_size(image_size)
-                        .alt_text(format!("{path}, page {}", self.page)),
-                );
+                self.orientation.paint(ui.painter(), texture.id(), bounds);
                 ui.painter().rect_stroke(
                     bounds,
                     0.,
@@ -155,7 +148,13 @@ impl Pages {
                     egui::ScrollArea::both()
                 };
                 scroll
-                    .id_salt(("delivery-pdf-scroll", reference, self.page, self.zoom))
+                    .id_salt((
+                        "delivery-pdf-scroll",
+                        reference,
+                        self.page,
+                        self.zoom,
+                        self.orientation,
+                    ))
                     .max_width(available.x)
                     .max_height(available.y)
                     .min_scrolled_height(available.y)
