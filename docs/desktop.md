@@ -359,6 +359,18 @@ Expand **Recorded continuation** to read the participant’s reason for staying 
 
 For the same history without opening Studio, use `ai-personas neural --state-root PATH participation-terms WORK_ID PERSONA_ID`. This is inspection only: it does not send an invitation, run a model or wake the participant.
 
+### Inspect a rejected response
+
+In **Activity → Live activity**, set the timeline filter to **Problems**. On a rejection choose **Inspect rejected response**. A rejected response is not a failed connection: the provider answered, but the runtime did not adopt the proposed continuation, reply or operations. A tool that ran and returned exit 1 is different from both.
+
+- **Proposal** shows the runtime’s recorded reason and what the persona proposed. **Original response ↗**, **Provider receipt ↗** and **Notice body ↗** open the retained objects. A response that cannot be parsed unambiguously still has original bytes; Studio does not fix it up into a decision.
+- **Input & citations** shows the experiences named for character maintenance alongside the observations in *this* frozen input. On the [stores task](../examples/ec1-energy-control/stores/), Kit received all 812 bytes of the clerk’s transcription. Its previous judgment cited the clerk’s message, but that message was not supplied again. Select **Open frozen input ↗** to inspect the actual selection. A binary file described by metadata is not a visual or text read.
+- **What followed** shows this persona’s subsequent rejected responses through its next accepted choice in the same activity, if any. **Received notice** means the matching attributed notice was in that call’s incoming events, not just that the call came later. A receipt is not necessarily a citation or a repair. Follow **Inspect rejection … →** or **Read accepted choice →**; the return link takes you back to the refusal. **Refresh later responses** rereads the records without asking the persona to act.
+
+![On a disconnected copy, Kit’s frozen input contains the 812-byte transcription but not another observation of event 548.](assets/studio-rejected-response.jpg)
+
+`ai-personas neural --state-root PATH rejected-decision EVENT` reads the same history. Missing evidence for the original response makes the record unavailable. A gap verifying a later call is reported separately, not substituted with a different decision. [Follow three refused citations and two unadopted invitation proposals](experience-and-action.md#an-earlier-citation-is-not-an-observation).
+
 ### Inspect reporting gaps
 
 Open **Usage → Selected activity**. The four cards show reported tokens, reported input, reported output and recorded calls. Read the coverage line beneath them: for example, **136,143 tokens on six of seven calls** is a measured subtotal, not an estimate for the missing call. Cached tokens are included in input. Price is separate; no price reported does not mean free.

@@ -1987,6 +1987,9 @@ impl App {
                                     format!("{label} · {}", title(s(&e["body"], "state")))
                                 } else { title(s(e, "kind")) };
                                 ui.label(RichText::new(label).size(12.));
+                                if e["kind"] == "decision_rejected" && ui.small_button("Inspect rejected response").clicked() {
+                                    self.open_rejection(ctx, e["event"].as_i64().unwrap_or_default());
+                                }
                                 let detail = ["text", "reason", "error"].into_iter().map(|key| s(&e["body"], key)).find(|text| !text.is_empty()).unwrap_or("");
                                 ui.add(
                                     egui::Label::new(

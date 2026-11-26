@@ -56,6 +56,7 @@ mod live_board;
 mod live_composer;
 mod message_links;
 mod message_receipt;
+mod rejection;
 mod activity_sources;
 mod people;
 mod mesh_profile;
@@ -174,6 +175,7 @@ pub struct App {
     live_board: live_board::Board,
     live_composer: live_composer::Composer,
     message_receipt: message_receipt::Window,
+    rejection: Option<rejection::Reader>,
     activity_sources: activity_sources::Window,
     intake: Option<intake::Window>,
     activity_filter_text: String,
@@ -298,6 +300,7 @@ impl App {
             live_board: Default::default(),
             live_composer: Default::default(),
             message_receipt: Default::default(),
+            rejection: None,
             activity_sources: Default::default(),
             intake: None,
             activity_filter_text: String::new(),
@@ -797,6 +800,7 @@ impl eframe::App for App {
                 self.file_history_return(ui);
                 self.society_return(ui);
                 self.board_return(ui);
+                self.rejection_return(ui);
                 match self.layout.editor {
                 Editor::Home => self.workspace_home(ui),
                 Editor::Studio => self.studio(ui),
@@ -850,6 +854,7 @@ impl eframe::App for App {
         self.sources_window(ctx);
         self.intake_window(ctx);
         self.message_receipt_window(ctx);
+        self.rejection_window(ctx);
         self.role_receipts_window(ctx);
         self.export_window(ctx);
         self.workspace_find_window(ctx);

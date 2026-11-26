@@ -1150,18 +1150,21 @@ pub(super) fn prepare_when(
                 }
             }
         }
+        let contract_object=store::put_bytes(db,"text/plain; charset=utf-8",prefix.as_bytes())?;
+        let mut snapshot=Snapshot{contract_object,invocation:invocation.clone(),persona_revision:p.reference.revision,participation_revision:part.reference.revision,
+            work:work_id.into(),actor:actor.into(),epoch:persona.epoch,model:persona.model,cursor,
+            observation_through:Some(db.query_row("SELECT COALESCE(MAX(seq),0) FROM events",[],|r|r.get(0))?),data,
+            development_version:10,data_order:vec![],supplied_references:vec![],tool_names,image_blobs};
+        super::development::distinguish_prior_citations(&mut snapshot);
+        let data=&mut snapshot.data;
         let component_bytes=data.as_object().expect("snapshot is an object").iter().map(|(name,value)|Ok((name.clone(),serde_json::to_vec(value)?.len()))).collect::<Result<std::collections::BTreeMap<_,_>>>()?;
         let resource_bytes=data["selected_resources"].as_array().expect("resources is an array").iter().map(|value|Ok(json!({"reference":value["reference"],"range":value["range"],"serialized_bytes":serde_json::to_vec(value)?.len()}))).collect::<Result<Vec<_>>>()?;
         let previous = super::accounting::previous_usage(db, actor)?;
-        let image_bytes=image_blobs.iter().map(|(blob,mime)|{let bytes:i64=db.query_row("SELECT length(bytes) FROM objects WHERE digest=?1",[blob],|r|r.get(0))?;Ok(json!({"reference":format!("object:{blob}"),"mime":mime,"bytes":bytes}))}).collect::<Result<Vec<_>>>()?;
+        let image_bytes=snapshot.image_blobs.iter().map(|(blob,mime)|{let bytes:i64=db.query_row("SELECT length(bytes) FROM objects WHERE digest=?1",[blob],|r|r.get(0))?;Ok(json!({"reference":format!("object:{blob}"),"mime":mime,"bytes":bytes}))}).collect::<Result<Vec<_>>>()?;
         data["context_accounting"]=json!({"meaning":"Observed bytes, not token estimates or limits. Choose the exact context useful for your next decision; complete resources remain retained.","developer_prefix_bytes":prefix.len(),"components_serialized_bytes":component_bytes,"selected_resource_bytes":resource_bytes,"images":image_bytes,"previous_accepted_provider_usage":previous});
-        let mut refs=BTreeSet::new();collect_references(&data,&mut refs,true);
-        let contract_object=store::put_bytes(db,"text/plain; charset=utf-8",prefix.as_bytes())?;
-        let data_order=data_order(&data);
-        let snapshot=Snapshot{contract_object,invocation:invocation.clone(),persona_revision:p.reference.revision,participation_revision:part.reference.revision,
-            work:work_id.into(),actor:actor.into(),epoch:persona.epoch,model:persona.model,cursor,
-            observation_through:Some(db.query_row("SELECT COALESCE(MAX(seq),0) FROM events",[],|r|r.get(0))?),data,
-            development_version:10,data_order,supplied_references:refs.into_iter().collect(),tool_names,image_blobs};
+        let mut refs=BTreeSet::new();collect_references(data,&mut refs,true);
+        snapshot.data_order=data_order(data);
+        snapshot.supplied_references=refs.into_iter().collect();
         let digest=store::put(db,&snapshot)?;
         db.execute("INSERT INTO invocations VALUES(?1,?2,?3,'prepared',?4,NULL,NULL,?5,?5)",params![invocation,work_id,actor,digest,now()])?;
         Ok(Some(snapshot))

@@ -19,7 +19,9 @@ pub struct DecisionV4 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub behavior: Option<super::development::practice::Choice>,
     /// For every active-character decision, list the exact observed experiences
-    /// considered for character maintenance. An explicit empty list is valid.
+    /// considered for character maintenance in this input. An explicit empty list is valid.
+    /// previous_work_decision.addresses_without_observation names earlier judgment citations
+    /// not resupplied as observations. Reading a file named by an event does not read the event.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub considered_experience: Option<Vec<String>>,
     /// During ordinary work you may try an open question from a supplied cue or
