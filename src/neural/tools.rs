@@ -1,5 +1,7 @@
 //! Small discoverable interfaces over retained artifacts and the existing host
 //! executors. Descriptions are tool contracts, never a task-specific workflow.
+mod maintenance;
+pub(super) use maintenance::Channel;
 use super::{failure, protocol, Result};
 use schemars::{schema_for, JsonSchema};
 use serde::{Deserialize, Serialize};
@@ -466,6 +468,14 @@ pub const NAMES: &[(&str,&str)] = &[
 fn schema<T: JsonSchema>() -> Result<Value> {
     Ok(serde_json::to_value(schema_for!(T))?)
 }
+pub(super) fn summary(name: &str, purpose: &str) -> Value {
+    let mut tool = json!({"name":name,"purpose":purpose});
+    if let Some(rule) = maintenance::descriptor(name) {
+        tool["maintenance"] = rule;
+    }
+    tool
+}
+
 pub fn describe(name: &str) -> Result<Value> {
     let purpose = NAMES
         .iter()
@@ -551,7 +561,9 @@ pub fn describe(name: &str) -> Result<Value> {
         "human.withdraw" => schema::<super::human_requests::Withdraw>()?,
         _ => return Err(failure("missing tool schema")),
     };
-    Ok(json!({"name":name,"purpose":purpose,"inputs":inputs}))
+    let mut tool = summary(name, purpose);
+    tool["inputs"] = inputs;
+    Ok(tool)
 }
 
 pub fn validate(name: &str, value: &Value) -> Result<()> {
@@ -688,12 +700,6 @@ pub fn is_external(name: &str) -> bool {
         name,
         "command.install" | "command.run" | "command.local" | "web.fetch" | "compute.inspect" | "compute.run" | "geometry.install" | "geometry.render" | "geometry.inspect_stl" | "geometry.profile_stl" | "workspace.list" | "workspace.open" | "workspace.bundle" | "asset.import" | "image.read" | "image.render_svg" | "document.print_html" | "document.render_pdf" | "persona.assess"
     )
-}
-pub fn asset_mutation(name: &str) -> bool {
-    matches!(name, "relationship.record" | "relationship.retire" | "asset.save" | "asset.import" | "asset.organize" | "asset.register" | "geometry.install" | "command.install")
-}
-pub fn model_mutation(name: &str) -> bool {
-    matches!(name, "persona.initialize" | "persona.patch" | "development.update" | "development.close")
 }
 
 pub fn matches(search: &Search, text: &str) -> Result<bool> {

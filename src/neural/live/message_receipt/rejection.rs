@@ -95,7 +95,8 @@ fn proposal(r: &Value) -> Value {
             .collect::<Vec<_>>()
     });
     json!({"named_invocation":r["invocation"].as_str(),"status":r["work"]["status"].as_str(),"continuation":r["continuation"]["kind"].as_str(),
-        "next_step":r["continuation"]["purpose"].as_str().or(r["continuation"]["reason"].as_str()),"operations":operations})
+        "next_step":r["continuation"]["purpose"].as_str().or(r["continuation"]["reason"].as_str()),"operations":operations,
+        "asset_maintenance":r.get("asset_maintenance")})
 }
 
 fn received(input: &Snapshot, event: &Event) -> Result<bool> {

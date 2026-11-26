@@ -1,5 +1,6 @@
 //! Follow an unadopted response without putting the activity back to work.
 mod inputs;
+mod resources;
 use super::*;
 
 #[derive(Clone)]
@@ -127,7 +128,7 @@ impl Reader {
                     ui.add_space(8.);
                     eyebrow(ui,"Proposed · not applied");
                     if r["proposed"].is_object() {
-                        choices(ui, &r["proposed"], true);
+                        choices(ui, &r["proposed"], true, s(r,"invocation"));
                         if r["proposed"]["named_invocation"] != r["invocation"] {
                             ui.small("The response does not name the call identified by its provider receipt.");
                         }
@@ -190,7 +191,7 @@ impl Reader {
                             theme::badge(ui,if accepted {"Accepted choice"} else {"Rejected again"},if accepted {TEAL} else {theme::palette(ui).accent});
                             ui.label(if row["received_notice"]==true { format!("Received notice #{seq}") } else { format!("No full notice #{seq} in its inbox") });
                         });
-                        choices(ui,&row["choice"],false);
+                        choices(ui,&row["choice"],false,s(row,"invocation"));
                         if let Some(n)=row["notice_event"].as_i64() {
                             if ui.link(format!("Inspect rejection #{n} →")).clicked() { action=Some(Action::Follow(Target{seq:n,work:self.target.work.clone(),call:s(row,"invocation").into(),source:s(row,"notice_source").into()})); }
                         } else if let Some(choice)=row["decision"].as_str() { if ui.link("Read accepted choice →").clicked() {action=Some(Action::Journal(choice.into()));} }
@@ -207,7 +208,7 @@ impl Reader {
     }
 }
 
-fn choices(ui: &mut Ui, row: &Value, detail: bool) {
+fn choices(ui: &mut Ui, row: &Value, detail: bool, invocation: &str) {
     ui.horizontal_wrapped(|ui| {
         ui.strong(title(
             row["status"].as_str().unwrap_or("judgment_unavailable"),
@@ -231,6 +232,7 @@ fn choices(ui: &mut Ui, row: &Value, detail: bool) {
     } else {
         ui.weak("Operation list unavailable");
     }
+    resources::show(ui, row, invocation);
     if detail {
         if let Some(text) = row["next_step"].as_str() {
             ui.add_space(4.);

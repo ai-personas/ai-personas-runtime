@@ -970,7 +970,8 @@ pub(super) fn prepare_when(
             if event["body"]["tool"]=="tools.describe" {
                 if let Some(schemas)=event["supplied_result"]["tools"].as_array(){
                     let names=schemas.iter().filter_map(|s|s["name"].as_str()).map(str::to_owned).collect::<Vec<_>>();
-                    if names.len()==schemas.len()&&names.iter().all(|n|tool_names.contains(n)){
+                    // A pending receipt may describe an older interface under the same name.
+                    if names.len()==schemas.len() && schemas.iter().all(|s| tool_schemas.contains(s)) {
                         event["supplied_result"]=json!({"described_tools":names,"schemas_supplied_in":"available_tools"});
                     }
                 }
