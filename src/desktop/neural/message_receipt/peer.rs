@@ -70,16 +70,37 @@ pub(super) fn show(ui: &mut Ui, app: &App, event: i64, report: &Value) -> Option
         link(ui, "Inbox receipt", &report["sent"]["receipt"], &mut action);
     });
     if let Some(refs) = report["references"].as_array().filter(|r| !r.is_empty()) {
+        let scope = &report["recipient_experience_scope_now"];
+        let recipient = app.label(to);
+        let unavailable = scope
+            .as_object()
+            .into_iter()
+            .flat_map(|m| m.values())
+            .filter(|v| v.as_str() == Some("unavailable"))
+            .count();
+        if unavailable > 0 {
+            ui.label(format!("Unavailable in {recipient}’s history · {unavailable}"));
+        }
         egui::CollapsingHeader::new(format!("Shared references · {}", refs.len())).show(ui, |ui| {
-            ui.small(
-                "Sending these addresses does not establish that the files or records were read.",
-            );
+            ui.small("These are addresses, not a receipt for reading their contents.");
             for r in refs {
                 if let Some(name) = r.as_str() {
-                    link(ui, name, r, &mut action);
+                    ui.horizontal_wrapped(|ui| {
+                        link(ui, name, r, &mut action);
+                        match scope[name].as_str() {
+                            Some("in_history") => { ui.weak(format!("In {recipient}’s history now")); }
+                            Some("unavailable") => { ui.weak(format!("Unavailable to {recipient} now")); }
+                            _ => (),
+                        }
+                    });
                 }
             }
+            if scope.is_object() {
+                ui.small("Opening a link inspects the operator’s copy. It does not give the recipient access or change their original input.");
+            }
         });
+    } else {
+        ui.small("Text only · no shared references");
     }
     if let Some(arrivals) = report["sending_window"]["from_recipient_before_send"]
         .as_array()

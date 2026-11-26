@@ -176,7 +176,8 @@ pub struct InspectProgram {
 pub struct Message {
     pub to: String,
     pub text: String,
-    /// Exact references. Attaching your own relationship note grants this recipient access to the exact edition.
+    /// Optional exact references. Omit for text alone. Linking an experience does not give the recipient your history; attaching your own relationship note shares that exact edition.
+    #[serde(default)]
     pub references: Vec<String>,
     /// Optional experience:event-N@1 for the received exchange. Use its reply_targets address for this recipient, the incoming event or an exact experience you read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -438,7 +439,7 @@ pub const NAMES: &[(&str,&str)] = &[
     ("document.render_pdf","View a page of an exact retained PDF document or attachment. Choose a one-based page to receive its PNG pixels and the total page count."),
     ("compute.inspect","Read the declared imports, exports and function signatures of an exact WebAssembly asset without running it. Execution produces a separate result receipt."),
     ("compute.run","Execute an exact retained compiled WebAssembly (.wasm) or WebAssembly text (.wat) asset with the compute.wasm.v1 ABI. Supply UTF-8 input. The module returns text using its exported memory and run(i32,i32) -> i64. High 32 bits give the output offset and low 32 bits its length."),
-    ("peer.message","Deliver an attributed message and exact references; does not invent attention, assent or resume a stopped participation."),
+    ("peer.message","Deliver an attributed text message with optional exact references; does not invent attention, assent or resume a stopped participation."),
     ("peer.invite","Invite an existing persona to choose a contribution to this work."),
     ("peer.respond","Accept or decline your actual invitation, recording your own commitment only."),
     ("work.commitment","Revise your own accepted contribution as the work develops, retaining the earlier commitment and explaining unfinished obligations. Does not change the original need, assign peers or resume anyone."),
