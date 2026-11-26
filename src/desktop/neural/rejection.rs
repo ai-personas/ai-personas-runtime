@@ -312,7 +312,7 @@ impl App {
             self.layout.editor = *editor;
             if journal {
                 self.live_board
-                    .show_event(&reader.target.work, reader.target.seq);
+                    .show_event(&reader.target.work, reader.target.seq, self.cursor);
             }
             reader.away = None;
             reader.load(ui.ctx(), &self.root);

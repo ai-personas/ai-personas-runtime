@@ -5,13 +5,15 @@ pub(super) enum Kind {
     Person,
     TaskRole,
     Activity,
+    Event,
     Request,
     Delivery,
     File,
 }
 
 impl Kind {
-    pub const ALL: [Self; 6] = [
+    // Events are an exact lookup, not another catalogue to list or scan.
+    pub const FILTERS: [Self; 6] = [
         Self::Person,
         Self::Activity,
         Self::TaskRole,
@@ -24,6 +26,7 @@ impl Kind {
             Self::Person => "Personas",
             Self::TaskRole => "Task roles",
             Self::Activity => "Activities",
+            Self::Event => "Event",
             Self::Request => "Requests",
             Self::Delivery => "Deliveries",
             Self::File => "Files",
@@ -32,7 +35,7 @@ impl Kind {
     pub fn icon(self) -> Icon {
         match self {
             Self::Person | Self::TaskRole => Icon::People,
-            Self::Activity => Icon::Activity,
+            Self::Activity | Self::Event => Icon::Activity,
             Self::Request => Icon::Questions,
             Self::Delivery => Icon::Folder,
             Self::File => Icon::Files,

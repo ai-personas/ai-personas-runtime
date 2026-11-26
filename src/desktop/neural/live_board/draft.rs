@@ -116,7 +116,7 @@ pub(in super::super) fn home_reply(ui: &mut Ui, call: &Value, worker: bool) {
 
 impl App {
     pub(super) fn current_reply_area(&mut self, ui: &mut Ui) {
-        if self.live_board.paused_at.is_some()
+        if self.live_board.hold.is_some()
             || !matches!(
                 self.live_board.filter,
                 Filter::Highlights | Filter::All | Filter::Messages

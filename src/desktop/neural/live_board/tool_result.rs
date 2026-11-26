@@ -90,7 +90,7 @@ impl App {
         } else if let Some(pdf) = open_pdf {
             self.open_resource(ui.ctx(), pdf);
         } else if open_event {
-            self.live_board.show_event(&self.work, seq);
+            self.live_board.show_event(&self.work, seq, self.cursor);
         }
     }
 }
