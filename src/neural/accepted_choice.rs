@@ -129,9 +129,12 @@ impl Choice {
     /// An issued-edition check can also inspect actions taken during context
     /// recovery; their materials come from operations, not inferred reads.
     pub(super) fn recorded(db: &Connection, owner: &str, call: &str) -> Result<Self> {
-        let accepted = provider_evidence::accepted(db, owner, call, true)?;
+        Self::from_accepted(db, provider_evidence::accepted(db, owner, call, true)?)
+    }
+
+    pub(super) fn from_accepted(db: &Connection, accepted: provider_evidence::Accepted) -> Result<Self> {
         let s = &accepted.snapshot;
-        let work = s.work.as_str();
+        let (owner, work, call) = (s.actor.as_str(), s.work.as_str(), s.invocation.as_str());
         let mut first = s.observation_through.unwrap_or(s.cursor);
         let mut last = None;
         if s.development_version >= 2 || store::head(db, "decision_effects", call)?.is_some() {
@@ -144,6 +147,7 @@ impl Choice {
             if !store::written_by(db, &effects, call)?
                 || effects.body["owner"] != owner
                 || effects.body["work"] != work
+                || effects.body.get("model").is_none_or(|v| *v != serde_json::json!(s.model))
                 || effects.body["response"] != format!("object:{source}")
             {
                 return Err(failure(

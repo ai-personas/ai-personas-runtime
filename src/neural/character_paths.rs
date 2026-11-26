@@ -114,11 +114,10 @@ pub fn pre_action_source(
 }
 
 pub fn inspect(db: &Connection, actor: Option<&str>, query: &Query) -> Result<Value> {
-    let decision = match query.decision.strip_prefix("character_use:") {
-        Some(id) => {
-            store::exact(db, &query.decision)?;
-            format!("experience:{id}")
-        }
+    let use_query = query.decision.strip_prefix("character_use:");
+    let decision = match use_query {
+        Some(id) if id.ends_with("@1") => format!("experience:{id}"),
+        Some(_) => return Err(failure("Choose the original character-use edition")),
         None => query.decision.clone(),
     };
     let meta = experience::metadata(db, actor, &decision)?;
@@ -136,26 +135,11 @@ pub fn inspect(db: &Connection, actor: Option<&str>, query: &Query) -> Result<Va
     )?;
     let verified = character::verified_supply(db, call, &receipt, &response)?
         .ok_or_else(|| failure("The original provider input had no active character"))?;
-    let usage = store::head(db, "character_use", call)?;
-    if verified["owner"] != owner
-        || verified["work"] != meta["work"]
-        || usage.as_ref().is_some_and(|u| {
-            [
-                "owner",
-                "work",
-                "epoch",
-                "package",
-                "baseline",
-                "contextual",
-                "snapshot",
-                "response",
-                "provider_receipt",
-                "prompt_sha256",
-            ]
-            .iter()
-            .any(|&key| u.body[key] != verified[key])
-        })
-    {
+    let usage = character::original_use(db, call, &verified)?;
+    if use_query.is_some() && usage.as_ref() != Some(&query.decision) {
+        return Err(failure("This decision has no matching original character-use edition"));
+    }
+    if verified["owner"] != owner || verified["work"] != meta["work"] {
         return Err(failure(
             "The retained character use differs from the original completed input",
         ));
@@ -249,7 +233,7 @@ pub fn inspect(db: &Connection, actor: Option<&str>, query: &Query) -> Result<Va
         || identity.body["model"] != digest || identity.body["epoch"] != verified["epoch"] {
         return Err(failure("The recorded identity differs from the character supplied at this choice"));
     }
-    let mut report = json!({"decision":decision,"character_use":usage.map(|u| u.reference.handle()),"owner":owner,"owner_label":identity.body["label"],
+    let mut report = json!({"decision":decision,"character_use":usage,"owner":owner,"owner_label":identity.body["label"],
         "choice":{"response":verified["response"],"judgment":choice["work"],"reply":choice["reply"]},
         "work":meta["work"],"epoch":verified["epoch"],"provider_receipt":verified["provider_receipt"],
         "snapshot":verified["snapshot"],"prompt_sha256":verified["prompt_sha256"],"basis":basis,

@@ -3,7 +3,6 @@ use crate::neural::{
     provider_evidence::Accepted,
     protocol::{InitializeModel, NextModel, PatchModel},
 };
-use rusqlite::OptionalExtension;
 
 pub(super) struct Subject {
     pub owner: String,
@@ -175,8 +174,20 @@ pub(super) fn resolve(db: &Connection, who: Option<&str>, reference: &str) -> Re
     let owner = meta["actor"]
         .as_str()
         .ok_or_else(|| failure("Model change has no owner"))?;
-    let (sequence,digest):(i64,String)=db.query_row("SELECT seq,digest FROM events WHERE invocation=?1 AND actor=?2 AND work=?3 AND kind='model_changed' AND target=?2",
-        params![call,owner,meta["work"].as_str()],|row|Ok((row.get(0)?,row.get(1)?))).optional()?.ok_or_else(||failure("This decision did not switch the character model"))?;
+    let mut switches = db.prepare_cached(
+        "SELECT seq,digest,actor,target,work FROM events WHERE invocation=?1 AND kind='model_changed' LIMIT 2",
+    )?;
+    let mut rows = switches.query([call])?;
+    let row = rows.next()?.ok_or_else(|| failure("This decision has no retained model switch"))?;
+    let sequence: i64 = row.get(0)?;
+    let digest: String = row.get(1)?;
+    if row.get_ref(2)?.as_str()? != owner
+        || row.get_ref(3)?.as_str()? != owner
+        || meta["work"] != row.get_ref(4)?.as_str()?
+        || rows.next()?.is_some()
+    {
+        return Err(failure("The model switch is ambiguous or attributed to a different participant or activity"));
+    }
     let event_ref = format!("experience:event-{sequence}@1");
     if reference != event_ref
         && !(reference == format!("experience:{call}@1") && meta["kind"] == "accepted_decision")
@@ -187,6 +198,20 @@ pub(super) fn resolve(db: &Connection, who: Option<&str>, reference: &str) -> Re
     }
     let event: Value = store::object(db, &digest)?;
     let original = accepted(db, owner, call, true)?;
+    let observed = original.snapshot.observation_through.unwrap_or(original.snapshot.cursor);
+    if meta["work"] != original.snapshot.work || sequence <= observed {
+        return Err(failure("The model switch must follow its authorizing input in the same activity"));
+    }
+    // Only decisions with an already active model write ordinary decision_effects.
+    let original = if original.snapshot.model.is_some() {
+        let choice = crate::neural::accepted_choice::Choice::from_accepted(db, original)?;
+        if !choice.contains(sequence) {
+            return Err(failure("The model switch falls outside its accepting decision"));
+        }
+        choice.accepted
+    } else {
+        original
+    };
     let snap = &original.snapshot;
     let old = store::exact(db, &format!("persona:{owner}@{}", snap.persona_revision))?;
     let next = store::exact(

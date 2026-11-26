@@ -48,6 +48,12 @@ fn page_size() -> usize {
     6
 }
 
+/// Resolve the switch itself, not the current head or a later decision which
+/// happens to have received the same package. No later use is implied.
+pub(super) fn switch_for_decision(db: &Connection, owner: &str, call: &str) -> Result<Value> {
+    Ok(subject::resolve(db, Some(owner), &format!("experience:{call}@1"))?.detail)
+}
+
 fn projection(db: &Connection, subject: &Subject, call: &str) -> Result<Value> {
     let decision = format!("experience:{call}@1");
     let other = subject

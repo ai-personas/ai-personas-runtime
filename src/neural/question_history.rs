@@ -1,6 +1,6 @@
 //! Read-only operator view of a question in actual accepted calls.
 mod trail;
-use super::{context::Snapshot, development, failure, provider_evidence, store, Result};
+use super::{character, context::Snapshot, development, failure, provider_evidence, revision_uses, store, Result};
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -134,7 +134,7 @@ pub fn inspect(db: &Connection, reference: &str) -> Result<Value> {
             r.get::<_, String>(2)?,
             r.get::<_, String>(3)?,
             r.get::<_, i64>(4)?,
-            r.get::<_, Option<String>>(5)?,
+            r.get::<_, String>(5)?,
             r.get::<_, Option<String>>(6)?,
         ))
     })? {
@@ -154,14 +154,32 @@ pub fn inspect(db: &Connection, reference: &str) -> Result<Value> {
                 findings.push(finding);
             }
         }
+        let s = &accepted.snapshot;
+        let identity = &s.data["identity"];
+        if identity["id"] != owner || identity["epoch"] != s.epoch || identity["active_model"] != json!(s.model) {
+            return Err(failure("The frozen question input and its recorded character differ"));
+        }
         let decision = accepted.response;
-        let usage = store::head(db, "character_use", &call)?;
+        let next = &decision["next_model"]["kind"];
+        let transition = match next.as_str() {
+            Some("activate" | "rollback") => Some(revision_uses::switch_for_decision(db, owner, &call)),
+            Some("preserve") => None,
+            _ => return Err(failure("The accepted decision has no recognized next-model choice")),
+        };
+        let usage = if s.model.is_some() {
+            let attempt = store::object(db, &receipt)?;
+            character::original_use(db, &call, &character::supply_body(s, &input, &receipt, &response, &attempt))
+        } else { Ok(None) };
         decisions.push(json!({"decision":format!("experience:{call}@1"),"work":work,"accepted_at":time,"accepted_utc":utc,
-            "input":format!("object:{input}"),"response":format!("object:{response}"),"provider_receipt":receipt.map(|r|format!("object:{r}")),
+            "input":format!("object:{input}"),"response":format!("object:{response}"),"provider_receipt":format!("object:{receipt}"),
             "supplied":supplied,"revisions_written":revised,"application":application.map(|u|&u.reference),
             "application_detail":application.map(|u|json!({"action":u.body["action"],"watch_for":u.body["watch_for"],"question_input":u.body["question_input"]})),
             "application_reads":reads,"findings_recorded":findings,
-            "character_use":usage.as_ref().map(|r|r.reference.handle()),"epoch":usage.as_ref().map(|r|&r.body["epoch"]),
+            "epoch":s.model.as_ref().map(|_|s.epoch),"input_package":s.model.as_ref().map(|p|format!("object:{p}")),
+            "character_use":usage.as_ref().ok().and_then(Option::as_ref),"character_use_error":usage.as_ref().err().map(ToString::to_string),
+            "next_model_choice":next,"next_model_reason":decision["next_model"]["reason"],
+            "model_transition":transition.as_ref().and_then(|r|r.as_ref().ok()),
+            "model_transition_error":transition.as_ref().and_then(|r|r.as_ref().err()).map(ToString::to_string),
             "maintenance":decision["persona_maintenance"]["kind"],"reason":decision["persona_maintenance"]["reason"],
             "considered_experience":decision["considered_experience"]}));
     }
