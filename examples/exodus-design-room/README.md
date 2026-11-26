@@ -1,5 +1,7 @@
 # Can a disconnected charged article drive a generator load?
 
+**[No moving parts: open the fixed circuit, PCB and driven/isolated comparisons](fixed/).** Get the editable KiCad project, schematic, bare STEP, Gerbers, drill, BOM and three model collections. The pumped circuit can double signal-port power at the load; counting the pump removes the apparent gain. It is not the circuit on the passive PCB.
+
 **[Can the battery recharge itself while a 20 W load is on?](battery/)** The same room modeled a charging current with the load on, then checked whether the battery recovered the energy it spent at startup. Download the separate battery-only model and follow the seven-file handoff.
 
 **[Download the rotorless shuttle, passive PCB, CAM and corrected controller](rotorless/)** for the free-versus-locked electrical comparison. Simulations show a finite load pulse, not a surplus generator.

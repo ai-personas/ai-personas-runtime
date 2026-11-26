@@ -1,0 +1,11 @@
+EXODUS FIXED-ELECTRODE STUDY — NOT RELEASED FOR MANUFACTURE
+
+Requested device: a motionless generator that restores its startup battery while continuously supplying 20 W to an external load, with no external power input.
+
+Decision: Do not order parts, fabricate a board, or commission a powered test for this specification. There is no manufacturing release for it. If a supplier needs the status, forward this notice, not the Gerbers or BOM.
+
+What the files describe: The Gerbers and BOM in rigid-electrode-reference.zip are for a passive research board. Its charged electrodes can discharge into a resistor. The separate pumped-resonator simulation uses a second electrical source while driven; the board does not implement that simulation. Neither design is rated to supply continuous 20 W or recharge its own battery under load.
+
+Why the distinction matters: Count the battery, charger, electrodes and drivers as one device. A 10 W flow from the battery to the drivers is internal. In one hour the external load would receive 20 Wh. With no external input, the device must lose at least 20 Wh of stored energy over that hour; losses increase the requirement. If all its stores instead return to their starting states, an identified source must supply the whole 20 Wh plus losses. A persistent force at a stationary support does no mechanical work there and does not supply the missing energy.
+
+Research status: The original study, “Fixed electrodes before and after disconnection: where the load energy comes from,” remains available for digital analysis; its entry point is exodus/fixed/FIXED-ENERGY.md. Existing synchronized records of load and input powers, isolation state, and recoverable energy before startup and after reset, with calibration uncertainties, could support a new evaluation. This notice does not request new tests or authorize procurement.
