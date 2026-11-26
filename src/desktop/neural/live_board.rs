@@ -1176,6 +1176,7 @@ enum EventAction {
     Address(String),
     Reply(String, String, String),
     Request(String),
+    PacketChanges { event: i64, edition: String, work: String },
     Receipt(i64),
     Rejection(i64),
     Expand(Option<i64>),
@@ -1314,6 +1315,7 @@ impl App {
                         self.reply_in_live(&person, &reference, &quote)
                     }
                     Some(EventAction::Request(id)) => self.show_human_request(&id),
+                    Some(EventAction::PacketChanges { event, edition, work }) => self.open_packet_changes(ui.ctx(), event, &edition, &work),
                     Some(EventAction::Receipt(seq)) => self.open_message_receipt(ui.ctx(), seq),
                     Some(EventAction::Rejection(seq)) => self.open_rejection(ui.ctx(), seq),
                     Some(EventAction::Expand(seq)) => {
@@ -1667,7 +1669,14 @@ impl App {
                             .and_then(|r| r.rsplit_once('@'))
                             .map(|(id, _)| id)
                         {
-                            if text_action(ui, "Open request").clicked() {
+                            if kind == "human_request_packet" {
+                                if let Some(edition) = body["reference"].as_str() {
+                                    if text_action(ui, "Packet changes at issue").on_hover_text(edition).clicked() {
+                                        action = Some(EventAction::PacketChanges { event: seq, edition: edition.into(), work: s(event, "work").into() });
+                                    }
+                                }
+                            }
+                            if text_action(ui, "Current request →").on_hover_text("Open the latest status and materials, not the historical edition").clicked() {
                                 action = Some(EventAction::Request(id.into()));
                             }
                         }

@@ -1,5 +1,6 @@
 use super::*;
 use ai_personas::neural::human_requests::{FieldReport, Response, ReturnForm};
+mod changes;
 mod correspondence;
 mod field_report;
 mod packet;
@@ -11,6 +12,7 @@ pub(super) struct Inbox {
     drafts: BTreeMap<String, Draft>,
     detail_tab: Option<DetailTab>,
     correspondence: correspondence::Panel,
+    changes: Option<changes::Reader>,
 }
 
 #[derive(Clone, Copy, Default, Hash, PartialEq, Eq)]

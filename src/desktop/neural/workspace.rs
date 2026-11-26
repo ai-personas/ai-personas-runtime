@@ -1689,7 +1689,10 @@ impl App {
         }
     }
     pub(super) fn artifacts(&mut self, ui: &mut Ui) {
-        if self.artifact_mode == ArtifactView::Retained { self.delivery_return_link(ui); }
+        if self.artifact_mode == ArtifactView::Retained {
+            self.delivery_return_link(ui);
+            self.packet_return_link(ui);
+        }
         let compact = ui.available_width() < 620. || ui.available_height() < 500.;
         if compact {
             ui.horizontal_wrapped(|ui| {
@@ -1796,7 +1799,9 @@ impl App {
                     ui.weak("The inspector shows its owner, exact version and qualifications.");
                 } else {
                     if let Some(edition) = self.preview_metadata["package_edition"].as_str() {
-                        ui.small(format!("Verified attachment · {edition}"));
+                        let revision = self.selected_reference.rsplit_once('@').map_or("?", |(_, n)| n);
+                        ui.small(format!("Verified attachment · File revision {revision} · {edition}"))
+                            .on_hover_text(&self.selected_reference);
                     }
                     let member = self.viewer.viewed_member();
                     let enclosing = member.is_some();

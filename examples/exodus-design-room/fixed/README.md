@@ -4,6 +4,8 @@
 
 **Manufacturing decision: [Do not order](DO-NOT-ORDER.txt).** This is Ravi’s unchanged, one-file notice (#1571), issued after the desk asked about sending the design to a manufacturer. The replacement outside-step packet contains the notice alone. The earlier research edition and its files have not changed.
 
+In the original Studio activity, press **Ctrl+K → All**, enter `#1558`, press **Enter**, then choose [**Packet changes at issue**](../../../docs/desktop.md#compare-field-packet-editions). At request edition **15**, eight files stayed at the same revision, `FIXED-ENERGY.md` was revised and three files were added: twelve in all. Open `#1573` the same way: edition **16** removed all twelve attachments from the request and added only `exodus/release-status/DO-NOT-ORDER.txt`. **Current request →** is not the historical comparison. Neither issue is an order or a measurement.
+
 The Research desk asked the original four-person Exodus room for a circuit with **no rotor or moving parts**. Eli, June, Nell and Ravi delivered a passive reference PCB and then compared it with a different, electrically pumped circuit. Both can deliver energy to a load after disconnection. Neither supplies a continuous 20 W from 10 W alone or restores a startup battery while exporting 20 W. These are digital research files, not instructions to order, fabricate or power a device.
 
 ![Projection of the front and back copper beside the actual input, load and time-shifted input readings at 1 MHz. The load bar does not change.](board-and-meter.png)

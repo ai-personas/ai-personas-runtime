@@ -73,6 +73,15 @@ impl App {
                     {
                         self.open_issued_package(ui.ctx(), delivery);
                     }
+                    if let Some(seq) = self.home_index.request_origin(edition) {
+                        if ui
+                            .link("What changed?")
+                            .on_hover_text(format!("Compare attachments at issue #{seq}"))
+                            .clicked()
+                        {
+                            self.open_packet_changes(ui.ctx(), seq, edition, s(b, "work"));
+                        }
+                    }
                 });
             });
     }

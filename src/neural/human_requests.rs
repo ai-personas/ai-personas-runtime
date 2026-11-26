@@ -12,6 +12,8 @@ pub use files_at_issue::Materials;
 mod package;
 pub use package::{export_dispatch, export_dispatch_packet, export_handoff, export_package, HandoffFormat};
 pub(super) mod packet;
+mod packet_changes;
+pub use packet_changes::PacketChanges;
 pub(super) use packet::issue as issue_packet;
 mod correspondence;
 pub use correspondence::correspondence;
