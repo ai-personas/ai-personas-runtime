@@ -397,14 +397,8 @@ impl App {
                             .as_array()
                             .filter(|items| !items.is_empty())
                         {
-                            ui.small(counted(
-                                gaps.len() as u64,
-                                "remaining item",
-                                "remaining items",
-                            ))
-                            .on_hover_text(
-                                gaps.first().and_then(Value::as_str).unwrap_or_default(),
-                            );
+                            ui.small(format!("{} open at issue", gaps.len()))
+                                .on_hover_text(gaps.first().and_then(Value::as_str).unwrap_or_default());
                         }
                         edition_review::summary(ui, &self.snapshot.status["delivery_reviews"][&reference]);
                         ui.menu_button("Export ↓", |ui| {

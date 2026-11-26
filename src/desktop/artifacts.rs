@@ -26,6 +26,8 @@ mod stitch;
 mod sequence;
 #[path = "sqlite_view.rs"]
 mod database;
+#[path = "drawing_layers.rs"]
+mod drawing_layers;
 #[path = "native_preview.rs"]
 mod native_preview;
 #[path = "viewed_member.rs"]
@@ -121,6 +123,7 @@ pub struct Viewer {
     page_jump: String,
     orientation: Orientation,
     native_info: String,
+    drawing_layers: drawing_layers::View,
     context: String,
     recorded: bool,
     recorded_revision: String,
@@ -203,6 +206,7 @@ impl Viewer {
             page_jump: String::new(),
             orientation: Orientation::Original,
             native_info: String::new(),
+            drawing_layers: Default::default(),
             context: String::new(),
             recorded: true,
             recorded_revision: String::new(),
@@ -331,6 +335,7 @@ impl Viewer {
         self.native_page = 0;
         self.page_jump.clear();
         self.orientation = Orientation::Original;
+        self.drawing_layers = Default::default();
         self.native_info.clear();
         self.decoded = None;
         self.native_document = None;
@@ -800,6 +805,9 @@ impl Viewer {
                         if self.orientation.control(ui) { self.image_pan = egui::Vec2::ZERO; }
                     });
                     page = number - 1;
+                } else if document.layers.is_some() {
+                    ui.selectable_value(&mut self.drawing_layers.open, false, "Drawing");
+                    ui.selectable_value(&mut self.drawing_layers.open, true, "Layer register");
                 } else if document.labels.len() > 1 {
                     if ui.add_enabled(page > 0, egui::Button::new("Previous")).clicked() { page -= 1; }
                     egui::ComboBox::from_id_salt("native-preview-page")
@@ -825,6 +833,16 @@ impl Viewer {
                     }
                 });
             });
+            if let Some(register) = document.layers.as_ref().filter(|_| self.drawing_layers.open) {
+                ui.separator();
+                egui::ScrollArea::vertical().id_salt(("drawing-register", self.serial)).show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    if let Some(source) = &self.source {
+                        self.drawing_layers.show(ui, register, &source.name());
+                    }
+                });
+                return;
+            }
             if page != self.native_page { self.load_native_page(document, page); }
         }
         if self.loading {

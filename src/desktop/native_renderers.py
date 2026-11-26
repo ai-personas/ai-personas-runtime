@@ -1,9 +1,91 @@
 #!/usr/bin/env python3
 """Trusted read-only render adapters. Never imports or executes artifact scripts."""
-import argparse, json, math, os, sys, tempfile, zipfile
+import argparse, hashlib, json, math, os, sys, tempfile, zipfile
 from pathlib import Path
 
-def dxf(src, dst):
+def drawing_declarations(src, doc):
+    """Read stored units and layer names, not defaults inserted by the CAD reader."""
+    from ezdxf.lldxf.tagger import ascii_tags_loader, binary_tags_loader
+    from ezdxf.lldxf.tags import group_tags
+    from ezdxf.lldxf.validator import is_binary_dxf_file
+
+    def scan(tags):
+        units = section = table = None
+        names = set()
+        for group in group_tags(tags):
+            kind = group[0].value
+            if kind == "SECTION":
+                section = group.get_first_value(2)
+                if section == "HEADER":
+                    for i, tag in enumerate(group):
+                        if tag == (9, "$INSUNITS"):
+                            value = group[i + 1]
+                            if value.code != 70 or units is not None:
+                                raise ValueError("Ambiguous $INSUNITS in drawing header.")
+                            units = int(value.value)
+            elif kind == "ENDSEC":
+                section = table = None
+            elif section == "TABLES":
+                if kind == "TABLE":
+                    table = group.get_first_value(2)
+                elif kind == "ENDTAB":
+                    table = None
+                elif table == "LAYER" and kind == "LAYER":
+                    names.add(doc.layers.key(group.get_first_value(2)))
+        return units, names
+
+    if is_binary_dxf_file(str(src)):
+        return scan(binary_tags_loader(src.read_bytes()))
+    with src.open(encoding=doc.output_encoding, errors="surrogateescape") as stream:
+        return scan(ascii_tags_loader(stream))
+
+
+def drawing_register(src, doc):
+    from ezdxf.units import InsertUnits
+    code, declared = drawing_declarations(src, doc)
+    layers = {}
+
+    def layer(name):
+        key = doc.layers.key(name)  # DXF layer references are case-insensitive.
+        if key not in layers:
+            if len(layers) == 2048:
+                raise ValueError("Layer register preview limit: 2,048 layers.")
+            layers[key] = dict(name=name, state="No layer table entry", kinds={}, circles=[])
+        return layers[key]
+
+    for entry in doc.layers:
+        if doc.layers.key(entry.dxf.name) not in declared:
+            continue
+        flags = [s for s, yes in (("Off", entry.is_off()), ("Frozen", entry.is_frozen())) if yes]
+        layer(entry.dxf.name)["state"] = " · ".join(flags) or "On"
+    count = 0
+    for e in doc.modelspace():
+        row = layer(e.dxf.layer)
+        kind = e.dxftype()
+        row["kinds"][kind] = row["kinds"].get(kind, 0) + 1
+        if kind != "CIRCLE":
+            continue
+        count += 1
+        if count > 8192:
+            raise ValueError("Layer register preview limit: 8,192 direct circles.")
+        if not e.dxf.hasattr("center") or not e.dxf.hasattr("radius") or e.dxf.radius <= 0:
+            raise ValueError("A modelspace CIRCLE has no usable centre or radius.")
+        frame = e.ocs()
+        centre = list(frame.to_wcs(e.dxf.center))
+        normal = list(frame.uz)
+        if not all(math.isfinite(v) for v in [*centre, *normal, 2*e.dxf.radius]):
+            raise ValueError("A modelspace CIRCLE has non-finite geometry.")
+        row["circles"].append(dict(handle=e.dxf.handle, center=centre, normal=normal, radius=e.dxf.radius))
+    try:
+        units = InsertUnits(code).name
+    except ValueError:
+        units = "Not specified" if code is None else "Unrecognized"
+    if code is not None:
+        units += f" · $INSUNITS {code}"
+    return dict(units=units, layers=list(layers.values()))
+
+
+def dxf(src, dst, *, register=True):
     import ezdxf
     from ezdxf.addons.drawing import Frontend, RenderContext, layout
     from ezdxf.addons.drawing.svg import SVGBackend
@@ -11,6 +93,21 @@ def dxf(src, dst):
     Frontend(RenderContext(doc),backend).draw_layout(doc.modelspace(),finalize=True)
     dst.write_text(backend.get_string(layout.Page(297,210,units=layout.Units.mm),
         settings=layout.Settings(fit_page=True,output_layers=True)),encoding="utf-8")
+    if register:
+        # A register failure must not discard a usable composite drawing.
+        try:
+            record = drawing_register(src, doc)
+            digest = hashlib.sha256()
+            with src.open("rb") as stream:
+                for block in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(block)
+            record["sha256"] = digest.hexdigest()
+        except Exception as err:
+            record = {"error": str(err)}
+        try:
+            dst.with_suffix(".layers.json").write_text(json.dumps(record, allow_nan=False), encoding="utf-8")
+        except OSError as err:
+            print(f"Layer register unavailable: {err}", file=sys.stderr)
     return {"kind":"svg","entities":sum(1 for _ in doc.modelspace()),
         "note":"DXF modelspace only; paper layouts, external references, proxy entities and CAD constraints are not represented."}
 
@@ -196,11 +293,11 @@ def font_specimen(src, dst):
 
 
 def main():
-    p=argparse.ArgumentParser(); p.add_argument("mode",choices=("dxf","cad","hdf5","font")); p.add_argument("source",type=Path); p.add_argument("target",type=Path); a=p.parse_args()
+    p=argparse.ArgumentParser(); p.add_argument("mode",choices=("dxf","converted-dxf","cad","hdf5","font")); p.add_argument("source",type=Path); p.add_argument("target",type=Path); a=p.parse_args()
     if not a.source.is_file(): p.error("source is not a regular file")
     a.target.parent.mkdir(parents=True,exist_ok=True)
     try:
-        result={"dxf":dxf,"cad":cad,"hdf5":hdf5,"font":font_specimen}[a.mode](a.source,a.target)
+        result={"dxf":dxf,"converted-dxf":lambda s,d: dxf(s,d,register=False),"cad":cad,"hdf5":hdf5,"font":font_specimen}[a.mode](a.source,a.target)
         print(json.dumps(result,ensure_ascii=False)); return 0
     except Exception as e:
         print("{}: {}".format(type(e).__name__,e),file=sys.stderr); return 2

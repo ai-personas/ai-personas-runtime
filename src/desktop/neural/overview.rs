@@ -362,7 +362,7 @@ impl App {
             }
             ui.label(s(b, "supported_use"));
             if let Some(first) = gaps.first().and_then(Value::as_str) {
-                ui.weak(format!("Still needed · {}", excerpt(first, 190))).on_hover_text(first);
+                ui.weak(format!("Open at issue · {}", excerpt(first, 190))).on_hover_text(first);
             }
             ui.horizontal_wrapped(|ui| {
                 if ui.button("Save handoff…").clicked() {
@@ -378,7 +378,7 @@ impl App {
             ui.push_id(&handle, |ui| {
                 let mut contents = format!("{n} {}", if n == 1 { "file" } else { "files" });
                 if !gaps.is_empty() {
-                    contents.push_str(&format!("  ·  {} remaining {}", gaps.len(), if gaps.len() == 1 { "item" } else { "items" }));
+                    contents.push_str(&format!("  ·  {} open at issue", gaps.len()));
                 }
                 egui::CollapsingHeader::new(contents)
                     .default_open(self.layout.editor == Editor::Delivery).show(ui,

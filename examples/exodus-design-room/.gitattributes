@@ -1,4 +1,7 @@
 # Preserve the exact commission and the received/downloadable design bytes.
 commission.txt -text
+overlay/commission.txt -text
+*.dxf binary
+*.pdf binary
 *.zip binary
 *.jpg binary
