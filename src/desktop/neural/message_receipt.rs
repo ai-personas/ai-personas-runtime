@@ -71,12 +71,7 @@ impl App {
         let peer = self.message_receipt.peer || self.message_receipt.report.as_ref().and_then(|r| r.as_ref().ok()).is_some_and(|r| r["kind"] == "peer_exchange");
         let title = if peer { "Peer exchange" } else if feedback { "Feedback receipt" } else { "Delivery status" };
         let viewport = ctx.content_rect().shrink(6.);
-        let style = ctx.style();
-        let frame = egui::Frame::window(&style);
-        let heading = egui::TextStyle::Heading.resolve(&style);
-        let title_height = ctx.fonts_mut(|fonts| fonts.row_height(&heading)).max(style.spacing.interact_size.y);
-        let chrome = frame.total_margin().sum()
-            + egui::vec2(0., title_height + frame.inner_margin.sum().y + frame.stroke.width);
+        let chrome = theme::titled_window_chrome(ctx);
         let available = (viewport.size() - chrome).max(egui::vec2(1., 1.));
         let initial = egui::vec2(520., 620.).min(available);
         let id = if peer { egui::Id::new(("peer-exchange", event)) } else { egui::Id::new("human-message-receipt") };

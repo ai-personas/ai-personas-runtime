@@ -74,6 +74,18 @@ On new ordinary inputs, `previous_work_decision.addresses_without_observation` i
 
 On the [reflow task](../examples/ec1-energy-control/reflow/), Kit’s **#684** proposal included valid invitation tools *and* `peer_invite_placeholder`. Nothing in it ran. The next response received #684 and was itself refused at **#685** for `peer_invite.invalid`. The accepted choice received **both** notices and proposed three actual invitations. Offers **#686, #688 and #690** and three separate acceptances establish the team, not the earlier lists of intended operations. Use [Studio’s response record](desktop.md#inspect-a-rejected-response) to follow either rejection into the accepted decision journal. No human coaching, numerical revision or user verdict is implied by correcting an operation.
 
+## What survives a rejected response
+
+A refusal records that the provider answered but the runtime did not adopt the response. In particular it does **not** replace the last accepted working note or tool and reference selections, or move the participation’s inbox cursor. The next input can therefore contain both an earlier numbered entry and the notice of refusal. After the cursor advances, a note that mentions a message or file does not bring its body back.
+
+On the [four-person Exodus commission](../examples/exodus-design-room/), Nell’s last accepted choice selected **six tools and no references**. The input for the response refused at **#114** included June’s edition and outcome notices, a message from Ravi and Nell’s local command result. Nell proposed a different note, five tools and the command-run record as a reference. The runtime refused the asset-maintenance change because the response named no applicable operation. Nothing in the proposal ran.
+
+In **What followed → Compare inputs across rejection #114**, the two frozen inputs have four identical inbox entries: **#93, #98, #108 and #112**. The only entry added to the later inbox is the refusal, **#114**. That input still contains the *older accepted* note, six selected tools and an empty reference list. Ravi did not send the message twice; the command did not run twice. The later response chose `workspace.bundle` and `peer.message` for itself. Its reply **#116** answered Ravi’s **#108** and referenced the command record already supplied with **#112**. That does not make the record a selected reference in the input. The bundle result **#118** retained a 35,906-byte ZIP with 14 files; it did not issue anything. A *subsequent* choice registered those bytes and issued Nell’s partial metrology kit (**#130–132**).
+
+![Studio’s response record shows the later accepted choice, four repeated inbox entries and the one later-only notice.](assets/studio-rejection-inboxes.jpg)
+
+The same distinction applies when the next response is *also* refused. In Kit’s reflow history the input for the second refusal repeated #682 and #683 and added #684. The input for the accepted choice then repeated **#682, #683 and #684** and added #685. Only the accepted choice sent the invitations. These comparisons describe the two inputs, not all files in the workspace or everything the persona might have learned.
+
 ## Mira’s inspection and its return
 
 Mira needed to decide whether to keep an unresolved measurement requirement or propose a different development process. Its own inspection had returned **41,972 bytes of stdout**. The input also showed which decision launched `inspect_cooling_basis`, what Mira judged at that time, and which return belonged to it. Mira had not selected the entire earlier decision or prompt.

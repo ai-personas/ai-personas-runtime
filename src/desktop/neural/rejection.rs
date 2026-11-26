@@ -1,4 +1,5 @@
 //! Follow an unadopted response without putting the activity back to work.
+mod inputs;
 use super::*;
 
 #[derive(Clone)]
@@ -24,10 +25,13 @@ pub(super) struct Reader {
     away: Option<(String, Editor)>,
     pending: Option<mpsc::Receiver<Report>>,
     report: Option<Report>,
+    open_after_check: Option<(String, String)>,
+    input_changed: bool,
 }
 
 enum Action {
     Read(String),
+    LaterInput(String, String),
     Follow(Target),
     Journal(String),
     Back,
@@ -39,6 +43,8 @@ impl Reader {
         let (tx, rx) = mpsc::channel();
         self.pending = Some(rx);
         self.report = None;
+        self.open_after_check = None;
+        self.input_changed = false;
         let (ctx, root, t) = (ctx.clone(), root.to_owned(), self.target.clone());
         std::thread::spawn(move || {
             let result = data::open(&root)
@@ -55,14 +61,26 @@ impl Reader {
             ctx.request_repaint();
         });
     }
-    fn poll(&mut self) {
-        let Some(rx) = &self.pending else { return };
+    fn poll(&mut self) -> Option<Action> {
+        let rx = self.pending.as_ref()?;
         self.report = match rx.try_recv() {
             Ok(result) => Some(result),
             Err(mpsc::TryRecvError::Disconnected) => Some(Err("Decision reader stopped".into())),
-            Err(mpsc::TryRecvError::Empty) => return,
+            Err(mpsc::TryRecvError::Empty) => return None,
         };
         self.pending = None;
+        let (call, input) = self.open_after_check.take()?;
+        let report = self.report.as_ref()?.as_ref().ok()?;
+        if report["following"]
+            .as_array()?
+            .iter()
+            .any(|r| r["invocation"] == call && r["input"] == input)
+        {
+            Some(Action::Read(input))
+        } else {
+            self.input_changed = true;
+            None
+        }
     }
     fn draw(&mut self, ui: &mut Ui, app: &App) -> Option<Action> {
         let seq = self.target.seq;
@@ -163,6 +181,7 @@ impl Reader {
                 }
                 Page::Following => {
                     ui.small("Later responses from this persona in this activity, through the next accepted choice. Receipt means the full notice appeared in that input’s inbox.");
+                    if self.input_changed { ui.label("The later input could not be verified again. Nothing was opened."); }
                     for row in r["following"].as_array().into_iter().flatten() {
                         ui.add_space(7.);
                         if let Some(gap)=row["unavailable"].as_str() { ui.strong("Later response unavailable"); ui.label(gap); continue; }
@@ -175,6 +194,7 @@ impl Reader {
                         if let Some(n)=row["notice_event"].as_i64() {
                             if ui.link(format!("Inspect rejection #{n} →")).clicked() { action=Some(Action::Follow(Target{seq:n,work:self.target.work.clone(),call:s(row,"invocation").into(),source:s(row,"notice_source").into()})); }
                         } else if let Some(choice)=row["decision"].as_str() { if ui.link("Read accepted choice →").clicked() {action=Some(Action::Journal(choice.into()));} }
+                        if inputs::show(ui,row,seq) { action=Some(Action::LaterInput(s(row,"invocation").into(),s(row,"input").into())); }
                         ui.separator();
                     }
                     if r["following"].as_array().is_some_and(Vec::is_empty) {ui.label("No later accepted or rejected response recorded for this participation.");}
@@ -260,6 +280,8 @@ impl App {
             report: None,
             pending: None,
             away: None,
+            open_after_check: None,
+            input_changed: false,
         };
         reader.load(ctx, &self.root);
         self.rejection = Some(reader);
@@ -289,6 +311,7 @@ impl App {
                     .show_event(&reader.target.work, reader.target.seq);
             }
             reader.away = None;
+            reader.load(ui.ctx(), &self.root);
         }
     }
     pub(super) fn rejection_window(&mut self, ctx: &egui::Context) {
@@ -296,13 +319,16 @@ impl App {
             return;
         }
         let mut r = self.rejection.take().unwrap();
-        r.poll();
+        let checked = r.poll();
         let mut open = true;
         let mut action = None;
-        let available = (ctx.content_rect().size() - egui::vec2(32., 64.)).max(egui::vec2(1., 1.));
+        let viewport = ctx.content_rect().shrink(6.);
+        let available =
+            (viewport.size() - theme::titled_window_chrome(ctx)).max(egui::vec2(1., 1.));
         egui::Window::new("Response record")
             .id(egui::Id::new("refused-response"))
             .open(&mut open)
+            .constrain_to(viewport)
             .default_size(egui::vec2(540., 430.).min(available))
             .min_size(egui::vec2(210., 150.).min(available))
             .max_size(available)
@@ -312,7 +338,11 @@ impl App {
         if !open {
             return;
         }
-        match action {
+        match action.or(checked) {
+            Some(Action::LaterInput(call, input)) => {
+                r.load(ctx, &self.root);
+                r.open_after_check = Some((call, input));
+            }
             Some(Action::Read(reference)) => {
                 r.away = Some((reference.clone(), self.layout.editor));
                 self.open_resource(ctx, reference);
