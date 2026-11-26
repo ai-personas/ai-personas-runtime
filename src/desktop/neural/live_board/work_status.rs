@@ -67,7 +67,7 @@ impl App {
                     && matches!(s(&r["body"], "state"), "open" | "in_progress")
             })
             .collect();
-        let (mut request, mut choice, mut inspect) = (None, None, None);
+        let (mut request, mut choice, mut inspect, mut receipt) = (None, None, None, None);
         let now = ai_personas::neural::now();
         egui::ScrollArea::vertical().id_salt(("work-status", &self.work)).show(ui, |ui| {
             eyebrow(ui, "Activity  /  Work status");
@@ -137,6 +137,24 @@ impl App {
                 });
             }
             ui.add_space(8.);
+            let history = self.home_index.decision_requests(&self.work);
+            if !history.is_empty() {
+                egui::CollapsingHeader::new(format!("Decision requests · {}", history.len())).id_salt(("status-resumes", &self.work)).show(ui, |ui| {
+                    ui.small("Follow a request to the decisions made on it. Opening a receipt does not resume anyone.");
+                    let key = ui.id().with("limit");
+                    let limit = ui.data(|d| d.get_temp::<usize>(key)).unwrap_or(PAGE);
+                    for seq in history.iter().rev().take(limit) {
+                        if let Ok(i) = self.events.binary_search_by_key(seq, |e| e["event"].as_i64().unwrap_or_default()) {
+                            let e = &self.events[i];
+                            ui.horizontal_wrapped(|ui| {
+                                if ui.link(format!("#{seq} · {}", self.label(s(e, "target")))).on_hover_text(s(&e["body"], "reason")).clicked() {receipt=Some(*seq);}
+                                ui.small(format!("from {} · {}", s(e,"actor"),time_label(e["created"].as_i64().unwrap_or_default())));
+                            });
+                        }
+                    }
+                    if limit < history.len() && ui.small_button("Show earlier requests").clicked() { ui.data_mut(|d| d.insert_temp(key,limit.saturating_add(PAGE))); }
+                });
+            }
             eyebrow(ui, "Individual choices");
             for r in &parts {
                 let b=&r["body"]; let person=s(b,"persona"); let c=&b["continuation"];
@@ -173,6 +191,9 @@ impl App {
         }
         if let Some(reference) = inspect {
             self.open_resource(ui.ctx(), reference);
+        }
+        if let Some(seq) = receipt {
+            self.open_message_receipt(ui.ctx(), seq);
         }
         if let Some(selected) = choice {
             self.review_continuation(selected);

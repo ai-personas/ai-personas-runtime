@@ -43,6 +43,7 @@ pub(super) struct Index {
     receiving_checks: BTreeMap<String, Vec<i64>>,
     request_events: BTreeMap<String, i64>,
     request_origins: BTreeMap<String, i64>,
+    decision_requests: BTreeMap<String, Vec<i64>>,
 }
 
 impl Index {
@@ -60,6 +61,10 @@ impl Index {
 
     pub(super) fn request_origin(&self, reference: &str) -> Option<i64> {
         self.request_origins.get(reference).copied()
+    }
+
+    pub(super) fn decision_requests(&self, work: &str) -> &[i64] {
+        self.decision_requests.get(work).map(Vec::as_slice).unwrap_or_default()
     }
 
     pub(super) fn latest_event(&self, work: &str) -> Option<i64> {
@@ -124,6 +129,9 @@ impl Index {
                     self.issued.entry(reference.to_owned())
                         .and_modify(|unique| *unique = None).or_insert(Some(seq));
                 }
+            }
+            if event["kind"] == "explicit_resume" && event["invocation"].is_null() {
+                self.decision_requests.entry(work.to_owned()).or_default().push(seq);
             }
             if event["kind"] == "delivery_check" {
                 if let Some(reference) = body["delivery"].as_str() {

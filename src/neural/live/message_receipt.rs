@@ -10,6 +10,7 @@ mod outside;
 mod exchange;
 mod answers;
 mod rejection;
+mod resume;
 pub use rejection::inspect as rejected_decision;
 mod participation;
 pub use participation::participation_terms;
@@ -355,8 +356,11 @@ pub fn inspect(db: &Connection, event: i64) -> Result<Value> {
 }
 
 fn receipt(db: &Connection, event: i64) -> Result<Value> {
-    let invalid = || failure("Choose a message between two personas, an incoming human message or a request progress event");
+    let invalid = || failure("Choose an operator decision request, a message between two personas, an incoming human message or a request progress event");
     let update = Event::get(db, event)?.ok_or_else(invalid)?;
+    if update.kind == "explicit_resume" {
+        return resume::report(db, &update);
+    }
     if update.kind == "message" && update.invocation.is_some() && update.actor != update.target
         && update.target != "user" && store::head(db, "persona", &update.target)?.is_some()
     {

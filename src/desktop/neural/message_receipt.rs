@@ -2,12 +2,14 @@ use super::*;
 use ai_personas::neural::live::RunnerObservation;
 mod peer;
 mod outside;
+mod resume;
 pub(super) use peer::is_peer_message;
 
 #[derive(Default)]
 pub(super) struct Window {
     event: Option<i64>,
     peer: bool,
+    resume: Option<resume::Request>,
     trail: Vec<i64>,
     decisions: usize,
     cursor: i64,
@@ -18,10 +20,12 @@ pub(super) struct Window {
 
 impl App {
     pub(super) fn open_message_receipt(&mut self, ctx: &egui::Context, event: i64) {
+        let entry = self.events.binary_search_by_key(&event, |e| e["event"].as_i64().unwrap_or_default())
+            .ok().map(|i| &self.events[i]);
         self.message_receipt = Window {
             event: Some(event),
-            peer: self.events.binary_search_by_key(&event, |e| e["event"].as_i64().unwrap_or_default())
-                .ok().is_some_and(|i| is_peer_message(&self.events[i])),
+            peer: entry.is_some_and(is_peer_message),
+            resume: entry.and_then(resume::Request::at),
             ..Default::default()
         };
         self.refresh_message_receipt(ctx, event);
@@ -47,7 +51,19 @@ impl App {
         };
         if let Some(reader) = &self.message_receipt.reader {
             match reader.try_recv() {
-                Ok(result) => {
+                Ok(mut result) => {
+                    if let Some(request) = &mut self.message_receipt.resume {
+                        if let Some(action) = request.checked(&mut result) {
+                            self.message_receipt = Default::default();
+                            match action {
+                                resume::Follow::Journal(reference) => self.open_choice_or_record(ctx, reference),
+                                resume::Follow::Rejection(seq) => self.open_rejection(ctx, seq),
+                            }
+                            return;
+                        }
+                    } else if result.as_ref().is_ok_and(|r| r["kind"] == "decision_request") {
+                        result = Err("Reopen this decision request from its activity.".into());
+                    }
                     if let Some(reference) = self.message_receipt.asking.checked(&result) {
                         self.message_receipt = Default::default();
                         self.open_choice_or_record(ctx, reference);
@@ -57,7 +73,8 @@ impl App {
                     self.message_receipt.reader = None;
                 }
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    let error = Err("The receipt reader stopped.".to_owned());
+                    let mut error = Err("The receipt reader stopped.".to_owned());
+                    if let Some(request) = &mut self.message_receipt.resume {request.checked(&mut error);}
                     self.message_receipt.asking.checked(&error);
                     self.message_receipt.report = Some(error);
                     self.message_receipt.reader = None;
@@ -76,14 +93,16 @@ impl App {
         let mut refresh = false;
         let report = self.message_receipt.report.as_ref().and_then(|r| r.as_ref().ok());
         let peer = self.message_receipt.peer || report.is_some_and(|r| r["kind"] == "peer_exchange");
-        let title = if peer { "Peer exchange" } else if report.is_some_and(|r| r["delivery"].is_string()) { "Feedback receipt" }
+        let resume = self.message_receipt.resume.is_some();
+        let recipient = report.filter(|_| resume).map(|r| self.label(s(r,"recipient")).to_owned());
+        let title = if resume { "Decision request receipt" } else if peer { "Peer exchange" } else if report.is_some_and(|r| r["delivery"].is_string()) { "Feedback receipt" }
             else if report.is_some_and(|r| r["kind"] == "user_message" && r["request"].is_string()) { "Outside report" }
             else { "Delivery status" };
         let viewport = ctx.content_rect().shrink(6.);
         let chrome = theme::titled_window_chrome(ctx);
         let available = (viewport.size() - chrome).max(egui::vec2(1., 1.));
         let initial = egui::vec2(520., 620.).min(available);
-        let id = if peer { egui::Id::new(("peer-exchange", event)) } else { egui::Id::new("human-message-receipt") };
+        let id = if resume { egui::Id::new(("decision-request", event)) } else if peer { egui::Id::new(("peer-exchange", event)) } else { egui::Id::new("human-message-receipt") };
         egui::Window::new(title).id(id).open(&mut visible)
             .default_size(initial).default_pos(viewport.center() - (initial + chrome) / 2.)
             .min_size(egui::vec2(220., 110.).min(available)).max_size(available)
@@ -93,9 +112,16 @@ impl App {
                 }
                 let report = match &self.message_receipt.report {
                     Some(Ok(report)) => report,
-                    Some(Err(error)) => {ui.label(error); refresh = ui.button("Retry").clicked(); return;}
+                    Some(Err(error)) => {
+                        if resume {ui.strong("Decision request unavailable");}
+                        ui.label(error); refresh = ui.button("Retry").clicked(); return;
+                    }
                     None => {ui.spinner(); return;}
                 };
+                if let Some(request) = &mut self.message_receipt.resume {
+                    refresh = request.show(ui, report, recipient.as_deref().unwrap_or("Participant"), self.message_receipt.reader.is_some());
+                    return;
+                }
                 if report["kind"] == "peer_exchange" {
                     match peer::show(ui, self, event, report) {
                         Some(peer::Action::Inspect(r)) => inspect = Some(r),

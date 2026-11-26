@@ -3,19 +3,19 @@
 mod inputs;
 use super::{context::Snapshot, Event};
 use crate::neural::{
-    accepted_choice::Choice, character, development, failure, provider_evidence, store, Result,
+    accepted_choice::Choice, development, failure, provider_evidence, store, Result,
 };
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 
-struct Refused {
-    input: Snapshot,
+pub(super) struct Refused {
+    pub(super) input: Snapshot,
     response: Option<Value>,
-    links: Value,
+    pub(super) links: Value,
 }
 
 impl Refused {
-    fn load(db: &Connection, event: &Event) -> Result<Self> {
+    pub(super) fn load(db: &Connection, event: &Event) -> Result<Self> {
         let call = event
             .invocation
             .as_deref()
@@ -44,42 +44,16 @@ impl Refused {
         {
             return Err(failure("Rejection notice differs from its completed call"));
         }
-        let untouched: bool = db.query_row(
-            "SELECT NOT EXISTS(SELECT 1 FROM outbox WHERE invocation=?1)
-            AND NOT EXISTS(SELECT 1 FROM events WHERE invocation=?1 AND seq<>?2)
-            AND NOT EXISTS(SELECT 1 FROM heads WHERE kind='decision_effects' AND id=?1)
-            AND NOT EXISTS(SELECT 1 FROM versions WHERE kind='decision_effects' AND id=?1)
-            AND NOT EXISTS(SELECT 1 FROM versions WHERE invocation=?1 AND NOT
-                (kind IN ('provider_completion','character_use') AND id=?1 AND revision=1))",
-            params![call, event.seq],
-            |r| r.get(0),
+        let (bytes, binding) = provider_evidence::unadopted_reply(
+            db, &input, [&source, &reply, &receipt], "responded", Some(event.seq),
         )?;
-        if !untouched {
-            return Err(failure(
-                "This call has records inconsistent with an unadopted response",
-            ));
-        }
-        store::verify_completion(
-            db,
-            call,
-            &event.target,
-            &event.work,
-            &source,
-            &reply,
-            &receipt,
-            "responded",
-        )?;
-        let attempt: Value = store::object(db, &receipt)?;
-        character::verify_input(db, &input, call, &attempt)?;
-        let bytes = store::bytes(db, &reply)?;
-        let matched = provider_evidence::check_final(db, &receipt, &attempt, &bytes)?;
         // Bad JSON, a missing field or a wrong invocation in the response can
         // itself be the reason for refusal. Never repair or execute that text.
         let response = crate::files::parse_json_unique(&bytes)
             .ok()
             .filter(Value::is_object);
         let links = json!({"input":format!("object:{source}"),"response":format!("object:{reply}"),
-            "receipt":format!("object:{receipt}"),"binding":if matched {"provider_output"} else {"provider_completion"}});
+            "receipt":format!("object:{receipt}"),"binding":binding});
         Ok(Self {
             input,
             response,

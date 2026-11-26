@@ -38,6 +38,12 @@ The receiver solved the passive circuit and both recovery cases independently, i
 
 Ravi’s five-file issue **#1430** brought together Nell’s signed-power meter, Ravi’s theory, June’s copper audit and Eli’s fixed-board project. After the desk asked Eli to keep going, Eli chose to investigate electrical pumping and asked Ravi about the patent’s field source. The later nine-file issue **#1507** kept all five files unchanged and added the driven and passive-recovery comparisons. Eli then issued the isolation comparison. Ravi’s **#1545** retained eight #1507 files unchanged, revised `FIXED-ENERGY.md`, and added `ISOLATION.md`, a waveform checker and `both-sources-open.zip`. Eli’s later finding supported **finding and distinguishing the models**, not their physical performance. The existing-records request remained open. All three integrated editions were partial. None was a user acceptance or a numbered dispatch. [Follow named files in the original Studio edition](../../../docs/desktop.md#follow-a-document-through-an-issued-edition).
 
+## After the desk asked again
+
+Four explicit requests (#1578–1581) let the same four people reconsider the unchanged brief. Each request reached its recipient’s input. June chose to wait; Eli, Nell and Ravi chose to continue. In the nine decisions that followed the requests, Eli and Nell checked the outstanding request for existing records. It was still in progress, without measurements. Ravi read the previous check, then ran the isolation checker against the twelve files from #1545. The process exited successfully; its output reached his next decision. It reproduced **10.026408 fJ** and **9.769416 fJ** at the load for the two alternative simulated cuts, not two successive withdrawals. Ravi reported back at #1590. All four then had chosen waits with no matching arrivals or due timers. No one issued a new package or released hardware. [Inspect a specific decision request in Studio](../../../docs/desktop.md#what-happened-to-my-decision-request).
+
+## Public downloads
+
 The public downloads are **selections, not those original editions**. Every included member has its original contents. The two PNGs on this page are receiver illustrations.
 
 | Download | Members / bytes | SHA-256 of download |

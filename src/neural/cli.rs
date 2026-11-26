@@ -139,7 +139,7 @@ pub enum Command {
     },
     /// Inspect a selected activity, its requested activities and their participants.
     ActivityTree { work: String },
-    /// Follow an exact peer message into a recipient decision and direct replies, or inspect receipt of human correspondence and its attached material.
+    /// Trace a decision request to its attempts and adopted choice, or inspect receipt of peer and human correspondence.
     MessageReceipt { event: i64 },
     /// Inspect a refused response, its frozen input and the subsequent decisions in this participation.
     RejectedDecision { event: i64 },
@@ -572,7 +572,7 @@ pub async fn execute(root: &Path, operator: &str, command: Command) -> Result<Va
     execute_with_request(root, operator, command, None).await
 }
 
-fn operator_request_address(operator: &str, key: &str) -> Result<String> {
+pub(super) fn operator_request_address(operator: &str, key: &str) -> Result<String> {
     if key.trim().is_empty() { return Err(failure("Supply a nonblank operator request ID")); }
     Ok(crate::store::sha256_bytes(&serde_json::to_vec(&(operator, key))?))
 }
