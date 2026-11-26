@@ -759,12 +759,23 @@ The viewer checks recognizable signatures and Office container contents along wi
 | SQLite | Read-only ordinary tables with named columns and paged rows. |
 | HTML | Print layout using the bundled document printer and Poppler, or a text and source view when page rendering is unavailable. |
 | DOCX, ODT, PPTX, ODP | LibreOffice page layout when available, otherwise a reading view with paragraphs or slide selection. |
+| VCD | [Timing register](#compare-two-logic-records) for digital values, signal names and exact intervals. No HDL execution. |
 | MIDI | Piano roll with pitches, tracks and event timing. |
 | WAV and other audio | A waveform. PCM WAV uses the built-in reader. Other supported audio codecs use FFmpeg. |
 | Video | Selectable decoded frames. **Play in media player** opens actual playback with FFplay or the desktop file association. |
 | GIF, animated WebP, APNG | Timed playback, pause and frame selection. Large animations can use a first-frame preview. |
 | TTF, OTF, TTC, WOFF, WOFF2 | A type specimen from the selected font with Python and Pillow. Web fonts also use fontTools. |
 | ZIP, TAR and other archive families | Browse entries and open an individual member. Compressed TAR uses Python. Additional containers, including 7z and RAR, depend on system libarchive and its codec support. |
+
+### Compare two logic records
+
+Open a `.vcd` file from **File viewer**, or find it inside a delivery’s ZIP under **File preview**. In **Timing register**, select a record and click **Set reference**. Select a second record to see its before/after value and **cursor time minus reference time**. **Copy timing** includes the file name, SHA-256, signal identifiers, record numbers, times and signed interval. Use **Signals at cursor** to read the last assigned value of each declared name after that particular record, or **Source** to inspect the VCD text.
+
+![The corrected shuttle issue open in Studio, with the charge command selected 5,000 microseconds after the clamp command](assets/studio-vcd-timing.jpg)
+
+In the [rotorless study](../examples/exodus-design-room/rotorless/), open `finite-contact/electronics/eli_shuttle/electrical/switching/targets.vcd`. Pin record 4 (clamp goes high at 15,000 µs) and select record 5 (charge goes high at 20,000 µs): **5,000 µs**. The first three assignments share tick zero; they establish initial values, not three known transitions from low. This VCD is a target schedule. Compare the controller’s separately emitted `trace.log` to verify logic timing; neither file reports physical contacts.
+
+Studio retains same-tick assignments in file order, including repeated values. Aliases with the same identifier share a value. A missing assignment is **not recorded**, distinct from `0`, unknown `x` and high-impedance `z`. Without a declared timescale the register reports ticks, not seconds. Preview limits are 8 MiB, 4,096 declarations, 32 scope levels, 256 bits per signal and 131,072 assignments. For unsupported input (for example real values or a `$dumpoff` recording gap), Studio offers source or paged bytes rather than a partial timing result. These limits do not change the issued file.
 
 ### Read a sideways PDF sheet
 

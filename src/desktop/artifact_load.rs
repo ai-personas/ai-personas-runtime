@@ -277,6 +277,27 @@ pub(super) fn decode(
     let format = formats::identify(&prefix, &named, &file);
     let ext = format.as_str();
     let mut reason = String::new();
+    if ext == "vcd" {
+        if len <= logic_trace::MAX_BYTES as u64 {
+            file.rewind().map_err(|e| e.to_string())?;
+            let bytes = read_all(&mut (&mut file).take(logic_trace::MAX_BYTES as u64 + 1))?;
+            // A local file can grow after stat. Never present a bounded
+            // prefix as a complete source file or compute timings from it.
+            if bytes.len() <= logic_trace::MAX_BYTES {
+                return match logic_trace::Trace::read(&bytes, cancel) {
+                    Ok(trace) => Ok(Decoded { body: Body::Logic(trace), note: String::new() }),
+                    Err(_) if cancel.is_cancelled() => Err("Preview cancelled.".into()),
+                    Err(note) => match formats::text(&bytes) {
+                        Some(text) => Ok(Decoded { body: Body::Text(text, false), note }),
+                        None => raw_input(file, note),
+                    },
+                };
+            }
+        }
+        let mut view = raw_input(file, "VCD timing preview limit: 8 MiB. Showing paged source bytes.".into())?;
+        if let Body::Bytes(page) = &mut view.body { page.prefer_text = formats::looks_text(&prefix); }
+        return Ok(view);
+    }
     if ext == "dst" {
         if len > stitch::MAX_BYTES as u64 {
             return raw_input(file, "Design exceeds the stitch preview limit · paged bytes".into());

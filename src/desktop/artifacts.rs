@@ -18,6 +18,8 @@ mod byte_view;
 mod formats;
 #[path = "office_view.rs"]
 mod office;
+#[path = "logic_trace.rs"]
+mod logic_trace;
 #[path = "sound_view.rs"]
 mod sound;
 #[path = "stitch_view.rs"]
@@ -87,6 +89,7 @@ enum Body {
     Database(database::Page),
     Wave(sound::Wave),
     Score(sound::Score),
+    Logic(logic_trace::Trace),
     Stitches(stitch::Plan),
 }
 struct Decoded {
@@ -151,6 +154,7 @@ pub struct Viewer {
     data_mode: usize,
     dataset: usize,
     office: office::View,
+    logic: logic_trace::View,
     citation_filter: Option<String>,
     citation_request: Option<String>,
     archive_filter: String,
@@ -237,6 +241,7 @@ impl Viewer {
             data_mode: 0,
             dataset: 0,
             office: office::View::default(),
+            logic: Default::default(),
             citation_filter: None,
             citation_request: None,
             archive_filter: String::new(),
@@ -350,6 +355,7 @@ impl Viewer {
         self.data_mode = 0;
         self.dataset = 0;
         self.office = office::View::default();
+        self.logic = Default::default();
         self.cancelled = false;
         self.archive_filter.clear();
         self.archive_folders.directory.clear();
@@ -675,6 +681,7 @@ impl Viewer {
             Some(Body::Bytes(_)) => "Byte inspector",
             Some(Body::Book(book)) => book.kind,
             Some(Body::Wave(_)) => "Audio waveform",
+            Some(Body::Logic(_)) => "Digital logic trace",
             Some(Body::Score(_)) => "MIDI piano roll",
             Some(Body::Stitches(_)) => "Tajima stitch plan",
             _ => "File preview",
@@ -1082,6 +1089,9 @@ impl Viewer {
             Body::Book(book) => book.ui(ui, &mut self.office, &mut self.table),
             Body::Wave(wave) => wave.ui(ui),
             Body::Score(score) => score.ui(ui),
+            Body::Logic(trace) => ui.push_id(("logic-timing", self.serial), |ui| {
+                self.logic.show(ui, trace, &self.source.as_ref().map(Source::name).unwrap_or_default());
+            }).inner,
             Body::Stitches(plan) => plan.ui(ui, &mut self.show_stitch_travel, &mut self.texture),
             Body::Bytes(page) => {
                 if let Some(index) = page.ui(ui, &mut self.source_text) {
@@ -1221,7 +1231,7 @@ fn category(path: &Path) -> usize {
         "png" | "jpg" | "jpeg" | "webp" | "gif" | "svg" | "bmp" | "tiff" | "tif" | "ico" | "dxf" | "qoi" | "tga" | "hdr" | "dds" | "avif" | "heic" | "exr" | "jxl" | "psd" | "jp2" | "pcx" | "ppm" | "pgm" => 1,
         "stl" | "obj" | "glb" | "gltf" | "step" | "stp" | "iges" | "igs" | "blend" | "fcstd" => 2,
         "csv" | "tsv" | "json" | "h5" | "hdf5" | "hdf" | "sqlite" | "sqlite3" | "db" | "xlsx" | "xls" | "xlsm" | "xlsb" | "ods" => 4,
-        "kicad_pcb" | "kicad_sch" | "brd" | "sch" | "gbr" | "ger" | "gerber" | "gtl" | "gbl" | "gts" | "gbs" | "gto" | "gbo" | "gko" | "gml" | "gm1" | "drl" | "xln" => 7,
+        "vcd" | "kicad_pcb" | "kicad_sch" | "brd" | "sch" | "gbr" | "ger" | "gerber" | "gtl" | "gbl" | "gts" | "gbs" | "gto" | "gbo" | "gko" | "gml" | "gm1" | "drl" | "xln" => 7,
         "mp3" | "wav" | "ogg" | "flac" | "m4a" | "aac" | "mp4" | "mov" | "webm" | "avi" | "mkv" | "m4v" | "mid" | "midi" | "opus" | "aif" | "aiff" | "mpg" | "mpeg" | "ogv" | "wmv" | "flv" => 8,
         "bin" | "dwg" | "wasm" => 6,
         _ => 3,
