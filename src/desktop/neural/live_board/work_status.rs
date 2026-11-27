@@ -57,6 +57,40 @@ pub(super) fn current_wait(b: &Value) -> bool {
         && b["pending_resume"].is_null()
 }
 
+enum Source {
+    Event(i64),
+    Edition(String),
+}
+
+// The match and the participation come from one read transaction. Don't open
+// an older cached timeline row as its witness if the index no longer agrees.
+fn match_source(ui: &mut Ui, app: &App, record: &Value) -> Option<Source> {
+    let source = &record["wake_check"]["source"];
+    let part = &record["body"];
+    match s(source, "kind") {
+        "inbox" | "peer_publication" => {
+            let seq = source["event"].as_i64()?;
+            let envelope = record["wake_check"]["entry"].as_object()?;
+            let entry = app.events.binary_search_by_key(&seq, |e| e["event"].as_i64().unwrap_or(-1)).ok()
+                .map(|i| &app.events[i]).filter(|e| e["work"] == part["work"] && envelope.iter().all(|(k,v)| e.get(k) == Some(v)));
+            let Some(e) = entry else {
+                ui.small("Matching event unavailable in this timeline.");
+                return None;
+            };
+            let label = if source["kind"] == "peer_publication" { "Public issue" }
+                else if message_receipt::is_peer_message(e) { "Peer message" } else { "Inbox event" };
+            ui.link(format!("{label} #{seq} ↗")).on_hover_text(app.event_heading(e)).clicked().then_some(Source::Event(seq))
+        }
+        "outside_step" | "peer_choice" => {
+            let reference = source["reference"].as_str()?;
+            let label = if source["kind"] == "outside_step" { "Outside step" } else { "Peer choice" };
+            let (_, rev) = reference.rsplit_once('@')?;
+            ui.link(format!("{label} · rev {rev} ↗")).on_hover_text(reference).clicked().then(|| Source::Edition(reference.into()))
+        }
+        _ => None,
+    }
+}
+
 impl App {
     pub(super) fn activity_work_status(&mut self, ui: &mut Ui) {
         let Some(work) = self
@@ -85,6 +119,9 @@ impl App {
             .iter()
             .filter(|r| r["wake_check"]["matched"].is_boolean())
             .count();
+        let deciding = waits.iter().filter(|r| self.snapshot.active.iter().any(|call|
+            call["work"] == self.work && call["actor"] == r["body"]["persona"] && call["stage"] == "ordinary"
+        )).count();
         let (unfinished, claims): (Vec<_>, Vec<_>) = self
             .records("outcomes")
             .iter()
@@ -107,6 +144,7 @@ impl App {
             })
             .collect();
         let (mut request, mut choice, mut inspect, mut receipt) = (None, None, None, None);
+        let mut source = None;
         let mut resume_all = false;
         let now = ai_personas::neural::now();
         egui::ScrollArea::vertical().id_salt(("work-status", &self.work)).show(ui, |ui| {
@@ -134,12 +172,14 @@ impl App {
                 resume_all = self.resume_all_button(ui);
                 if !waits.is_empty() {
                     if checked == waits.len() {
-                        ui.label(format!("Matching arrival: {matched} of {checked} waits"));
+                        ui.label(format!("Matching arrival: {matched} of {}", counted(checked as u64, "wait", "waits")));
                     } else {
                         ui.label(format!("Matching arrival: {matched} of {checked} checked"));
-                        ui.weak(format!("Could not check {} waits.", waits.len() - checked));
+                        ui.weak(format!("Could not check {}.", counted((waits.len() - checked) as u64, "wait", "waits")));
                     }
-                    ui.small("A matching arrival or a due timer permits reconsideration. Neither starts a runner or overrides a hold.");
+                    ui.label(format!("With a decision in flight: {deciding} of {}", waits.len()))
+                        .on_hover_text("An ordinary decision is recorded as prepared, dispatched or returned, not yet accepted. This is not a worker count.");
+                    ui.small("A match or a due timer permits reconsideration. It does not prove receipt, start a runner or lift a hold.");
                 }
             });
             ui.add_space(9.);
@@ -218,6 +258,12 @@ impl App {
                             Some(t) => format!("Wake at {}", time_label(t)), None => "No timer set".into(),
                         };
                         ui.small(format!("{signal}  ·  {timer}")).on_hover_text(r["wake_check"]["error"].as_str().unwrap_or("Checked against this participation’s inbox cursor and selected conditions."));
+                        if r["wake_check"]["matched"] == true {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.small("One matching source:");
+                                if let Some(link) = match_source(ui, self, r) { source = Some(link); }
+                            });
+                        }
                     }
                     if let Some(state)=dialogs::RecipientState::read(r,open) {
                         if let Some(selected)=state.show(ui,self.dialog.is_none() && !self.busy) {choice=Some(selected);}
@@ -234,6 +280,11 @@ impl App {
         }
         if let Some(reference) = inspect {
             self.open_resource(ui.ctx(), reference);
+        }
+        match source {
+            Some(Source::Event(seq)) => self.live_board.show_event(&self.work, seq, self.cursor),
+            Some(Source::Edition(r)) => self.open_resource(ui.ctx(), r),
+            None => (),
         }
         if let Some(seq) = receipt {
             self.open_message_receipt(ui.ctx(), seq);

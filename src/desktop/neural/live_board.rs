@@ -496,9 +496,12 @@ impl App {
             ui.selectable_value(&mut self.live_board.view, View::Journal, "Decision journal")
                 .on_hover_text("Follow each persona’s assessment, remaining work and chosen next step.");
             if !self.work.is_empty() {
-                let n = self.records("participation").iter().filter(|r| r["body"]["work"] == self.work
+                let open = self.home_index.activity(&self.work).is_some_and(|a| a.phase == "open");
+                let n = self.records("participation").iter().filter(|r| open && r["body"]["work"] == self.work
                     && work_status::current_wait(&r["body"])).count();
-                let label = if n > 0 && available >= 670. { format!("Work status · {n} waiting") } else { "Work status".into() };
+                let label = if n > 0 && available >= 670. {
+                    format!("Work status · {}", counted(n as u64, "wait choice", "wait choices"))
+                } else { "Work status".into() };
                 ui.selectable_value(&mut self.live_board.view, View::Status, label)
                     .on_hover_text("See chosen waits, actual wake conditions and unfinished outcomes for this activity.");
             }

@@ -430,23 +430,57 @@ pub fn events(db: &Connection, work: &str, actor: &str, after: i64) -> Result<Ve
     rows.into_iter().map(|(seq,actor,target,kind,digest,invocation,created)| Ok(json!({"event":seq,"experience":format!("experience:event-{seq}@1"),"actor":actor,"target":target,"kind":kind,"body":object::<Value>(db,&digest)?,"digest":digest,"invocation":invocation,"created":created}))).collect()
 }
 
-/// An inbox arrival, followed outside-step edition, named publication or peer choice selected by this wait.
-/// This does not deliver a message, override a stop, or include time-based wakes.
-pub fn waiting_arrival(db: &Connection, part: &super::protocol::Participation) -> Result<bool> {
-    let super::protocol::Continuation::Wait { on_events, on_peer_settled, on_peer_publication, .. } = &part.continuation else { return Ok(false) };
+/// One witness to a chosen wait condition, not the cause of a dispatch or a receipt for reading it.
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum WaitSignal {
+    Inbox { event: i64 },
+    OutsideStep { reference: String },
+    PeerPublication { event: i64 },
+    PeerChoice { reference: String },
+}
+
+/// Both the scheduler and the local inspector use this read. Do not consume an
+/// event, lift a hold, or include a deadline in the arrival check.
+pub fn wait_signal(db: &Connection, part: &super::protocol::Participation) -> Result<Option<WaitSignal>> {
+    let super::protocol::Continuation::Wait { on_events, on_peer_settled, on_peer_publication, .. } = &part.continuation else { return Ok(None) };
     // Only a completely unfiltered wait defaults to any inbox arrival.
     let check_inbox = !on_events.is_empty() || (on_peer_settled.is_empty() && on_peer_publication.is_empty());
-    Ok((check_inbox && has_arrival(db, &part.work, &part.persona, part.cursor, on_events)?)
-        || super::human_requests::following::arrived(db, part)?
-        || super::peer_wait::publication_arrived(db, part, on_peer_publication)?
-        || !super::peer_wait::changes(db, part)?.is_empty())
+    if check_inbox {
+        if let Some(event) = matching_event(db, &part.work, &part.persona, part.cursor, on_events)? {
+            return Ok(Some(WaitSignal::Inbox { event }));
+        }
+    }
+    if let Some(reference) = super::human_requests::following::new_edition(db, part)? {
+        return Ok(Some(WaitSignal::OutsideStep { reference }));
+    }
+    if let Some(event) = super::peer_wait::publication_event(db, part, on_peer_publication)? {
+        return Ok(Some(WaitSignal::PeerPublication { event }));
+    }
+    match super::peer_wait::changes(db, part)?.first() {
+        Some(choice) => {
+            let reference = choice["choice_edition"].as_str().ok_or_else(|| failure("Missing peer choice edition"))?;
+            Ok(Some(WaitSignal::PeerChoice { reference: reference.into() }))
+        }
+        None => Ok(None),
+    }
+}
+
+pub fn waiting_arrival(db: &Connection, part: &super::protocol::Participation) -> Result<bool> {
+    Ok(wait_signal(db, part)?.is_some())
 }
 
 pub fn has_arrival(db:&Connection, work:&str, actor:&str, after:i64, kinds:&[String])->Result<bool> {
+    Ok(matching_event(db, work, actor, after, kinds)?.is_some())
+}
+
+fn matching_event(db:&Connection, work:&str, actor:&str, after:i64, kinds:&[String])->Result<Option<i64>> {
     let specific = kinds.iter().any(|k| k.starts_with("human_request:"));
+    // Keep the eligibility scan lazy. Sorting all candidates could evaluate
+    // an unrelated malformed report after we already have a matching event.
     let mut query=db.prepare("SELECT e.kind, e.invocation IS NOT NULL AND e.target=?3 AND e.actor<>?3,
         CASE WHEN ?4 AND e.invocation IS NULL AND e.target=?3 AND e.kind IN ('user_message','human_request_progress')
-        THEN (SELECT json_extract(CAST(bytes AS TEXT),'$.human_request') FROM objects WHERE digest=e.digest) END
+        THEN (SELECT json_extract(CAST(bytes AS TEXT),'$.human_request') FROM objects WHERE digest=e.digest) END, e.seq
         FROM events e WHERE work=?1 AND seq>?2 AND
         (target=?3 OR (target='*' AND EXISTS(SELECT 1 FROM events j WHERE j.work=e.work AND j.target=?3 AND j.kind='invitation' AND j.seq<=e.seq)))")?;
     let mut rows=query.query(params![work,after,actor,specific])?;
@@ -454,7 +488,7 @@ pub fn has_arrival(db:&Connection, work:&str, actor:&str, after:i64, kinds:&[Str
         let kind: String = row.get(0)?;
         let report: Option<String> = row.get(2)?;
         if report.is_some_and(|handle| kinds.iter().any(|k| super::human_requests::newer_report(k, &handle))) {
-            return Ok(true);
+            return Ok(Some(row.get(3)?));
         }
         // Recording one's own next-context selection introduces no new observation.
         let status = matches!(kind.as_str(),"request_joined"|"request_declined"|"request_left");
@@ -465,10 +499,10 @@ pub fn has_arrival(db:&Connection, work:&str, actor:&str, after:i64, kinds:&[Str
             || (requested == "result_review" && kind == "package_review")
             || (matches!(requested.as_str(), "delivery" | "result_delivery") && matches!(kind.as_str(), "delivery" | "request_delivery"))
             || (requested == "request_status" && status) || (requested == "request_return" && returned)) {
-            return Ok(true);
+            return Ok(Some(row.get(3)?));
         }
     }
-    Ok(false)
+    Ok(None)
 }
 pub fn stopped(db: &Connection, work: &str, actor: &str) -> Result<Option<Value>> {
     let ended: Option<(i64, String)> = db.query_row(

@@ -89,7 +89,7 @@ pub(super) fn change(
     ))
 }
 
-pub(in crate::neural) fn arrived(db: &Connection, part: &Participation) -> Result<bool> {
+pub(in crate::neural) fn new_edition(db: &Connection, part: &Participation) -> Result<Option<String>> {
     for id in part.peer_request_cursors.keys() {
         let Some(observed) = after(part, id) else {
             continue;
@@ -101,10 +101,10 @@ pub(in crate::neural) fn arrived(db: &Connection, part: &Participation) -> Resul
         if newer {
             if let Ok(current) = register::current(db, &part.work, id) {
                 if matches!(change(db, part, &current), Ok(Some(_))) {
-                    return Ok(true);
+                    return Ok(Some(current.reference.handle()));
                 }
             }
         }
     }
-    Ok(false)
+    Ok(None)
 }
