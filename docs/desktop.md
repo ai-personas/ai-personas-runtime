@@ -98,6 +98,16 @@ Opening a desk does not invite anyone, start a run, grant access rights or assig
 
 In a task's **Participate → Responsibility board**, use **Choose my part…** to own the task's follow-through or describe your contribution under your current operator name. No persona needs to request it first. One human can own the task; others can contribute independently. **Edit my part…** updates the scope or leaves the role. These named local roles are not user authentication, a change to the original brief, or control of any persona. They do not take an outside step or accept a delivery. Ending the activity closes its roles; reopening does not sign anyone up again. [See two declarations and the receiving card made for those people](../examples/ec1-energy-control/#when-two-humans-choose-to-help).
 
+#### Keep a role note when the task changes
+
+In **Edit my part…**, **Draft basis** identifies the brief and your own role edition when you started writing. If the brief changes, expand **Read current terms** to see the original request, amendments and attached files. **← Responsibility board** brings you back from a file or starting edition with your wording intact. If your role was updated under the same operator name, compare **Role edition** with **Current role**.
+
+Choose **Use current terms for this draft** only if you want to carry your selected role and note forward. That button does not declare a role. **Save my part** (or **Leave this role**) files it against those terms. If another person owns the task, you can offer a contribution but cannot take over their role. **Discard draft** drops the unsent wording, not an existing declaration.
+
+While a save is pending, you can read another task or keep writing. A refusal keeps the note; a confirmation applies to the wording submitted, not to later edits. Return to the same task in the same window to continue. Closing the window discards its unsent drafts. A successful save is not evidence that a persona saw the declaration; use **Who received this?** for that separate question.
+
+#### Find and follow through on your part
+
 To return to your own tasks, choose **Overview → My work**. **My task roles** lists the current declarations under this window’s operator name. Open a title for the responsibility board, or expand **Deliveries on this task** and pick an exact edition. **Outside steps I hold** lists only active requests you took. Sending an observation, owning the task or being named in the instructions does not make you the holder. To look for someone else’s current role, use **Find… → Task roles** and search by name, scope or reference.
 
 To return a check you actually performed, expand **Deliveries on this task → Record my check…** on the edition you assessed. Enter the criterion, verdict and observations. **Cite my role declaration** is optional; it cites your stated scope, not proof of fulfillment. **Attach files…** includes your own evidence under its original name. Publish once. Readers can choose **Read finding → Save original…** on the edition; saving checks the publication, filename and bytes again and won’t overwrite an existing file. A full handoff lists these files, but does not add them to the issuer’s ZIP. [Bench desk’s digital observations and Lumen’s subsequent register](../examples/ec1-energy-control/inspection/register/).
