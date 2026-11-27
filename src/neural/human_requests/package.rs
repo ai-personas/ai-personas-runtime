@@ -38,10 +38,10 @@ struct RequestSheet<'a> {
     action: &'a str,
     return_requested: Option<&'a str>,
     packet: Option<&'a Value>,
-    newer_packet: bool,
     reference: &'a str,
+    revision: i64,
     state: &'a str,
-    current: Option<(&'a str, &'a str)>,
+    at_export: &'a AtExport,
     activity: &'a str,
     claimed_by: Option<&'a str>,
     origin: Option<&'a Value>,
@@ -175,6 +175,38 @@ pub fn export_package(db: &Connection, reference: &str, destination: &Path) -> R
     Ok(json!({"package":reference,"file":destination,"artifacts":entries}))
 }
 
+/// Today's register and the materials of the selected edition are independent
+/// evidence. Losing the former must not relabel or erase the latter.
+enum AtExport {
+    Selected,
+    Later { reference: String, state: String, replacement: Option<bool> },
+    Unavailable,
+}
+
+impl AtExport {
+    fn observe(db: &Connection, selected: &store::Record, work: &str) -> Self {
+        let Ok(head) = super::register::current(db, work, &selected.reference.id) else {
+            return Self::Unavailable;
+        };
+        if head.reference == selected.reference { return Self::Selected; }
+        if head.reference.revision <= selected.reference.revision { return Self::Unavailable; }
+        // Status alone doesn't prove a new packet. Check intervening issues
+        // starting at the independently opened edition, not a similar delivery.
+        let replacement = super::packet::check_history(db, selected, &head).ok()
+            .map(|()| !super::same_materials(&selected.body, &head.body));
+        Self::Later { reference: head.reference.handle(), state: head.body["state"].as_str().unwrap_or_default().into(), replacement }
+    }
+
+    fn packet(&self) -> &'static str {
+        match self {
+            Self::Selected => "selected",
+            Self::Later { replacement: Some(true), .. } => "reissued",
+            Self::Later { replacement: Some(false), .. } => "unchanged",
+            _ => "unavailable",
+        }
+    }
+}
+
 fn request_sheet(
     db: &Connection,
     record: store::Record,
@@ -182,18 +214,18 @@ fn request_sheet(
     files: &[SheetFile],
 ) -> Result<(String, Value)> {
     let reference = record.reference.handle();
-    let latest = store::required(db, "human_request", &record.reference.id)?;
-    if !super::same_terms(&record.body, &latest.body) {
-        return Err(failure(
-            "The outside action differs between retained editions.",
-        ));
+    if !super::register::valid_status(&record.body) {
+        return Err(failure("The selected edition has no usable recorded status or holder"));
     }
-    let newer_packet = !super::same_materials(&record.body, &latest.body);
-    if newer_packet { super::correspondence::issued_origin(db, &latest)?; }
-    let latest_reference = latest.reference.handle();
-    let latest_state = latest.body["state"]
-        .as_str()
-        .ok_or_else(|| failure("The latest request has no recorded state"))?;
+    let at_export = AtExport::observe(db, &record, record.body["work"].as_str().ok_or_else(|| failure("Missing request activity"))?);
+    let (latest_reference, latest_state) = match &at_export {
+        AtExport::Selected => (Some(reference.as_str()), record.body["state"].as_str()),
+        AtExport::Later { reference, state, .. } => (Some(reference.as_str()), Some(state.as_str())),
+        AtExport::Unavailable => (None, None),
+    };
+    let can_report = origin.is_some()
+        && !matches!(&at_export, AtExport::Unavailable | AtExport::Later { replacement: None, .. })
+        && matches!(latest_state, Some("open" | "in_progress"));
     let frozen_details = record.body.get("delivery_details").cloned();
     let request: IssuedRequest = serde_json::from_value(record.body)?;
     let (members, deliveries) = attachments(db, &request.artifacts, &request.deliveries)?;
@@ -217,24 +249,21 @@ fn request_sheet(
         action: &request.action,
         return_requested: request.return_requested.as_deref(),
         packet: request.field_packet.as_ref(),
-        newer_packet,
         reference: &reference,
+        revision: record.reference.revision,
         state: state_label(&request.state),
-        current: (latest_reference != reference)
-            .then(|| (latest_reference.as_str(), state_label(latest_state))),
+        at_export: &at_export,
         activity: &request.work,
         claimed_by: request.claimed_by.as_deref(),
         origin: origin.as_ref(),
-        return_digest: (origin.is_some()
-            && matches!(latest_state, "open" | "in_progress")
-            && matches!(request.state.as_str(), "open" | "in_progress"))
+        return_digest: (can_report && matches!(request.state.as_str(), "open" | "in_progress"))
         .then_some(record.reference.digest.as_str()),
         files,
         deliveries,
     };
     Ok((
         sheet::render(&sheet),
-        json!({"request":reference,"latest":latest_reference,"state":request.state,"field_report":sheet.return_digest.is_some()}),
+        json!({"request":reference,"latest":latest_reference,"packet_at_export":at_export.packet(),"state":request.state,"field_report":sheet.return_digest.is_some()}),
     ))
 }
 

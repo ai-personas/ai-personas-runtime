@@ -312,6 +312,18 @@ On a timeline entry where a persona issued files, choose **Packet changes at iss
 
 ![Two packet publications on the same Exodus request: nine attachments become twelve at #1558; twelve become one do-not-order notice at #1573.](assets/studio-packet-changes.jpg)
 
+#### Save the current field handoff or an issue record
+
+For outside work, open **Needs you → Open request → Save field packet…** (or **Save handoff…** on a request without a field packet). The dialog shows the request edition and attached file count. **Save handoff** checks the edition you reviewed again when it reads the files. **Save files as ZIP…** makes the same check for attachments alone. If the request changed, neither action saves files or substitutes the replacement. Choose **Back to the request →**, read the new terms, then decide whether to save.
+
+For a historical copy, use **Packet changes at issue → Save issue record… → Save edition**. `Request.html` states the status **on that edition**, separately from what could be verified **when saved**. A new holder or a completion report need not mean new files. If current status or packet history is unavailable, the sheet says so and omits the return form. When a replacement *is* verified and both editions are active, the old form still identifies the edition its observer saw; use it for progress, not to report the replacement complete.
+
+![Printed excerpts from the current one-file Exodus request handoff and the historical twelve-file issue, showing different instructions and status at export.](assets/field-packet-at-export.jpg)
+
+*Ravi's two actual request editions, exported from a disconnected copy. The current packet says to forward the no-order notice alone. The earlier files remain available for digital research.*
+
+From the CLI, `neural export-handoff REF DEST --format zip` saves an exact record. For a current request handoff add `--current-request-digest SHA256`, using the `reference.digest` of the request you inspected in `neural status`. The same option on `neural export-package` applies to attachments only. A local save does not send anything, file a report or grant permission to fabricate.
+
 #### Read a saved outside-step lookup
 
 In **Live activity**, open the lookup event and expand **Status at lookup**. For example, in the original Exodus activity use **Ctrl+K → All → `#311` → Enter** for Ravi’s empty page, or `#1584` for Eli’s page with one request held by Research desk. **Read edition 16 ↗** opens the exact retained record. **Tool receipt** opens the underlying return. Neither link takes the step or sends a message. On a short desk, use **Timeline**, **People & tools** and **Message** to switch panes without losing your addressed draft.

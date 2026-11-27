@@ -65,6 +65,30 @@ fn ids(db: &Connection, work: Option<&str>) -> Result<BTreeSet<String>> {
     Ok(ids)
 }
 
+/// A lost successor row plus a regressed head can agree with each other.
+/// A later packet notice, withdrawal or addressed status return contradicts
+/// that head, but does not supply the missing edition, its status or files.
+fn later_notice(db: &Connection, record: &store::Record) -> Result<bool> {
+    let mut query = db.prepare_cached(
+        "SELECT CASE WHEN json_valid(CAST(o.bytes AS TEXT)) THEN json_extract(CAST(o.bytes AS TEXT),
+            CASE WHEN e.invocation IS NULL THEN '$.human_request' ELSE '$.reference' END) END
+         FROM events e JOIN objects o USING(digest) WHERE e.work=?1 AND (
+            (e.actor=?2 AND e.target='user' AND e.invocation IS NOT NULL
+             AND e.kind IN ('human_request_packet','human_request_withdrawn')) OR
+            (e.target=?2 AND e.invocation IS NULL AND e.kind IN ('human_request_progress','user_message')))",
+    )?;
+    let mut rows = query.query(params![record.body["work"].as_str(), record.body["requester"].as_str()])?;
+    while let Some(row) = rows.next()? {
+        // Read only the address, never the operator's words or returned files.
+        if row.get_ref(0)?.as_str().ok().and_then(following::address)
+            .is_some_and(|(id, revision)| id == record.reference.id && revision > record.reference.revision)
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// This is a register observation, not verification of the packet or a report.
 /// Check the opening author, unchanged outside action, latest retained edition
 /// and status/holder pair before giving anyone an actionable current address.
@@ -101,11 +125,31 @@ fn verified(db: &Connection, work: Option<&str>, id: &str) -> Result<store::Reco
             "Request status, requester or holder is unavailable",
         ));
     }
+    if later_notice(db, &head)? {
+        return Err(failure("A later update was recorded for this request, but its current edition is unavailable"));
+    }
     Ok(head)
 }
 
 pub(super) fn current(db: &Connection, work: &str, id: &str) -> Result<store::Record> {
     verified(db, Some(work), id)
+}
+
+/// Recheck a Field desk selection in the *same read snapshot* used to export
+/// its files. A historical export by exact address has no such current claim.
+pub fn check_current_export(db: &Connection, reference: &str, digest: &str) -> Result<()> {
+    let (id, selected) = following::address(reference)
+        .ok_or_else(|| failure("Select an exact outside request edition"))?;
+    let current = verified(db, None, id).map_err(|e| failure(format!(
+        "Current request unavailable. Nothing was saved. Check the Field desk before exporting: {e}"
+    )))?;
+    if selected != current.reference.revision {
+        return Err(failure(format!("You selected edition {selected}; the request is now at edition {}. Nothing was saved. Reopen the request to see its instructions and files.", current.reference.revision)));
+    }
+    if current.reference.digest != digest {
+        return Err(failure("The request differs from the edition you selected. Nothing was saved. Reopen the request to inspect it."));
+    }
+    Ok(())
 }
 
 /// Resolve a write against the current register inside its transaction. Leave

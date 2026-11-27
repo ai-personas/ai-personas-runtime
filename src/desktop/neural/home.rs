@@ -335,9 +335,7 @@ impl App {
                             .on_hover_text("Save the printable request and its attached files")
                             .clicked()
                         {
-                            let files = body["artifacts"].as_array().map_or(0, Vec::len);
-                            handoff =
-                                Some((inbox::handle(record), s(body, "title").to_owned(), files));
+                            handoff = Some(record.clone());
                         }
                     });
                     if title_link(ui, s(body, "title"), &inbox::handle(record)).clicked() {
@@ -361,8 +359,8 @@ impl App {
         self.home.request_page = page;
         if let Some(id) = selected {
             self.show_human_request(&id);
-        } else if let Some((reference, title, files)) = handoff {
-            self.save_request_handoff(&reference, &title, files);
+        } else if let Some(record) = handoff {
+            self.save_current_request(&record, true);
         }
     }
 

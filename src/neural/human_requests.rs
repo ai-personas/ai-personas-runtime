@@ -20,7 +20,7 @@ pub use correspondence::correspondence;
 pub(super) use correspondence::report_source;
 pub(crate) mod register;
 pub(super) mod following;
-pub use register::{entries_at_lookup, Lookup};
+pub use register::{check_current_export, entries_at_lookup, Lookup};
 mod field_report;
 pub use field_report::{FieldReport, ReturnForm};
 
