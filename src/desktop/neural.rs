@@ -48,6 +48,7 @@ mod asset_feedback;
 mod package_reviews;
 mod requested_activities;
 mod inbox;
+mod outside_lookup;
 mod input_files;
 mod operator_desk;
 mod intake;

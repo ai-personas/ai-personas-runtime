@@ -162,6 +162,7 @@ fn operation_name(tool: &str) -> &str {
         "result.reviews" => "Package review history",
         "result.after_issue" => "Records after issue",
         "result.deliver" => "Package delivery",
+        "human.requests" => "Outside-step lookup",
         "human.request" => "Human request",
         "human.withdraw" => "Human request withdrawal",
         _ => tool,

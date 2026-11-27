@@ -20,7 +20,7 @@ pub use correspondence::correspondence;
 pub(super) use correspondence::report_source;
 pub(crate) mod register;
 pub(super) mod following;
-pub use register::Lookup;
+pub use register::{entries_at_lookup, Lookup};
 mod field_report;
 pub use field_report::{FieldReport, ReturnForm};
 
@@ -47,7 +47,7 @@ pub struct Withdraw {
 }
 
 pub(super) fn withdraw(db: &Connection, snapshot: &Snapshot, input: Withdraw) -> Result<Value> {
-    let record = exact(db, &input.request)?;
+    let record = register::for_update(db, &input.request)?;
     let mut body = record.body;
     if body["work"] != snapshot.work
         || body["requester"] != snapshot.actor
@@ -244,14 +244,18 @@ pub(super) fn bind_waits(
             continue;
         }
         let record = exact(db, trigger)?;
-        if record.body["work"] != snapshot.work || !matches!(record.body["state"].as_str(), Some("open" | "in_progress")) {
+        if record.body["work"] != snapshot.work || !register::valid_status(&record.body)
+            || !matches!(record.body["state"].as_str(), Some("open" | "in_progress")) {
             return Err(failure("Choose an open or taken edition of a human request in this activity"));
         }
-        let current = store::required(db, "human_request", &record.reference.id)?;
+        let current = register::current(db, &snapshot.work, &record.reference.id)?;
+        if !same_terms(&record.body, &current.body) {
+            return Err(failure("The selected outside step differs from its current edition"));
+        }
         let requester = record.body["requester"].as_str().ok_or_else(|| failure("Missing requester"))?;
         if requester != snapshot.actor {
             let seen = following::observed(snapshot, &record, previous)?;
-            if seen > current.reference.revision || !same_terms(&record.body, &current.body) {
+            if seen > current.reference.revision {
                 return Err(failure("The selected outside step differs from its current edition"));
             }
             if seen == current.reference.revision && !matches!(current.body["state"].as_str(), Some("open" | "in_progress")) {
@@ -326,12 +330,7 @@ pub(super) fn respond(
     files: &super::input_files::InputFiles,
     field_report: &ReturnForm,
 ) -> Result<Value> {
-    let record = exact(db, reference)?;
-    if store::required(db, "human_request", &record.reference.id)?.reference != record.reference {
-        return Err(failure(
-            "This request changed. Read its latest status before responding",
-        ));
-    }
+    let record = register::for_update(db, reference)?;
     let state = record.body["state"]
         .as_str()
         .ok_or_else(|| failure("Request state missing"))?;

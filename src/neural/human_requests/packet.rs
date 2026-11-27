@@ -64,7 +64,7 @@ pub(in crate::neural) fn issue(
     snapshot: &Snapshot,
     input: Issue,
 ) -> Result<Value> {
-    let prior = exact(db, &input.base)?;
+    let prior = super::register::for_update(db, &input.base)?;
     let (body, notice) = successor(
         db,
         &prior,
@@ -179,27 +179,4 @@ pub(super) fn check_history(
         return Err(failure("Request head differs from its retained edition"));
     }
     Ok(())
-}
-
-/// Only the requester's own active dependencies in this activity. Do not
-/// replay field notes, file bodies, resolved requests or another activity's inbox.
-pub(in crate::neural) fn open_index(
-    db: &Connection,
-    work: &str,
-    actor: &str,
-) -> Result<Vec<Value>> {
-    let mut stmt = db.prepare_cached("SELECT h.id,h.revision,h.digest FROM heads h JOIN objects o USING(digest)
-        WHERE h.kind='human_request' AND json_extract(CAST(o.bytes AS TEXT),'$.work')=?1
-          AND json_extract(CAST(o.bytes AS TEXT),'$.requester')=?2
-          AND json_extract(CAST(o.bytes AS TEXT),'$.state') IN ('open','in_progress') ORDER BY h.id")?;
-    let mut rows = stmt.query(params![work, actor])?;
-    let mut index = Vec::new();
-    while let Some(row) = rows.next()? {
-        let id: String = row.get(0)?;
-        let revision: i64 = row.get(1)?;
-        let b: Value = store::object(db, &row.get::<_, String>(2)?)?;
-        index.push(json!({"reference":format!("human_request:{id}@{revision}"),"title":b["title"],"state":b["state"],
-            "claimed_by":b["claimed_by"],"deliveries":b["deliveries"],"file_count":b["artifacts"].as_array().map(Vec::len)}));
-    }
-    Ok(index)
 }

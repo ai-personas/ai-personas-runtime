@@ -166,6 +166,8 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
         let body = store::object::<Value>(&db, &digest)?;
         let outcome = if kind == "tool_result" && body["tool"] == "document.print_html" {
             print_outcome(&db, seq, &body)
+        } else if kind == "tool_result" && body["tool"] == "human.requests" {
+            super::outside_lookup::outcome(&db, &work, &body)
         } else if kind == "tool_result" || kind=="operator_render" {
             tool_outcome(&db, &body)?
         } else {

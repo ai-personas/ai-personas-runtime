@@ -144,16 +144,21 @@ pub fn status(db: &Connection) -> Result<Value> {
     let controls=scopes.iter().map(|scope|super::controls::current(db,scope)).collect::<Result<Vec<_>>>()?.into_iter().flatten().collect::<Vec<_>>();
     let outcomes=list(db,"outcome")?;
     let ownership=super::handoff::ownership(db,&outcomes)?;
-    Ok(json!({"format":"neural-runtime-v2","personas":list(db,"persona")?,
+    let (requests, unavailable) = super::human_requests::register::workspace(db)?;
+    let mut status = json!({"format":"neural-runtime-v2","personas":list(db,"persona")?,
         "work":list(db,"work")?,"participation":list(db,"participation")?,
         "human_task_roles":list(db,"human_task_role")?,
         "installations":list(db,"installation")?,
         "development":list(db,"development")?,"question_applications":super::development::applications(db,None,None)?,
         "acceptances":list(db,"acceptance")?,"delivery_reviews":delivery_reviews(db)?,"delivery_mandates":delivery_mandates(db,None)?,
-        "outcomes":outcomes,"outcome_ownership":ownership,"handoffs":super::handoff::offers(db,None)?,"deliveries":list(db,"delivery")?,"human_requests":list(db,"human_request")?,
+        "outcomes":outcomes,"outcome_ownership":ownership,"handoffs":super::handoff::offers(db,None)?,"deliveries":list(db,"delivery")?,"human_requests":requests,
         "jobs":job_index(db,false)?,
         "invocations":counts,"operations":effect_counts,"controls":controls,
-        "meaning":"Stored activity, authored judgments and retained deliveries; not an independent quality verdict."}))
+        "meaning":"Stored activity, authored judgments and retained deliveries; not an independent quality verdict."});
+    if !unavailable.is_empty() {
+        status["unavailable_human_requests"] = json!(unavailable);
+    }
+    Ok(status)
 }
 
 /// Human reviews apply to the exact delivered revision. The committed write
@@ -433,7 +438,7 @@ pub fn waiting_arrival(db: &Connection, part: &super::protocol::Participation) -
     // an empty event filter accidentally satisfied by an unrelated delivery.
     Ok(((!on_events.is_empty() || on_peer_settled.is_empty())
         && has_arrival(db, &part.work, &part.persona, part.cursor, on_events)?)
-        || !super::human_requests::following::changes(db, part)?.is_empty()
+        || super::human_requests::following::arrived(db, part)?
         || !super::peer_wait::changes(db, part)?.is_empty())
 }
 

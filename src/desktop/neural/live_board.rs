@@ -28,6 +28,7 @@ enum Pane {
     #[default]
     Timeline,
     People,
+    Message,
 }
 
 enum WorkSection {
@@ -151,6 +152,7 @@ pub(super) struct Board {
     view: View,
     scope: String,
     pane: Pane,
+    message_requested: bool,
     filter: Filter,
     person: String,
     indexed: usize,
@@ -171,6 +173,7 @@ impl Default for Board {
             view: View::Live,
             scope: String::new(),
             pane: Pane::Timeline,
+            message_requested: false,
             filter: Filter::Highlights,
             person: String::new(),
             indexed: 0,
@@ -193,8 +196,14 @@ impl Board {
         self.view = View::Live;
     }
 
+    pub(super) fn show_message(&mut self, work: &str) {
+        self.select_scope(work);
+        self.message_requested = true;
+    }
+
     pub(super) fn show_person_timeline(&mut self, work: &str, person: &str) {
         self.show_activity(work);
+        self.message_requested = false;
         self.pane = Pane::Timeline;
         self.filter = Filter::All;
         self.person = person.to_owned();
@@ -204,6 +213,7 @@ impl Board {
 
     pub(super) fn show_event(&mut self, work: &str, sequence: i64, observed: i64) {
         self.show_activity(work);
+        self.message_requested = false;
         self.pane = Pane::Timeline;
         self.filter = Filter::All;
         self.person.clear();
@@ -526,23 +536,33 @@ impl App {
             }
             return;
         }
-        let wide = ui.available_width() >= WIDE;
         let now = ai_personas::neural::now();
         self.live_board.observe(&self.snapshot.active, &self.runner_observation);
         self.live_heading(ui, now);
         let people = self.live_people();
 
-        egui::TopBottomPanel::bottom("live-message-composer")
-            .frame(egui::Frame::new().inner_margin(egui::Margin {
-                top: 8,
-                ..Default::default()
-            }))
-            .default_height(103.)
-            .resizable(false)
-            .show_separator_line(false)
-            .show_inside(ui, |ui| self.live_composer(ui));
-        // The event and people panes share the space above the pinned composer.
-        // Their contents can grow between frames, including while reading a reply.
+        // A pinned, wrapping composer can consume the entire timeline on a
+        // short desk. Give the same addressed drafts their own pane there.
+        let short = ui.available_height() < 270.;
+        let wide = !short && ui.available_width() >= WIDE;
+        if std::mem::take(&mut self.live_board.message_requested) && short {
+            self.live_board.pane = Pane::Message;
+        }
+        if !short {
+            if self.live_board.pane == Pane::Message {
+                self.live_board.pane = Pane::Timeline;
+            }
+            egui::TopBottomPanel::bottom("live-message-composer")
+                .frame(egui::Frame::new().inner_margin(egui::Margin {
+                    top: 8,
+                    ..Default::default()
+                }))
+                .default_height(103.)
+                .resizable(false)
+                .show_separator_line(false)
+                .show_inside(ui, |ui| self.live_composer(ui));
+        }
+        // Clip the reading panes even when a reply grows between frames.
         ui.set_clip_rect(ui.clip_rect().intersect(ui.available_rect_before_wrap()));
         if wide {
             let width = (ui.available_width() * 0.30).clamp(231., 326.);
@@ -563,10 +583,21 @@ impl App {
                     Pane::People,
                     format!("People & tools  {}", people.len()),
                 );
+                if short {
+                    let label = self
+                        .live_composer
+                        .selected_status(&self.work)
+                        .map_or_else(|| "Message".into(), |s| format!("Message · {s}"));
+                    ui.selectable_value(&mut self.live_board.pane, Pane::Message, label);
+                }
             });
             ui.add_space(3.);
         }
-        if wide || self.live_board.pane == Pane::Timeline {
+        if short && self.live_board.pane == Pane::Message {
+            egui::ScrollArea::vertical()
+                .id_salt(("live-message-pane", &self.work))
+                .show(ui, |ui| self.live_composer(ui));
+        } else if wide || self.live_board.pane == Pane::Timeline {
             self.live_timeline(ui, &people, wide);
         } else {
             self.live_roster(ui, &people, now);
@@ -1499,6 +1530,11 @@ impl App {
                         }
                     });
                 }
+                if let Some(page) = result.get("register_page") {
+                    if let Some(reference) = outside_lookup::show(ui, self, event, page) {
+                        action = Some(EventAction::Open(reference));
+                    }
+                }
                 if let Some(path) = result["local_launcher"]["path"].as_str() {
                     egui::CollapsingHeader::new("Configured program launcher").id_salt(("local-launcher", seq)).show(ui, |ui| {
                         ui.monospace(path);
@@ -1829,6 +1865,7 @@ impl App {
                     ("document.print_html", _, label) if result["pdf"].is_string() => {
                         label.replacen("Printed", "printed", 1)
                     }
+                    ("human.requests", _, label) => format!("checked outside steps · {label}"),
                     ("asset.register", true, _) => "registered a file".into(),
                     ("asset.save", true, _) => "saved a file revision".into(),
                     ("asset.import", true, _) => "imported a file".into(),
