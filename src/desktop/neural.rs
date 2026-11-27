@@ -862,6 +862,9 @@ impl eframe::App for App {
         self.packet_changes_window(ctx);
         self.finding_notice_window(ctx);
         self.rejection_window(ctx);
+        if let Some(reference) = self.encounter.show(ctx, &self.root, &self.snapshot.status) {
+            self.open_resource(ctx, reference);
+        }
         self.role_receipts_window(ctx);
         self.export_window(ctx);
         self.workspace_find_window(ctx);

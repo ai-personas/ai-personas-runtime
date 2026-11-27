@@ -17,6 +17,7 @@ impl Board {
 enum Action {
     Inspect(String),
     Images,
+    Preview,
     Character,
     Older,
     Newer,
@@ -168,6 +169,9 @@ impl App {
                     if selected["has_image_inputs"] == true && ui.button("Images at this decision…").clicked() {
                         action = Some(Action::Images);
                     }
+                    if ui.button("Preview comparison input…").on_hover_text("Inspect the frozen encounter. Does not sample a response or resume anyone.").clicked() {
+                        action = Some(Action::Preview);
+                    }
                     if ui.button("Open decision record").clicked() {
                         action = Some(Action::Inspect(format!("experience:{}@1",s(selected,"invocation"))));
                     }
@@ -183,6 +187,7 @@ impl App {
                         });
                 }
                 match action {
+                    Some(Action::Preview) => self.encounter.preview(ui.ctx(), &self.root, selected),
                     Some(Action::Character) => self.character_paths.open(ui.ctx(), &self.root, selected),
                     Some(Action::Images) => {
                         self.profile_images.open_decision(ui.ctx(), &self.root, id, s(selected, "invocation"));

@@ -10,6 +10,7 @@ pub mod geometry;
 pub mod html_print;
 mod archive;
 mod assessment;
+pub use assessment::inspect as replay_input;
 pub mod asset_feedback;
 pub mod asset_history;
 pub mod delivery_feedback;

@@ -168,6 +168,14 @@ Expand a message and choose **As sent** to see the original lines, spacing and M
 
 **Decision journal** shows what each participant judged, their outstanding work, cited evidence and why they chose to continue, wait or stop. Choose a name to follow that persona. **Hold this decision** keeps the selected assessment in place as other work arrives. **Older** and **Newer** move through accepted decisions; **Character at this decision…** opens the numerical inputs used at that time. These are the persona’s assessments, not an independent sign-off on the deliverable.
 
+#### Preview a comparison without running one
+
+In **Activity → Decision journal**, choose the person and decision, then **Preview comparison input…**. This is the default case for a *new* comparison: the original appraisal, with no optional resources selected. Opening it does not call a model, run a checker, send a message or change anyone’s wait. **Input provenance** identifies the frozen input and lists additional views the persona could choose. In Character Lab, **View encounter & feedback → Before the choice** instead shows what was retained for a comparison that already ran.
+
+Under **Package checks and findings**, read the checker, recipient, edition or dispatch, stated purpose and process status. Expand **stdout** or **stderr** to read the text actually supplied; the byte counts distinguish an excerpt from the whole stream. **Edition & run details** shows addresses without fetching more output. If the issuer also ran the check, Studio places the command return and the issuer’s notice together as two observations of one run. A published finding has its own criterion and verdict. Use **Issue & check → Inspect run** to inspect the run itself; use the journal preview to see what reached the selected decision.
+
+For example, in the [original Exodus room](../examples/exodus-design-room/fixed/), Ravi’s **15:51:01 UTC** decision on November 26 received 480 of Eli’s 8,599 stdout bytes at #1550. The finding at #1551 concerned locating the simulations, not whether the board generates power. Ravi’s **16:56:09 UTC** decision received both his complete 553-byte command output at #1588 and a shorter notice at #1589. Neither preview changes the historical decision or the no-order disposition.
+
 ### Open a numbered event
 
 Choose **Find… → All**, type `#1590` (or paste `experience:event-1590@1`) and press **Enter**. The result identifies the author, action, UTC time and activity. Numbers belong to the open workspace. A missing event or activity does not open the nearest result. To get the address of another event, right-click its timeline timestamp and choose **Copy event address**. Copying the address does not give a persona access to the event.
