@@ -196,7 +196,13 @@ impl App {
                     self.request_detail(ui,&r);
                 } else {
                     ui.heading("Request unavailable");
-                    ui.weak("This workspace view has no retained request matching the selection.");
+                    if let Some(step) = self.records("unavailable_human_requests").iter()
+                        .find(|step| step["request_id"] == self.inbox.selected) {
+                        ui.label("The current status could not be verified. No response can be filed against this view.");
+                        ui.weak(s(step, "unavailable"));
+                    } else {
+                        ui.weak("This workspace view has no retained request matching the selection.");
+                    }
                 }
                 return;
             }
@@ -254,6 +260,16 @@ impl App {
                 }
                 return;
             }
+            let unknown = self.records("unavailable_human_requests");
+            if !unknown.is_empty() {
+                egui::CollapsingHeader::new(format!("Status unavailable · {}", unknown.len()))
+                    .show(ui, |ui| {
+                        ui.weak("These requests are not counted as active or closed. Their current editions could not be verified.");
+                        for step in unknown {
+                            ui.label(s(step, "unavailable")).on_hover_text(s(step, "request_id"));
+                        }
+                    });
+            }
             let filter = self.inbox.tab;
             let mut visible = requests.into_iter().filter(|r| filter.includes(s(&r["body"], "state"))).peekable();
             if visible.peek().is_none() {
@@ -266,7 +282,7 @@ impl App {
                 };
                 card(ui).show(ui,|ui|{
                     ui.set_min_width(ui.available_width());
-                    ui.strong(label);
+                    ui.strong(if unknown.is_empty() { label } else { "No verified requests in this view" });
                     ui.weak(detail);
                 });
             }

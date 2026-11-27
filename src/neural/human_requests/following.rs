@@ -2,7 +2,7 @@
 //! the human's message. Compare public request editions, not somebody else's inbox.
 use super::{exact, failure, register, same_terms, store, Result, Snapshot};
 use crate::neural::protocol::{Continuation, Participation};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
@@ -36,51 +36,75 @@ pub(super) fn observed(
     Ok(observed)
 }
 
-fn address(handle: &str) -> Option<(&str, i64)> {
+pub(super) fn address(handle: &str) -> Option<(&str, i64)> {
     let (id, rev) = handle.strip_prefix("human_request:")?.rsplit_once('@')?;
     let n = rev.parse::<i64>().ok()?;
-    (n > 0 && n.to_string() == rev).then_some((id, n))
+    (!id.is_empty()
+        && !id.contains(['@', ':'])
+        && !id.chars().any(|c| c.is_whitespace() || c.is_control())
+        && n > 0
+        && n.to_string() == rev)
+        .then_some((id, n))
 }
 
-/// Only selected peer requests that changed since their last observed edition.
-/// A claim, contribution, replacement packet and withdrawal can all advance
-/// an edition. This view makes no claim about which happened or what was said.
-pub(in crate::neural) fn changes(db: &Connection, part: &Participation) -> Result<Vec<Value>> {
-    let mut changes = Vec::new();
+fn after(part: &Participation, id: &str) -> Option<i64> {
+    let observed = *part.peer_request_cursors.get(id)?;
     let Continuation::Wait { on_events, .. } = &part.continuation else {
-        return Ok(changes);
+        return None;
     };
-    for (id, observed) in &part.peer_request_cursors {
-        if !on_events
-            .iter()
-            .filter_map(|s| address(s))
-            .any(|(key, n)| key == id && n <= *observed)
-        {
+    on_events
+        .iter()
+        .filter_map(|s| address(s))
+        .any(|(key, n)| key == id && n <= observed)
+        .then_some(observed)
+}
+
+/// Only a newer, readable register edition of a selected peer request. Even a
+/// valid change does not say which action occurred or supply a private report.
+pub(super) fn change(
+    db: &Connection,
+    part: &Participation,
+    current: &store::Record,
+) -> Result<Option<Value>> {
+    let id = &current.reference.id;
+    let Some(observed) = after(part, id) else {
+        return Ok(None);
+    };
+    if observed == current.reference.revision {
+        return Ok(None);
+    }
+    let after = format!("human_request:{id}@{observed}");
+    let basis = exact(db, &after)?;
+    if observed > current.reference.revision
+        || current.body["requester"] == part.persona
+        || !register::valid_status(&basis.body)
+        || !same_terms(&basis.body, &current.body)
+    {
+        return Err(failure(
+            "The followed edition does not match the outside step in this activity",
+        ));
+    }
+    Ok(Some(
+        json!({"after":after,"current":register::summary(current)}),
+    ))
+}
+
+pub(in crate::neural) fn arrived(db: &Connection, part: &Participation) -> Result<bool> {
+    for id in part.peer_request_cursors.keys() {
+        let Some(observed) = after(part, id) else {
             continue;
-        }
-        let newer: Option<(i64, String)> = db.query_row(
-            "SELECT revision,digest FROM heads WHERE kind='human_request' AND id=?1 AND revision>?2",
-            params![id, observed], |r| Ok((r.get(0)?, r.get(1)?)),
-        ).optional()?;
-        if let Some((revision, digest)) = newer {
-            let after = format!("human_request:{id}@{observed}");
-            let basis = exact(db, &after)?;
-            let handle = format!("human_request:{id}@{revision}");
-            let current = exact(db, &handle)?;
-            if current.reference.digest != digest
-                || current.body["work"] != part.work
-                || !current.body["requester"]
-                    .as_str()
-                    .is_some_and(|p| p != part.persona)
-                || !same_terms(&basis.body, &current.body)
-            {
-                return Err(failure(
-                    "The followed edition does not match the outside step in this activity",
-                ));
+        };
+        // The idle poll needs no bodies if the head did not advance. A broken
+        // current status isn't a new edition, nor does it cancel other triggers.
+        let newer: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM heads WHERE kind='human_request' AND id=?1 AND revision>?2)",
+            params![id, observed], |r| r.get(0))?;
+        if newer {
+            if let Ok(current) = register::current(db, &part.work, id) {
+                if matches!(change(db, part, &current), Ok(Some(_))) {
+                    return Ok(true);
+                }
             }
-            changes
-                .push(json!({"after":after, "current":register::summary(handle, &current.body)}));
         }
     }
-    Ok(changes)
+    Ok(false)
 }

@@ -300,6 +300,12 @@ On a timeline entry where a persona issued files, choose **Packet changes at iss
 
 ![Two packet publications on the same Exodus request: nine attachments become twelve at #1558; twelve become one do-not-order notice at #1573.](assets/studio-packet-changes.jpg)
 
+#### Read a saved outside-step lookup
+
+In **Live activity**, open the lookup event and expand **Status at lookup**. For example, in the original Exodus activity use **Ctrl+K → All → `#311` → Enter** for Ravi’s empty page, or `#1584` for Eli’s page with one request held by Research desk. **Read edition 16 ↗** opens the exact retained record. **Tool receipt** opens the underlying return. Neither link takes the step or sends a message. On a short desk, use **Timeline**, **People & tools** and **Message** to switch panes without losing your addressed draft.
+
+The saved page tells you what the lookup returned, not what is open now. An empty page, an unreadable page and an entry with unknown *current* status are different. For today’s status use **Needs you**; expand **Status unavailable** if Studio cannot verify a known request. Those requests have no response form and are not counted as open, taken or closed. See [the actual choices and the disconnected comparison](following-an-outside-step.md#the-three-exodus-lookups).
+
 #### Take the outside step or send an observation
 
 1. Open the request and choose **Take request** to let others know you are handling it.

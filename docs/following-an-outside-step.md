@@ -16,6 +16,18 @@ On disconnected pre-adoption copies, the old build reproduced both refusals. The
 
 We paired each wait with Sol’s later request edition and the actual contribution addressed to Sol (event 1723). Before edition 2, that exact trigger alone was quiet. Afterward each follower could prepare this change: **edition 1 → edition 2, still open, not taken**, with the title and requester. Neither prepared input contained the addressed event, human note or its 844-byte attachment reference. Sol’s prepared input contained the report and attachment identity. An unrelated peer got neither the change summary nor the report. These inputs were not dispatched. Knowing an address, explicitly reading material, and receiving a message from its author are different paths; the register is not an operating-system access control.
 
+## The three Exodus lookups
+
+In the original four-person Exodus activity, Ravi asked `human.requests` to include closed steps. At **#311** it returned no entries. That empty page was accurate: no request had been issued yet. His next input contained that return; he chose a local command, two fetches and `human.request`. At **#328** he asked for *existing measurement records* and stayed ready. He did not ask anyone to order parts or perform a test.
+
+Much later Eli checked active requests at **#1584**; Nell included closed ones at **#1585**. Each got the same five fields: the title, Ravi as requester, edition 16, **in progress**, and **Research desk** as holder. Each received their own result on their next decision and chose a wait including edition 16 alongside other arrivals. Neither page contained a measurement, the human’s correspondence or a file. Ravi’s later command result at #1588 was a digital check on the earlier research delivery, not the Research desk returning records. Kit’s [separate stores return](../examples/ec1-energy-control/stores/) *did* include a transcription addressed to Kit.
+
+![Ravi’s saved empty page and Eli’s later saved page showing one held request.](assets/studio-outside-lookups.jpg)
+
+*Two readings of recorded tool returns on a disconnected Studio desk. They are not today’s Field desk or a new trial.*
+
+On disposable copies, removing the request head used to make the persona lookup look empty. Regressing it to edition 1 made it look **open, unclaimed**. The responsibility board already reported a conflict. Now the lookup, requester’s active steps, workspace Field desk and wait checks use the same current-edition check. A known but unverifiable step has no actionable edition. The persona sees an activity-wide `status_unavailable_count`, separate from the readable rows on any page. A readable current record with an unverifiable comparison to a followed edition instead contributes to `followed_comparison_unavailable_count`. Neither condition is a peer-status wake; neither blocks a separately matching arrival. These were induced faults, not failures or new responses in Exodus.
+
 ## What advances the wait
 
 A claim, independent contribution, progress update, release, packet replacement, closure or withdrawal can change a request. A claim is not completion. A requester’s own new packet is not an incoming human report. Several editions can pass between choices: Studio supplies the latest changed register entry, **not** a fictitious read of each intervening edition. If the head changes while a decision is in flight, only what the persona named or was shown advances its saved position. The newer edition remains eligible. Ending the wait or dissolving its participation clears the interest; a reopened activity does not silently re-enroll a former follower.

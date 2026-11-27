@@ -180,6 +180,11 @@ struct Recipient {
 }
 
 impl Composer {
+    pub(super) fn selected_status(&self, work: &str) -> Option<&'static str> {
+        let activity = self.activities.get(work)?;
+        activity.drafts.get(&activity.selected)?.status()
+    }
+
     fn address(&mut self, work: &str, destination: Destination) -> Option<&mut Draft> {
         if work.is_empty() || destination.person.is_empty() {
             return None;
@@ -489,8 +494,13 @@ impl Draft {
 
 impl App {
     pub(super) fn address_in_live(&mut self, person: &str) {
-        self.live_composer
-            .address(&self.work, Destination::conversation(person));
+        if self
+            .live_composer
+            .address(&self.work, Destination::conversation(person))
+            .is_some()
+        {
+            self.live_board.show_message(&self.work);
+        }
     }
 
     pub(super) fn address_on_overview(&mut self, work: String, person: &str) {
@@ -576,6 +586,7 @@ impl App {
         };
         if let Some(draft) = self.live_composer.address(work, to) {
             title.clone_into(&mut draft.delivery_title);
+            self.live_board.show_message(work);
         }
     }
 
@@ -591,6 +602,7 @@ impl App {
             );
         if let Some(draft) = self.live_composer.address(&self.work, to) {
             draft.input.reply = Some((reference.to_owned(), excerpt(quote, 180)));
+            self.live_board.show_message(&self.work);
         }
     }
 
