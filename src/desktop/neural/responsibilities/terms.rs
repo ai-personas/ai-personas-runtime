@@ -173,7 +173,7 @@ pub(super) fn show(
             } else if m["state"] == "accepted" {
                 match s(&m["continuation"], "kind") {
                     "stop" => "accepted · stopped",
-                    "wait" => "accepted · waiting",
+                    "wait" => "accepted · chose to wait",
                     _ => "accepted",
                 }
             } else {

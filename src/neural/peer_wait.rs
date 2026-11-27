@@ -89,16 +89,16 @@ fn matches_issue(
 /// Match the unread public notice, not the current delivery library, a private
 /// copy, or a promise in a message. Use the chooser's inbox cursor, so issues
 /// committed while it was thinking are neither missed nor consumed here.
-pub(super) fn publication_arrived(
+pub(super) fn publication_event(
     db: &Connection,
     part: &Participation,
     publications: &[PeerPublication],
-) -> Result<bool> {
+) -> Result<Option<i64>> {
     if publications.is_empty() {
-        return Ok(false);
+        return Ok(None);
     }
     let mut query = db.prepare_cached(
-        "SELECT e.digest,i.id FROM events e JOIN invocations i ON i.id=e.invocation
+        "SELECT e.digest,i.id,e.seq FROM events e JOIN invocations i ON i.id=e.invocation
         WHERE e.work=?1 AND e.seq>?2 AND e.actor=?3 AND e.kind=?4 AND e.target='*'
           AND i.work=e.work AND i.actor=e.actor AND i.state='accepted'
           AND EXISTS(SELECT 1 FROM events j WHERE j.work=e.work AND j.target=?5
@@ -130,11 +130,11 @@ pub(super) fn publication_arrived(
             )
             .unwrap_or(false)
             {
-                return Ok(true);
+                return Ok(Some(row.get(2)?));
             }
         }
     }
-    Ok(false)
+    Ok(None)
 }
 
 /// Read the first subsequent wait/stop that this peer actually chose. The

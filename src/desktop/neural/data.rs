@@ -107,6 +107,23 @@ impl Monitor {
 pub(super) fn open(root: &Path) -> neural::Result<Connection> {
     store::open_inspection(root)
 }
+fn wake_check(db: &Connection, body: &Value) -> neural::Result<Value> {
+    let part: neural::protocol::Participation = serde_json::from_value(body.clone())?;
+    let source = store::wait_signal(db, &part)?;
+    // Older timeline rows are cached across refreshes. Bind the link to the
+    // event envelope in this read, not just to the number in the cache.
+    let entry = match &source {
+        Some(store::WaitSignal::Inbox { event } | store::WaitSignal::PeerPublication { event }) => {
+            db.query_row("SELECT actor,target,kind,digest,invocation,created FROM events WHERE seq=?1 AND work=?2",
+                rusqlite::params![event, part.work], |r| Ok(json!({"actor":r.get::<_,String>(0)?,"target":r.get::<_,String>(1)?,
+                    "kind":r.get::<_,String>(2)?,"digest":r.get::<_,String>(3)?,"invocation":r.get::<_,Option<String>>(4)?,
+                    "created":r.get::<_,i64>(5)?})))?
+        }
+        _ => Value::Null,
+    };
+    Ok(json!({"matched":source.is_some(), "source":source, "entry":entry}))
+}
+
 pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<String>) -> neural::Result<Snapshot> {
     let db = open(root)?;
     let mut status = store::status(&db)?;
@@ -117,12 +134,7 @@ pub(super) fn snapshot(root: &Path, after: i64, known_decisions: &BTreeSet<Strin
     for r in status["participation"].as_array_mut().into_iter().flatten() {
         if r["body"]["continuation"]["kind"] == "wait" && r["body"]["departure"].is_null()
             && r["body"]["closed_by_activity"].is_null() && r["body"]["declined"] == false {
-            let checked = serde_json::from_value(r["body"].clone()).map_err(neural::Error::from)
-                .and_then(|p| store::waiting_arrival(&db, &p));
-            r["wake_check"] = match checked {
-                Ok(matched) => json!({"matched": matched}),
-                Err(error) => json!({"error": error.to_string()}),
-            };
+            r["wake_check"] = wake_check(&db, &r["body"]).unwrap_or_else(|error| json!({"error":error.to_string()}));
         }
     }
     if let Some(parts) = status["participation"].as_array_mut().filter(|parts| parts.len() > 1) {

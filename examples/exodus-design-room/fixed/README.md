@@ -50,6 +50,16 @@ Four explicit requests (#1578–1581) let the same four people reconsider the un
 
 To see the evidence *before* Ravi’s report, open [**Decision journal → Ravi → Preview comparison input…**](../../../docs/desktop.md#preview-a-comparison-without-running-one) on the 16:56:09 UTC decision. #1588 and #1589 are two views of **one** check. Contrast Ravi’s earlier decision at 15:51:01 UTC: #1550 supplied an excerpt from **Eli’s** run, not its complete log. #1551 was Eli’s separate finding about the guide. These are offline input previews, not new experiments or comparisons sampled from either persona.
 
+### Did the waiting peers receive Eli’s messages?
+
+Yes. The desk asked for more research and then asked Eli to collaborate (#1618). Eli chose the people and the questions: he sent **#1629** to June about geometry, **#1631** to Nell about measurement, and **#1633** to Ravi about the apparatus. At event **#1636**, three waits matched and the three recipients had decisions dispatched. None had yet returned an accepted choice on the messages. In the later history, open each event with **Find… → All → `#NUMBER` → Peer exchange**. Each full message reached an accepted decision; all three recipients chose to continue. June’s first receiving choice planned the geometry comparison without sending a reply. Her directly linked reply was #1658. A matching wait and a verified read are [different things in Work status](../../../docs/desktop.md#when-an-activity-goes-quiet).
+
+Eli’s character was in the decision **before** he sent those messages. At #1628 he appraised the peers’ relevance using the desk’s request and three earlier outcomes. His next input contained a collaboration inclination of 0.529, versus 0.000 at baseline on the same weights. This shows what he received, not that the number caused the messages. From #1590 through #1755 there were 62 new accepted decisions; all 62 preserved their active character models.
+
+Later, June and Nell each chose to watch for Ravi’s next wait or stop. Both received his change from ready (participation revision 162) to wait (163), **and** his public delivery #1707. June waited for the combined study; Nell chose to continue. The records show what each received, not that one signal caused either choice.
+
+Eli issued their joint `exodus/joint-theory/force-voltage-and-load.zip` to the desk at **#1734**. It incorporates June’s conductor geometry, Nell’s probe comparison and Ravi’s account of what was actually on the scale. In the four-sphere model at 30 mm, the open pickup voltage was −8.10 V; adding a 10 pF probe reduced it to −0.323 V. The matched load received **85.5 nW**, supplied by the **modeled external drive**. These are independently reproduced calculations, not apparatus measurements. Three peers checked specific claims in the issued files; none of those checks demonstrated a 20 W source or changed the **do not order** decision.
+
 ## Public downloads
 
 The public downloads are **selections, not those original editions**. Every included member has its original contents. The two PNGs on this page are receiver illustrations.

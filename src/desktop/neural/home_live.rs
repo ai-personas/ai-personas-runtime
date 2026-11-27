@@ -65,7 +65,7 @@ fn membership_state(part: &Value, ended: bool) -> &'static str {
     }
     match s(&part["continuation"], "kind") {
         "ready" => "Ready to continue",
-        "wait" | "waiting" => "Waiting",
+        "wait" | "waiting" => "Chose to wait",
         "stop" | "stopped" => "Stopped",
         _ => "Participating",
     }
@@ -428,7 +428,7 @@ impl App {
                     .find(|part| {
                         matches!(
                             self.home_membership_state(&part["body"]),
-                            "Invited" | "Waiting" | "Ready to continue" | "Participating"
+                            "Invited" | "Chose to wait" | "Ready to continue" | "Participating"
                         )
                     })
                     .or_else(|| {
@@ -579,7 +579,7 @@ impl App {
         );
         let (label, field) = match self.home_membership_state(part) {
             "Ready to continue" => ("Recorded purpose", "purpose"),
-            "Waiting" | "Stopped" => ("Recorded reason", "reason"),
+            "Chose to wait" | "Stopped" => ("Recorded reason", "reason"),
             "Resume requested" => ("Previous choice", "reason"),
             _ => return,
         };
@@ -631,7 +631,7 @@ impl App {
         let mut text = state.to_owned();
         if matches!(
             state,
-            "Waiting" | "Ready to continue" | "Resume requested" | "Invited" | "Participating"
+            "Chose to wait" | "Ready to continue" | "Resume requested" | "Invited" | "Participating"
         ) {
             if let Some(control) = control {
                 text.push_str(&format!("  ·  Scheduling {}", s(control, "state")));

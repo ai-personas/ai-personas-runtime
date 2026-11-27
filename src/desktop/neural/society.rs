@@ -203,7 +203,7 @@ fn current_work(app: &App, id: &str, selected: Option<&str>) -> Vec<WorkLine> {
         let continuation = &part["continuation"];
         let rank = match app.home_membership_state(part) {
             "Resume requested" | "Ready to continue" => 0,
-            "Participating" | "Invited" | "Waiting" => 1,
+            "Participating" | "Invited" | "Chose to wait" => 1,
             "Stopped" => 2,
             _ => 3,
         };
