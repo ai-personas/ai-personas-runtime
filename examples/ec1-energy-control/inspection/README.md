@@ -43,3 +43,9 @@ Choose **Overview → My work** under the operator name used for the declaration
 Open **Who received this?**. The operator recorded the role at event 409, while the third call was already in flight. **Six of nine** accepted inputs contained the exact declaration; the first three did not. **Supplied input** opens the retained input, and **Decision** opens that specific choice, including Noor’s decision to stop. A receipt establishes what the persona was supplied, not assent, causation, completion by the human or user acceptance of the files. The operator’s clicks here are not an independent usability study.
 
 The declaration was a promise, not the measurements. On a later shift, **Record my check…** let Bench desk publish [the original observations](bench-return/EC1-digital-disc-measurements.csv) on this edition. Read [the register Lumen made from those observations](register/) without changing Noor’s drawing or treating the digital comparison as physical sign-off.
+
+### When the brief changes while you are writing
+
+On a **disconnected copy**, Bench desk drafted an offer to own the scale comparison. Another editor amended the brief while Save was waiting to commit. The runtime refused the old terms. The former Studio form dropped the note; the [updated role editor](../../../docs/desktop.md#keep-a-role-note-when-the-task-changes) kept it alongside the original declaration. Reading the amendment’s text file and returning from Kit’s starting edition did not sign Bench desk up under the new terms.
+
+After an explicit change of draft basis, a second declaration under the Bench desk name changed its recorded scope, and Page desk took ownership. The writer could not replace that owner. Choosing **Contribute** and saving filed the submitted scale note. New wording typed during that save stayed in the window. No persona ran or received these example declarations. Noor’s real six receipts above still belong to the original contribution.

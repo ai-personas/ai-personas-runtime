@@ -7,10 +7,13 @@ use std::{
 
 mod humans;
 mod outside;
+mod role_draft;
+pub(super) use role_draft::Draft as RoleDraft;
 mod terms;
 
 pub(super) enum Action {
-    SetRole(Command),
+    SetRole(RoleDraft),
+    BriefSource(brief_terms::Link),
     Inspect(String),
     OpenRequest(String),
     SaveOutside { reference: String, source: String, title: String },
@@ -21,6 +24,7 @@ pub(super) enum Action {
 }
 
 enum ReturnFrom {
+    Edition(String),
     Record(String),
     Request(String),
 }
@@ -29,7 +33,8 @@ enum ReturnFrom {
 pub(super) struct Board {
     work: String,
     cursor: i64,
-    role_draft: Option<humans::Draft>,
+    role_drafts: BTreeMap<String, RoleDraft>,
+    saving_role: Option<(String, RoleDraft)>,
     terms: Option<terms::Panel>,
     return_from: Option<ReturnFrom>,
     pending: Option<Receiver<Result<Value, String>>>,
@@ -38,6 +43,26 @@ pub(super) struct Board {
 }
 
 impl App {
+    pub(super) fn save_role_draft(&mut self, ctx: &egui::Context, draft: RoleDraft) {
+        if self.busy || self.responsibilities.saving_role.is_some() || draft.operator != self.operator.trim() || draft.work != self.work { return; }
+        match ai_personas::neural::id("human-role") {
+            Ok(request) => {
+                let command = draft.command();
+                self.responsibilities.saving_role = Some((request.clone(), draft));
+                self.notice.clear();
+                self.command_with_request(ctx, command, Some(request));
+            }
+            Err(e) => self.error = Some(e.to_string()),
+        }
+    }
+    pub(super) fn open_board_brief_source(&mut self, ctx: &egui::Context, link: brief_terms::Link) {
+        let from = match &link {
+            brief_terms::Link::Edition(r) => ReturnFrom::Edition(r.clone()),
+            brief_terms::Link::File { reference, .. } => ReturnFrom::Record(reference.clone()),
+        };
+        link.open(self, ctx);
+        self.responsibilities.return_from = Some(from);
+    }
     pub(super) fn open_board_source(&mut self, ctx: &egui::Context, reference: String) {
         self.open_resource(ctx, reference.clone());
         self.responsibilities.return_from = Some(ReturnFrom::Record(reference));
@@ -49,23 +74,52 @@ impl App {
     pub(super) fn board_return(&mut self, ui: &mut Ui) {
         let board = &mut self.responsibilities;
         let same_page = match &board.return_from {
-            Some(ReturnFrom::Record(r)) => self.layout.editor == Editor::Artifacts && self.selected_reference == *r,
-            Some(ReturnFrom::Request(id)) => self.layout.editor == Editor::Inbox && self.inbox.showing(id),
+            Some(ReturnFrom::Edition(r)) => self.layout.editor == Editor::Delivery && self.layout.delivery == *r,
+            Some(ReturnFrom::Record(r)) => self.work == board.work && self.layout.editor == Editor::Artifacts && self.selected_reference == *r,
+            Some(ReturnFrom::Request(id)) => self.work == board.work && self.layout.editor == Editor::Inbox && self.inbox.showing(id),
             None => return,
         };
-        if !same_page || self.work != board.work {
+        if !same_page {
             board.return_from = None;
         } else if ui.link("← Responsibility board").clicked() {
             board.return_from = None;
-            self.layout.editor = Editor::Responsibilities;
+            let work = board.work.clone();
+            self.open_task_board(&work);
         }
+    }
+
+    pub(super) fn role_returned(&mut self, request: &str, result: Result<Value, String>) {
+        let board = &mut self.responsibilities;
+        let Some((_, sent)) = board.saving_role.take_if(|(key, _)| key == request) else { return };
+        let task = if self.work == sent.work { String::new() } else {
+            let title = self.home_index.activity(&sent.work).map_or(sent.work.as_str(), |a| a.title.as_str());
+            format!(" · {}", home::short_text(title, 72))
+        };
+        match result {
+            Ok(receipt) => {
+                let mut message = if receipt["state"] == "left" { "You left your task role" } else { "Your part in the task was saved" }.to_owned();
+                if board.role_drafts.get(&sent.work) == Some(&sent) {
+                    board.role_drafts.remove(&sent.work);
+                } else if board.role_drafts.contains_key(&sent.work) {
+                    message.push_str(". Later edits are still a draft");
+                }
+                self.notice = format!("{message}{task}");
+            }
+            Err(e) => self.error = Some(format!("{e}{task} · Draft kept")),
+        }
+        if board.work == sent.work {
+            board.report = None;
+            board.pending = None;
+            board.cursor = -1;
+        }
+        self.busy = false;
+        self.last_poll = Instant::now() - Duration::from_secs(3);
     }
 }
 
 impl Board {
     fn refresh(&mut self, ctx: &egui::Context, root: &Path, work: &str, cursor: i64) {
         if self.work != work {
-            self.role_draft = None;
             self.terms = None;
             self.report = None;
         }
@@ -79,7 +133,12 @@ impl Board {
         self.pending = Some(rx);
         std::thread::spawn(move || {
             let result = data::open(&root)
-                .and_then(|db| membership::responsibilities(&db, &work))
+                .and_then(|db| {
+                    let mut report = membership::responsibilities(&db, &work)?;
+                    // Read the terms and role editions in one board snapshot.
+                    report["brief_terms"] = ai_personas::neural::store::required(&db, "work", &work)?.body;
+                    Ok(report)
+                })
                 .map_err(|e| e.to_string());
             let _ = tx.send(result);
             ctx.request_repaint();
@@ -166,7 +225,8 @@ impl Board {
                 }
                 ui.add_space(10.);
                 if report["kind"] != "social" {
-                    if let Some(chosen) = humans::show(ui, report, operator, busy, &mut self.role_draft) {
+                    let saving = self.saving_role.as_ref().is_some_and(|(_, d)| d.work == work && d.operator == operator);
+                    if let Some(chosen) = humans::show(ui, report, operator, busy || self.saving_role.is_some(), saving, &mut self.role_drafts) {
                         action = Some(chosen);
                     }
                 }

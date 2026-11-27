@@ -130,6 +130,7 @@ enum Update {
     Status(data::Monitor, Result<data::Refresh, String>),
     Done { result: Result<Value, String>, start_workspace: bool },
     BenchDone(Result<Value, String>),
+    RoleDone(String, Result<Value, String>),
     LiveMessage(live_composer::SubmissionResult),
     RunDone(Result<Value, String>),
     Preview(u64, Result<data::Preview, String>),
@@ -427,6 +428,7 @@ impl App {
         let operator = self.operator.trim().to_owned();
         let run = matches!(command, Command::Run { .. });
         let bench = matches!(&command,Command::InstallCommand{..}|Command::RunCommand{..}|Command::CommandHistory(_));
+        let role = matches!(&command, Command::TaskRole { .. });
         if run {
             self.notice.clear();
             self.running = true
@@ -441,6 +443,8 @@ impl App {
                 Update::RunDone(result)
             } else if bench {
                 Update::BenchDone(result)
+            } else if let Some(key) = request.filter(|_| role) {
+                Update::RoleDone(key, result)
             } else {
                 Update::Done { result, start_workspace }
             });
@@ -607,6 +611,7 @@ impl App {
                     self.command_bench.receive(result);
                     self.last_poll=Instant::now()-Duration::from_secs(3);
                 }
+                Update::RoleDone(key, result) => self.role_returned(&key, result),
                 Update::Done { result, start_workspace } => {
                     self.busy = false;
                     if self.submitting_dialog {
@@ -688,8 +693,6 @@ impl App {
                     self.layout.editor = Editor::Studio;
                     self.live_board.show_event(work, event, self.cursor);
                     format!("Amendment saved · brief {}", brief_terms::revision(brief))
-                } else if v["reference"].as_str().is_some_and(|r| r.starts_with("human_task_role:")) {
-                    if v["state"] == "left" { "You left your task role".into() } else { "Your part in the task was saved".into() }
                 } else if let Some(state) = v["state"].as_str() {
                     format!("Scheduling {state}")
                 } else {
@@ -820,10 +823,8 @@ impl eframe::App for App {
                     });
                     let cursor=self.events.iter().rev().find(|e|e["work"]==self.work).and_then(|e|e["event"].as_i64()).unwrap_or(0);
                     match self.responsibilities.show(ui,&self.root,&self.work,cursor,self.operator.trim(),self.busy){
-                        Some(responsibilities::Action::SetRole(command)) => match ai_personas::neural::id("human-role") {
-                            Ok(key) => self.command_with_request(ctx,command,Some(key)),
-                            Err(e) => self.error=Some(e.to_string()),
-                        },
+                        Some(responsibilities::Action::SetRole(draft)) => self.save_role_draft(ctx, draft),
+                        Some(responsibilities::Action::BriefSource(link)) => self.open_board_brief_source(ctx, link),
                         Some(responsibilities::Action::ChangeActivity{reopen,brief})=>self.dialog=Some(Dialog::ActivityState{
                             work:self.work.clone(),expected:brief,reopen,reason:String::new()}),
                         Some(responsibilities::Action::Inspect(reference))=>self.open_board_source(ctx,reference),
