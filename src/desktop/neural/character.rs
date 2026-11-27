@@ -667,7 +667,7 @@ impl App {
                     _ => title(s),
                 });
                 if let Some(status) = &disposition { heading.push_str(&format!(" · {status}")); }
-                if pending > 0 { heading.push_str(&format!(" · {pending} returns without a recorded finding")); }
+                if pending > 0 { heading.push_str(&format!(" · {} without a recorded finding", counted(pending as u64, "return", "returns"))); }
                 // CollapsingHeader's default single-line text otherwise widens the entire scroll area.
                 let wrap = (ui.available_width() - ui.spacing().indent - 2. * ui.spacing().button_padding.x).max(1.);
                 let heading = egui::WidgetText::from(heading).into_galley(ui, Some(egui::TextWrapMode::Wrap), wrap, egui::TextStyle::Button);

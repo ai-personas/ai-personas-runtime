@@ -8,8 +8,9 @@ use std::collections::{BTreeMap, BTreeSet};
 fn supplies(
     db: &Connection,
     snapshot: &Snapshot,
+    prefix: &str,
     versions: &BTreeSet<String>,
-) -> Result<Vec<Value>> {
+) -> Result<(Vec<Value>, bool)> {
     let data = &snapshot.data;
     let mut seen = BTreeSet::new();
     let mut add = |handle: &Value, source: &'static str| {
@@ -38,10 +39,11 @@ fn supplies(
     for item in agenda["later_feedback"].as_array().into_iter().flatten() {
         add(&item["question"], "activity_feedback");
     }
+    // Only these envelopes can supply a question body. A search hit, forecast
+    // or later-feedback pointer may quote its text without supplying the edition.
+    let mut records = Vec::new();
     for item in data["selected_resources"].as_array().into_iter().flatten() {
-        if item["record"].is_object() {
-            add(&item["reference"], "selected_record");
-        }
+        records.push((item, "selected_record", None));
     }
     for event in data["new_events"]
         .as_array()
@@ -51,10 +53,8 @@ fn supplies(
     {
         let result = &event["supplied_result"];
         match event["body"]["tool"].as_str() {
-            Some("asset.read" | "persona.read" | "development.update" | "development.close")
-                if result["record"].is_object() =>
-            {
-                add(&result["reference"], "tool_record")
+            Some("asset.read" | "persona.read" | "development.update" | "development.close") => {
+                records.push((result, "tool_record", None));
             }
             Some("development.search") => {
                 for item in result["items"].as_array().into_iter().flatten() {
@@ -73,25 +73,43 @@ fn supplies(
         .filter(|e| e["kind"] == "personal_practice")
     {
         let handle = &event["body"]["development"];
-        let Some(r) = handle.as_str().filter(|r| versions.contains(*r)) else {
+        let Some(r) = handle.as_str().filter(|r| r.starts_with(prefix)) else {
             continue;
         };
         if let Some(receipt) = development::practice::receipt(snapshot, r) {
-            let actual = store::exact(db, r)?;
-            if receipt["record"] != actual.body
-                || !store::written_by(db, &actual, event["invocation"].as_str().unwrap_or(""))?
+            if event["actor"] == snapshot.actor && event["target"] == snapshot.actor
+                && receipt == &event["supplied_result"]["question"]
             {
-                return Err(failure(
-                    "Supplied practice differs from its issued question",
-                ));
+                records.push((receipt, "practice_receipt", Some(event["invocation"].as_str().unwrap_or(""))));
             }
-            add(handle, "practice_receipt");
         }
     }
-    Ok(seen
-        .into_iter()
+    let mut full = false;
+    if data["context_recovery"].is_null() {
+        for (item, source, writer) in records {
+            let Some(r) = item["reference"].as_str().filter(|r| r.starts_with(prefix)) else {
+                continue;
+            };
+            if !item["record"].is_object() {
+                continue;
+            }
+            let actual = store::exact(db, r)?;
+            if !versions.contains(r) || item["record"] != actual.body || actual.body["owner"] != snapshot.actor {
+                return Err(failure(format!("The supplied question record does not match {r}")));
+            }
+            if let Some(call) = writer {
+                if !store::written_by(db, &actual, call)? {
+                    return Err(failure("Supplied practice differs from its issued question"));
+                }
+            }
+            add(&item["reference"], source);
+            full = true;
+        }
+    }
+    let sources = seen.into_iter()
         .map(|(reference, source)| json!({"reference":reference,"source":source}))
-        .collect())
+        .collect();
+    Ok((sources, full))
 }
 
 /// Follow one logical question across all of its immutable revisions. A supplied
@@ -122,9 +140,11 @@ pub fn inspect(db: &Connection, reference: &str) -> Result<Value> {
     }
     // Prefilter on retained bytes. A handle quoted in arbitrary prose is not a
     // supply. Only the structured fields inspected above can establish that.
+    // An absent input could also have been relevant. Verify it rather than
+    // silently counting it as a decision without the question.
     let mut calls = db.prepare("SELECT i.id,i.work,i.snapshot,i.response,i.updated,i.receipt,strftime('%Y-%m-%d %H:%M:%S UTC',i.updated,'unixepoch') FROM invocations i
-        JOIN objects s ON s.digest=i.snapshot WHERE i.state='accepted' AND i.actor=?1 AND
-        (instr(s.bytes,CAST(?2 AS BLOB))>0 OR EXISTS(SELECT 1 FROM versions v WHERE v.kind='development'
+        LEFT JOIN objects s ON s.digest=i.snapshot WHERE i.state='accepted' AND i.actor=?1 AND
+        (s.digest IS NULL OR instr(s.bytes,CAST(?2 AS BLOB))>0 OR EXISTS(SELECT 1 FROM versions v WHERE v.kind='development'
         AND v.id=?3 AND v.invocation=i.id)) ORDER BY i.updated DESC,i.rowid DESC")?;
     let mut decisions = Vec::new();
     for row in calls.query_map(params![owner, prefix, id], |r| {
@@ -140,7 +160,7 @@ pub fn inspect(db: &Connection, reference: &str) -> Result<Value> {
     })? {
         let (call, work, input, response, time, receipt, utc) = row?;
         let accepted = provider_evidence::accepted(db, owner, &call, true)?;
-        let supplied = supplies(db, &accepted.snapshot, &versions)?;
+        let (supplied, full_question) = supplies(db, &accepted.snapshot, &prefix, &versions)?;
         let revised = writes.remove(&call).unwrap_or_default();
         let application = trail.at(id, &call);
         let reads = trail.reads(&accepted.snapshot)?;
@@ -172,7 +192,7 @@ pub fn inspect(db: &Connection, reference: &str) -> Result<Value> {
         } else { Ok(None) };
         decisions.push(json!({"decision":format!("experience:{call}@1"),"work":work,"accepted_at":time,"accepted_utc":utc,
             "input":format!("object:{input}"),"response":format!("object:{response}"),"provider_receipt":format!("object:{receipt}"),
-            "supplied":supplied,"revisions_written":revised,"application":application.map(|u|&u.reference),
+            "supplied":supplied,"full_question_supplied":full_question,"revisions_written":revised,"application":application.map(|u|&u.reference),
             "application_detail":application.map(|u|json!({"action":u.body["action"],"watch_for":u.body["watch_for"],"question_input":u.body["question_input"]})),
             "application_reads":reads,"findings_recorded":findings,
             "epoch":s.model.as_ref().map(|_|s.epoch),"input_package":s.model.as_ref().map(|p|format!("object:{p}")),
@@ -187,12 +207,13 @@ pub fn inspect(db: &Connection, reference: &str) -> Result<Value> {
         .iter()
         .filter(|d| d["supplied"].as_array().is_some_and(|v| !v.is_empty()))
         .count();
+    let full = decisions.iter().filter(|d| d["full_question_supplied"] == true).count();
     let applied = decisions
         .iter()
         .filter(|d| d["application"].is_string())
         .count();
     Ok(
         json!({"question":reference,"owner":owner,"scope":"All revisions of this question in accepted decisions",
-        "decisions_supplied":supplied,"decisions_applied":applied,"decisions":decisions}),
+        "decisions_supplied":supplied,"decisions_with_full_question":full,"decisions_applied":applied,"decisions":decisions}),
     )
 }

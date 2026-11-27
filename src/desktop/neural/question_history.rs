@@ -23,6 +23,7 @@ pub(super) struct Return {
 enum Filter {
     #[default]
     All,
+    FullQuestion,
     Practice,
     Switch,
 }
@@ -123,7 +124,12 @@ impl History {
                             ui.strong(persona_label(status, s(report, "owner")));
                             theme::badge(
                                 ui,
-                                &format!("Supplied in {} decisions", report["decisions_supplied"]),
+                                &format!("Record or cue · {}", report["decisions_supplied"]),
+                                PURPLE,
+                            );
+                            theme::badge(
+                                ui,
+                                &format!("Full question · {}", report["decisions_with_full_question"]),
                                 PURPLE,
                             );
                             theme::badge(
@@ -134,17 +140,20 @@ impl History {
                             refresh = ui.small_button("Refresh").clicked();
                         });
                         ui.horizontal_wrapped(|ui| {
-                            for (filter, label) in [(Filter::All, "All decisions"), (Filter::Practice, "Practice trail"), (Filter::Switch, "Switch choices")] {
+                            for (filter, label) in [(Filter::All, "All decisions"), (Filter::FullQuestion, "Full question inputs"), (Filter::Practice, "Practice trail"), (Filter::Switch, "Switch choices")] {
                                 if ui.selectable_value(&mut self.filter, filter, label).changed() { self.page = 0; }
                             }
                         });
                         let rows: Vec<_> = report["decisions"].as_array().into_iter().flatten().filter(|r| match self.filter {
                             Filter::All => true,
+                            Filter::FullQuestion => r["full_question_supplied"] == true,
                             Filter::Practice => r["application"].is_string() || ["application_reads", "revisions_written"].iter()
                                 .any(|key| r[*key].as_array().is_some_and(|v| !v.is_empty())),
                             Filter::Switch => matches!(r["next_model_choice"].as_str(), Some("activate" | "rollback")),
                         }).collect();
                         match self.filter {
+                            Filter::FullQuestion if rows.is_empty() => { ui.label("No accepted input contained the full question record."); }
+                            Filter::FullQuestion => { ui.weak("These inputs contained the question itself. Receiving it is not an explicit use."); }
                             Filter::Practice if rows.is_empty() => { ui.label("No practice entry on this timeline."); }
                             Filter::Practice => { ui.weak("Newest first · What was tried, what came back, and what the owner concluded."); }
                             Filter::Switch if rows.is_empty() => { ui.label("No decision on this timeline chose activation or rollback."); }
@@ -199,7 +208,7 @@ impl History {
                                             let phase = if row["findings_recorded"].as_array().is_some_and(|v| !v.is_empty()) { "Judged the outcome" }
                                                 else if row["application_detail"]["action"].is_object() { "Tried a practice" }
                                                 else if row["application"].is_string() { "Applied the question" }
-                                                else if row["application_reads"].as_array().is_some_and(|v| !v.is_empty()) { "Read an earlier application" }
+                                                else if row["application_reads"].as_array().is_some_and(|v| !v.is_empty()) { "Received an earlier application" }
                                                 else if row["revisions_written"].as_array().is_some_and(|v| v.iter().any(|r| r.as_str().is_some_and(|s| s.ends_with("@1")))) { "Opened the question" }
                                                 else { "Revised the question" };
                                             ui.strong(phase);
@@ -224,14 +233,18 @@ impl History {
                                                     Some("activity_feedback") => {
                                                         "Activity feedback pointer"
                                                     }
-                                                    _ => "Received full record",
+                                                    Some("tool_record") => "Question in tool result",
+                                                    _ => "Question reference",
                                                 };
+                                                let reference = s(item, "reference");
+                                                let label = reference.rsplit_once('@').map_or_else(|| label.to_owned(),
+                                                    |(_, rev)| format!("{label} · rev {rev}"));
                                                 if ui
                                                     .small_button(label)
-                                                    .on_hover_text(s(item, "reference"))
+                                                    .on_hover_text(reference)
                                                     .clicked()
                                                 {
-                                                    inspect = Some(s(item, "reference").into());
+                                                    inspect = Some(reference.into());
                                                 }
                                             }
                                             for revision in row["revisions_written"]
