@@ -33,6 +33,12 @@ The two issued files form the **entire** register ZIP. The independent contribut
 | `EC1-register/Shift-note.txt` | 1,668 | `431ccd9894d65881e471955afc71f63938ac0e4071739ed267be95f6b4f136ac` |
 | `EC1-digital-disc-measurements.csv` (Bench desk) | 996 | `42e18d6e8c83736fa366f390eb9091c041d4243ab12e5f8404a341582444988c` |
 
+## From the finding back to the issue
+
+In the register workspace, use **Ctrl+K → #448 → Enter → Read finding**. The report names **Bench desk**; its subject names **Noor · Issue #418**. Choose **Issuing choice ↗** to see why Noor issued the PDF and SVG and chose to check the delivered pair. Use **← Finding at #448 → Review basis** for the two file revisions and Bench desk’s separate measurement CSV.
+
+The order matters: Bench desk offered a digital check at **#409**. Noor performed its own receiving check at **#422** and stopped before Bench desk published **#448**. The measurements did not reach Noor’s earlier choice. It was **Lumen**, on a different invitation, who later selected the CSV and issued the register.
+
 ## What was verified
 
 Studio and CLI exports matched byte for byte. A separate reader compared every returned observation to the register, checked the ten feature identities against the native board, recomputed all 80 difference and sort fields, and reproduced the two maxima and the height tie. On a disconnected workspace copy, removing the publication after **Save original…** opened prevented saving; restoring it but changing a byte also prevented saving. Restoring the actual bytes let the original selection succeed.

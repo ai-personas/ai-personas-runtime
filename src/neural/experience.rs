@@ -296,18 +296,21 @@ pub(super) fn responses_to_call(
         }
     }
     // Multiple reviews or deliveries from one decision still name separate editions.
-    let sql = format!("{EVENTS} WHERE {VISIBLE} AND e.work=?2 AND e.kind='package_review' AND e.target IN ('*',?1)
-        AND e.actor<>?1 AND e.invocation IN (SELECT v.invocation FROM versions v JOIN objects r ON r.digest=v.digest
-        WHERE v.kind='package_review' AND json_extract(CAST(r.bytes AS TEXT),'$.subject.delivery') IN (
+    // Locate candidate notices by review address. Operators publish without an
+    // invocation; NULL is not an identity linking all operator findings together.
+    let sql = format!("{EVENTS} JOIN objects n ON n.digest=e.digest WHERE {VISIBLE} AND e.work=?2
+        AND e.kind='package_review' AND e.target IN ('*',?1) AND (e.invocation IS NULL OR e.actor<>?1)
+        AND CASE WHEN json_valid(CAST(n.bytes AS TEXT)) THEN json_extract(CAST(n.bytes AS TEXT),'$.reference') END IN (
+        SELECT 'package_review:'||v.id||'@'||v.revision FROM versions v JOIN objects r ON r.digest=v.digest
+        WHERE v.kind='package_review' AND CASE WHEN json_valid(CAST(r.bytes AS TEXT)) THEN json_extract(CAST(r.bytes AS TEXT),'$.subject.delivery') END IN (
         SELECT 'delivery:'||d.id||'@'||d.revision FROM versions d WHERE d.kind='delivery' AND d.invocation=?3))");
     let mut reviews = db.prepare_cached(&sql)?;
     for row in reviews.query_map(params![actor, work, call], Experience::row)? {
         let e = row?;
-        let body: Value = store::object(db, &e.digest)?;
-        if let Ok(Some(edition)) = peer_review(db, actor, &e) {
-            if edition.issue.invocation == call {
+        if let Ok(Some(link)) = finding_on_issue(db, actor, &e) {
+            if link.edition.issue.invocation == call {
                 replies.push(json!({"experience":e.metadata()["reference"],"sequence":e.id[6..].parse::<i64>()?,
-                    "author":e.actor,"kind":e.kind,"relation":"peer_package_review","target":edition.issue.record.reference.handle(),"review":body["reference"]}));
+                    "author":e.actor,"kind":e.kind,"relation":link.relation,"target":link.edition.issue.record.reference.handle(),"review":link.review}));
             }
         }
     }
@@ -321,9 +324,35 @@ fn finding_notice(db: &Connection, event: &Experience) -> Result<super::package_
     super::package_review::FindingNotice::at(db, &event.work, seq, &event.digest)
 }
 
-fn peer_review(db: &Connection, owner: &str, event: &Experience) -> Result<Option<super::activity_sources::delivery::Edition>> {
-    if event.invocation.is_none() || event.kind != "package_review" || !(event.target == "*" || event.target == owner) || event.actor == owner { return Ok(None); }
-    finding_notice(db, event)?.peer_issue(owner, &event.work).map(Some)
+struct FindingLink {
+    edition: super::activity_sources::delivery::Edition,
+    review: String,
+    relation: &'static str,
+}
+
+fn finding_on_issue(
+    db: &Connection,
+    owner: &str,
+    event: &Experience,
+) -> Result<Option<FindingLink>> {
+    if event.kind != "package_review"
+        || !(event.target == "*" || event.target == owner)
+        || (event.invocation.is_some() && event.actor == owner)
+    {
+        return Ok(None);
+    }
+    let notice = finding_notice(db, event)?;
+    let relation = match notice.record.body["author_kind"].as_str() {
+        Some("operator") => "operator_package_review",
+        Some("persona") => "peer_package_review",
+        _ => return Err(failure("Unknown finding author kind")),
+    };
+    let review = notice.record.reference.handle();
+    Ok(notice.reviewed_issue(Some(owner), &event.work).map(|edition| FindingLink {
+        edition,
+        review,
+        relation,
+    }))
 }
 
 /// A compact invitation to deliberate retrieval. Other activities contribute
@@ -353,11 +382,10 @@ pub(super) fn availability(db: &Connection, actor: &str, work: &str) -> Result<V
     // discovery address, never the report, old instructions or another duty.
     let sql = format!("{EVENTS} WHERE e.kind='package_review' AND e.target=?1 AND e.work<>?2 AND e.invocation IS NOT NULL ORDER BY e.seq DESC LIMIT 1");
     if let Some(e) = db.query_row(&sql, [actor,work], Experience::row).optional()? {
-        let body: Value = store::object(db, &e.digest)?;
-        if let Ok(Some(issued)) = peer_review(db, actor, &e) {
+        if let Ok(Some(link)) = finding_on_issue(db, actor, &e) {
             available["latest_returned_peer_review_elsewhere"] = json!({"experience":e.metadata()["reference"],
-                "work":e.work,"reviewed_by":e.actor,"review":body["reference"],"delivery":issued.issue.record.reference.handle(),
-                "issuing_decision":format!("experience:{}@1",issued.issue.invocation),"bodies_supplied":false});
+                "work":e.work,"reviewed_by":e.actor,"review":link.review,"delivery":link.edition.issue.record.reference.handle(),
+                "issuing_decision":format!("experience:{}@1",link.edition.issue.invocation),"bodies_supplied":false});
         }
     }
     Ok(available)
@@ -383,13 +411,17 @@ pub(super) fn read(db: &Connection, actor: Option<&str>, reference: &str) -> Res
     if item.kind == "package_review" {
         let finding = finding_notice(db, &item);
         result["reviewed_subject_now"] = finding.as_ref().map(|f| f.subject()).unwrap_or_else(|_| json!({"status":"unavailable"}));
-        if item.target != "*" {
-            match finding.and_then(|f| f.peer_issue(&item.target, &item.work)) {
-                Ok(edition) => result["issuance_reviewed"] = json!({"delivery":edition.issue.record.reference.handle(),
-                    "issuer":item.target,"decision":format!("experience:{}@1",edition.issue.invocation),"operation":edition.operation,
-                    "review":event["body"]["reference"],"reporting_work":event["body"]["reporting_work"]}),
-                Err(_) => result["issuance_link_status"] = json!("unavailable"),
+        // A broadcast can link back to the reader's own issue, but seeing it
+        // does not make another participant's decision part of their history.
+        if let Ok(f) = finding {
+            let reporting_work = f.record.body["work"].clone();
+            if let Some(edition) = f.reviewed_issue(actor, &item.work) {
+                result["issuance_reviewed"] = json!({"delivery":edition.issue.record.reference.handle(),
+                    "issuer":edition.issue.record.body["owner"],"decision":format!("experience:{}@1",edition.issue.invocation),
+                    "operation":edition.operation,"review":event["body"]["reference"],"reporting_work":reporting_work});
             }
+        } else if item.target != "*" {
+            result["issuance_link_status"] = json!("unavailable");
         }
     }
     if item.kind == "accepted_decision" {

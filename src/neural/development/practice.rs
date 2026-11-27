@@ -89,7 +89,7 @@ fn on_desk(data: &Value) -> impl Iterator<Item = &Value> {
 pub(in crate::neural) fn scope(data: &Value) -> Option<Value> {
     let mut outcomes = std::collections::BTreeSet::new();
     for v in on_desk(data) {
-        if matches!(v["relation"].as_str(), Some("direct_reply" | "peer_package_review"))
+        if matches!(v["relation"].as_str(), Some("direct_reply" | "peer_package_review" | "operator_package_review"))
             || v["return_kind"] == "dispatched_result"
             || v["forecasts_before_action"]
                 .as_array()

@@ -22,6 +22,7 @@ pub(super) fn show(
                 let kind = match s(row, "return_kind") {
                     "addressed_response" => "Addressed response",
                     "issued_edition_reviewed" => "Peer finding",
+                    "operator_finding_on_edition" => "Operator finding",
                     "issued_files_checked" => "Receiving check",
                     "request_reported" => "Outside report",
                     "dispatched_result" => "Tool return",
@@ -37,7 +38,9 @@ pub(super) fn show(
                     }
                     ui.weak("→");
                     let from = s(row, "author_of_return");
-                    if row["return_kind"] == "request_reported" {
+                    if row["return_kind"] == "operator_finding_on_edition" {
+                        ui.label(format!("{kind} by {}", from.strip_prefix("operator:").unwrap_or(from)));
+                    } else if row["return_kind"] == "request_reported" {
                         ui.label(format!("{kind} from {from}"));
                     } else if matches!(
                         s(row, "return_kind"),

@@ -51,6 +51,7 @@ impl App {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 let p = theme::palette(ui);
+                self.finding_return_link(ui);
                 eyebrow(ui, "Activity  /  Decision journal");
                 ui.heading("The work in their own words");
                 ui.label("Read what each persona judged sufficient, what was still open, and why they chose to continue, wait or stop.");
