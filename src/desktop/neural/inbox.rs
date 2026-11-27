@@ -404,7 +404,7 @@ impl App {
                     }
                     let handoff = "Save the printable request and its exact attachments. Active requests with a verified origin include a fillable field report.";
                     if !body["field_packet"].is_object() && ui.button("Save handoff…").on_hover_text(handoff).clicked() {
-                        self.save_request_handoff(&reference, s(body, "title"), files);
+                        self.save_current_request(record, true);
                     }
                     if files > 0
                         && ui
@@ -412,7 +412,7 @@ impl App {
                             .on_hover_text("Save the request files with their original paths")
                             .clicked()
                     {
-                        self.export_package(&reference, s(body, "title"));
+                        self.save_current_request(record, false);
                     }
                 });
             });

@@ -55,6 +55,7 @@ impl Reader {
 enum Open {
     File(String, String, String),
     Delivery(String),
+    SaveRecord,
 }
 
 fn file_link(
@@ -189,7 +190,12 @@ fn contents(ui: &mut Ui, r: &PacketChanges, issuer: &str, instructions: &mut boo
         files(ui, r, &mut open);
     }
     ui.add_space(5.);
-    ui.weak("Historical issue. Use the current request for outside work.");
+    ui.horizontal_wrapped(|ui| {
+        if ui.button("Save issue record…").on_hover_text("Save this edition’s request sheet and original files. Do not substitute the current packet.").clicked() {
+            open = Some(Open::SaveRecord);
+        }
+        ui.weak("Historical issue. Use the current request for outside work.");
+    });
     open
 }
 
@@ -290,6 +296,12 @@ impl App {
             Some(Open::Delivery(reference)) => {
                 self.open_issued_package(ctx, &reference);
                 return;
+            }
+            Some(Open::SaveRecord) => {
+                if let Some(Ok(report)) = &r.report {
+                    let files = report.added.len() + report.replaced.len() + report.kept.len();
+                    self.save_packet_record(&report.edition, &report.edition_digest, &report.request_title, files);
+                }
             }
             None if retry => r.load(&self.root, ctx),
             None => (),

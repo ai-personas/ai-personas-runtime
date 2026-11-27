@@ -159,13 +159,16 @@ pub(in crate::neural) fn verify(
 /// issue can replace them. Earlier editions remain independently exportable.
 pub(super) fn check_history(
     db: &Connection,
-    first: &store::Record,
+    from: &store::Record,
     selected: &store::Record,
 ) -> Result<()> {
-    let mut prior = first.clone();
-    for n in 2..=selected.reference.revision {
-        let next = exact(db, &format!("human_request:{}@{n}", first.reference.id))?;
-        if !same_terms(&first.body, &next.body) {
+    if from.reference.id != selected.reference.id || from.reference.revision > selected.reference.revision {
+        return Err(failure("Not a later edition of this outside request"));
+    }
+    let mut prior = from.clone();
+    for before in from.reference.revision..selected.reference.revision {
+        let next = exact(db, &format!("human_request:{}@{}", from.reference.id, before + 1))?;
+        if !same_terms(&from.body, &next.body) {
             return Err(failure(
                 "The outside action differs from the original request",
             ));

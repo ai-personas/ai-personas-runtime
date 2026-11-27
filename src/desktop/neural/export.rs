@@ -3,6 +3,8 @@
 use super::*;
 use ai_personas::neural::human_requests::HandoffFormat;
 use std::io::Write;
+mod packet;
+use packet::Packet;
 
 #[derive(Clone)]
 enum Contents {
@@ -10,10 +12,10 @@ enum Contents {
     PackageMember { reference: String, member: Member },
     Printed { source: print_preview::Source, document: print_preview::Document },
     Deliveries { work: Option<String>, label: String, editions: Vec<ListedEdition> },
-    Package { reference: String, closure_source: Option<String> },
+    Package(Packet),
     ReviewFile(ai_personas::neural::package_review::EvidenceFile),
     Dispatch { delivery: String, number: usize, recipient: String, files: usize, packet: bool },
-    Handoff { reference: String, files: usize, format: HandoffFormat },
+    Handoff { packet: Packet, files: usize, format: HandoffFormat },
 }
 
 #[derive(Clone)]
@@ -89,10 +91,17 @@ pub(super) struct Dialog {
     directory: String,
     name: String,
     focus_on_open: bool,
-    pub busy: bool,
-    pub error: Option<String>,
+    busy: bool,
+    error: Option<String>,
+    reveal_error: bool,
 }
 impl Dialog {
+    pub(super) fn failed(&mut self, error: String) {
+        self.busy = false;
+        self.error = Some(error);
+        self.reveal_error = true;
+    }
+
     fn new(serial: u64, contents: Contents, name: String) -> Self {
         let home = std::env::var_os("HOME")
             .map(PathBuf::from)
@@ -108,6 +117,7 @@ impl Dialog {
             focus_on_open: true,
             busy: false,
             error: None,
+            reveal_error: false,
         }
     }
 }
@@ -124,13 +134,13 @@ impl App {
     pub(super) fn export_package(&mut self, reference: &str, title: &str) {
         self.export_generation += 1;
         let name = title_stem(title, "Delivery");
-        self.export_dialog = Some(Dialog::new(self.export_generation, Contents::Package { reference: reference.into(), closure_source: None }, format!("{name}.zip")));
+        self.export_dialog = Some(Dialog::new(self.export_generation, Contents::Package(Packet::Delivery(reference.into())), format!("{name}.zip")));
     }
     pub(super) fn export_closure_files(&mut self, reference: String, source: String, title: &str) {
         self.export_generation += 1;
         let revision = reference.rsplit_once('@').map_or("", |(_, n)| n);
         let name = format!("{}-edition-{revision}.zip", title_stem(title, "Outside-step"));
-        self.export_dialog = Some(Dialog::new(self.export_generation, Contents::Package { reference, closure_source: Some(source) }, name));
+        self.export_dialog = Some(Dialog::new(self.export_generation, Contents::Package(Packet::Record { reference, digest: source.strip_prefix("object:").unwrap_or("").into() }), name));
     }
     pub(super) fn save_dispatch(&mut self, delivery: &str, number: usize, recipient: &str, files: usize, original: Option<&str>, packet: bool) {
         self.export_generation += 1;
@@ -148,19 +158,18 @@ impl App {
         let name = file.name.clone();
         self.export_dialog = Some(Dialog::new(self.export_generation, Contents::ReviewFile(file), name));
     }
-    pub(super) fn save_request_handoff(&mut self, reference: &str, title: &str, files: usize) {
-        self.save_handoff(reference, title, files, "Request");
-    }
     pub(super) fn save_delivery_handoff(&mut self, reference: &str, title: &str, files: usize) {
-        self.save_handoff(reference, title, files, "Delivery");
+        self.save_handoff(Packet::Delivery(reference.into()), title, files);
     }
-    fn save_handoff(&mut self, reference: &str, title: &str, files: usize, fallback: &str) {
-        let stem = title_stem(title, fallback);
-        let folder = format!("{stem}-handoff");
+    fn save_handoff(&mut self, packet: Packet, title: &str, files: usize) {
+        let folder = match &packet {
+            Packet::Delivery(_) => format!("{}-handoff", title_stem(title, "Delivery")),
+            _ => format!("{}-edition-{}-handoff", title_stem(title, "Request"), packet.version()),
+        };
         self.export_generation += 1;
         self.export_dialog = Some(Dialog::new(
             self.export_generation,
-            Contents::Handoff { reference: reference.into(), files, format: HandoffFormat::Zip },
+            Contents::Handoff { packet, files, format: HandoffFormat::Zip },
             format!("{folder}.zip"),
         ));
     }
@@ -246,32 +255,45 @@ impl App {
             Contents::Dispatch { files: 1, .. } => ("Save dispatch file", "This is the original file, not a new ZIP around it.", "Save original"),
             Contents::Dispatch { .. } => ("Save dispatch files", "Only the files on this slip are included, at their issued paths.", "Save ZIP"),
             Contents::ReviewFile(_) => ("Save reviewer’s file", "Save the named evidence from this published finding. It is not a file issued by the delivery owner.", "Save original"),
-            Contents::Package { closure_source: Some(_), .. } => ("Save files at closure", "Save a local ZIP of this historical request’s files. This does not take the step, confirm receipt or send a current instruction.", "Save ZIP"),
-            Contents::Package { .. } => ("Save file package", "The ZIP contains the selected file revisions with their original names and folders.", "Save file"),
-            Contents::Handoff { reference, .. } if reference.starts_with("delivery:") =>
+            Contents::Package(Packet::Record { .. }) => ("Save files at closure", "Save a local ZIP of this historical request’s files. This does not take the step, confirm receipt or send a current instruction.", "Save ZIP"),
+            Contents::Package(Packet::Current { .. }) => ("Save current request files", "Save only the displayed edition’s attachments, without a request sheet. If the request has changed when you save, no ZIP is written.", "Save files"),
+            Contents::Package(Packet::Delivery(_)) => ("Save file package", "The ZIP contains the selected file revisions with their original names and folders.", "Save file"),
+            Contents::Handoff { packet: Packet::Delivery(_), .. } =>
                 ("Save delivery handoff", "Send this edition as issued. The sheet separates the issuer’s instructions from reviews and citations verified when you save.", "Save handoff"),
-            Contents::Handoff { .. } =>
-                ("Save request handoff", "The recipient can read the request offline and bring back a field report for an active request.", "Save handoff"),
+            Contents::Handoff { packet: Packet::Current { .. }, .. } =>
+                ("Save request handoff", "Take this edition’s instructions and files together. If the current request changes before you save, reopen it to see what changed.", "Save handoff"),
+            Contents::Handoff { packet: Packet::Record { .. }, .. } =>
+                ("Save packet for the record", "Keep the instructions and files from this issue. The sheet records what could be verified about the current request at export.", "Save edition"),
         };
         let mut open = true;
         let mut save = false;
         let mut cancel = false;
+        let mut reopen = None;
+        let viewport = ctx.content_rect().shrink(6.);
+        let available = (viewport.size() - theme::titled_window_chrome(ctx)).max(egui::vec2(1., 1.));
         egui::Window::new(heading)
         .id(egui::Id::new("studio-export"))
         .order(egui::Order::Foreground)
         .open(&mut open)
-        .default_width(560.)
-        .max_width((ctx.content_rect().width() - 32.).max(160.))
-        .max_height((ctx.content_rect().height() - 48.).max(120.))
+        .default_size(egui::vec2(560., 420.).min(available))
+        .min_size(egui::vec2(96., 32.).min(available))
+        .max_size(available)
+        .constrain_to(viewport)
         .vscroll(true)
         .collapsible(false)
         .show(ctx, |ui| {
-            if let Contents::Handoff { reference, files, format } = &mut dialog.contents {
-                let delivery = reference.starts_with("delivery:");
+            if let Contents::Handoff { packet, files, format } = &mut dialog.contents {
+                let delivery = matches!(packet, Packet::Delivery(_));
                 egui::Frame::new().fill(theme::palette(ui).header).corner_radius(7).inner_margin(12).show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     eyebrow(ui, "Persona Studio  /  Outgoing handoff");
-                    ui.label(RichText::new(if *format == HandoffFormat::Zip { "One file to send" } else { "A folder to open locally" }).size(21.).strong());
+                    let title = match packet {
+                        Packet::Current { .. } => format!("Field desk · edition {}", packet.version()),
+                        Packet::Record { .. } => format!("Issue record · edition {}", packet.version()),
+                        _ if *format == HandoffFormat::Zip => "One file to send".into(),
+                        _ => "A folder to open locally".into(),
+                    };
+                    ui.label(RichText::new(title).size(21.).strong()).on_hover_text(packet.reference());
                     ui.label(description);
                     ui.add_space(6.);
                     ui.horizontal_wrapped(|ui| {
@@ -322,8 +344,8 @@ impl App {
                 ui.label(description);
             }
             let file = !matches!(dialog.contents, Contents::Handoff { format: HandoffFormat::Folder, .. } | Contents::Deliveries { .. });
-            if let Contents::Package { reference, closure_source: Some(source) } = &dialog.contents {
-                ui.small(reference).on_hover_text(source);
+            if let Contents::Package(packet @ (Packet::Record { .. } | Packet::Current { .. })) = &dialog.contents {
+                ui.strong(format!("Request edition {}", packet.version())).on_hover_text(packet.reference());
             }
             if let Contents::PackageMember { reference, member } = &dialog.contents {
                 let edition = reference.rsplit_once('@').map(|(_, n)| n).unwrap_or(reference);
@@ -385,9 +407,24 @@ impl App {
                 ui.label("Saving…");
             }
             if let Some(error) = &dialog.error {
-                ui.colored_label(ui.visuals().error_fg_color, error);
+                let mut last = ui.colored_label(ui.visuals().error_fg_color, error);
+                if let Contents::Package(Packet::Current { reference, .. }) | Contents::Handoff { packet: Packet::Current { reference, .. }, .. } = &dialog.contents {
+                    last = ui.link("Back to the request →");
+                    if last.clicked() {
+                        reopen = reference.strip_prefix("human_request:").and_then(|r| r.rsplit_once('@')).map(|(id, _)| id.to_owned());
+                    }
+                }
+                if std::mem::take(&mut dialog.reveal_error) {
+                    last.scroll_to_me(Some(egui::Align::Max));
+                }
             }
         });
+        if let Some(id) = reopen {
+            self.export_dialog = None;
+            self.show_human_request(&id);
+            self.last_poll = Instant::now() - Duration::from_secs(3);
+            return;
+        }
         if !open || cancel {
             if let Some(preview) = &mut self.print_preview {
                 preview.finish_export(dialog.serial, None);
@@ -401,7 +438,7 @@ impl App {
         let name = std::path::Path::new(&dialog.name);
         if name.file_name() != Some(name.as_os_str()) || matches!(dialog.name.as_str(), "." | "..")
         {
-            dialog.error = Some("Enter a name without folder separators.".into());
+            dialog.failed("Enter a name without folder separators.".into());
             return;
         }
         let path = PathBuf::from(&dialog.directory).join(name);
@@ -435,19 +472,15 @@ impl App {
                         let db = data::open(&root).map_err(|e| e.to_string())?;
                         file.save(&db, &path).map_err(|e| e.to_string())?;
                     }
-                    Contents::Package { reference, closure_source } => {
+                    Contents::Package(packet) => {
                         let db = data::open(&root).map_err(|e| e.to_string())?;
-                        if let Some(source) = closure_source {
-                            let selected = ai_personas::neural::store::exact(&db, &reference).map_err(|e| e.to_string())?;
-                            if selected.reference.kind != "human_request" || source.strip_prefix("object:") != Some(&selected.reference.digest) {
-                                return Err("The retained request differs from the edition recorded at closure. No files were saved.".into());
-                            }
-                        }
-                        ai_personas::neural::human_requests::export_package(&db, &reference, &path).map_err(|e|e.to_string())?;
+                        packet.check(&db)?;
+                        ai_personas::neural::human_requests::export_package(&db, packet.reference(), &path).map_err(|e|e.to_string())?;
                     }
-                    Contents::Handoff { reference, format, .. } => {
+                    Contents::Handoff { packet, format, .. } => {
                         let db = data::open(&root).map_err(|e| e.to_string())?;
-                        ai_personas::neural::human_requests::export_handoff(&db, &reference, &path, format)
+                        packet.check(&db)?;
+                        ai_personas::neural::human_requests::export_handoff(&db, packet.reference(), &path, format)
                             .map_err(|e| e.to_string())?;
                     }
                     Contents::PackageMember { reference, member } => return member.save(&root, &reference, &path),

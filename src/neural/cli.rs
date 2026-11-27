@@ -223,7 +223,13 @@ pub enum Command {
         inspection: Option<ZipInspection>,
     },
     /// Save the exact files of one delivery or human request as a portable ZIP.
-    ExportPackage { reference: String, destination: PathBuf },
+    ExportPackage {
+        reference: String,
+        destination: PathBuf,
+        /// Save only if this is still the current human request at the reviewed digest.
+        #[arg(long, value_name = "SHA256")]
+        current_request_digest: Option<String>,
+    },
     /// Save exactly the files on an issuer's numbered dispatch slip (one file unchanged, otherwise ZIP).
     ExportDispatch { delivery: String, number: usize, destination: PathBuf,
         /// Save a printable Dispatch.html and this recipient's exact files together in a ZIP.
@@ -235,6 +241,9 @@ pub enum Command {
         /// A single sendable ZIP or a new folder with the same contents.
         #[arg(long, value_enum, default_value = "folder")]
         format: super::human_requests::HandoffFormat,
+        /// Save only if this is still the current human request at the reviewed digest.
+        #[arg(long, value_name = "SHA256")]
+        current_request_digest: Option<String>,
     },
     /// Read human feedback and directly addressed replies for one issued delivery.
     DeliveryFeedback {
@@ -643,12 +652,18 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
                 None => Ok(serde_json::to_value(result)?),
             }
         },
-        Command::ExportPackage{reference,destination}=>super::human_requests::export_package(&store::open_inspection(root)?,&reference,&destination),
+        Command::ExportPackage { reference, destination, current_request_digest } => {
+            let db = export_snapshot(root, &reference, current_request_digest.as_deref())?;
+            super::human_requests::export_package(&db, &reference, &destination)
+        },
         Command::ExportDispatch{delivery,number,destination,packet}=>{
             let export = if packet { super::human_requests::export_dispatch_packet } else { super::human_requests::export_dispatch };
             export(&store::open_inspection(root)?,&delivery,number,&destination)
         }
-        Command::ExportHandoff{reference,destination,format}=>super::human_requests::export_handoff(&store::open_inspection(root)?,&reference,&destination,format),
+        Command::ExportHandoff { reference, destination, format, current_request_digest } => {
+            let db = export_snapshot(root, &reference, current_request_digest.as_deref())?;
+            super::human_requests::export_handoff(&db, &reference, &destination, format)
+        },
         Command::LibraryFolder(query)=>super::discovery::folder(&store::open_inspection(root)?,&query),
         Command::ZipMembers(query)=>query.inspect(&store::open_inspection(root)?,None),
         Command::ReadZipText(query)=>query.inspect(&store::open_inspection(root)?,None),
@@ -824,6 +839,14 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
             }
         }
     }
+}
+
+fn export_snapshot(root: &Path, reference: &str, current_digest: Option<&str>) -> Result<rusqlite::Connection> {
+    let db = store::open_inspection(root)?;
+    if let Some(digest) = current_digest {
+        super::human_requests::check_current_export(&db, reference, digest)?;
+    }
+    Ok(db)
 }
 
 fn operator_action(root: &Path, db: &rusqlite::Connection, operator: &str, command: Command) -> Result<Value> {

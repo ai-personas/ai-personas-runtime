@@ -1,5 +1,5 @@
 //! A portable, printable view of the exact request revision and its attachments.
-use super::{RequestSheet, SheetDelivery, SheetFile};
+use super::{state_label, AtExport, RequestSheet, SheetDelivery, SheetFile};
 use crate::neural::human_requests::field_report;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use sha2::{Digest, Sha256};
@@ -224,7 +224,8 @@ pub(super) fn recipient(
 pub(super) fn render(request: &RequestSheet<'_>) -> String {
     let mut html = header(request.title, "Human request");
     field(&mut html, "Requested by", request.requester);
-    field(&mut html, "Recorded status", request.state);
+    field(&mut html, "Request edition", &request.revision.to_string());
+    field(&mut html, "Status on this edition", request.state);
     if let Some(person) = request.claimed_by {
         field(
             &mut html,
@@ -237,14 +238,21 @@ pub(super) fn render(request: &RequestSheet<'_>) -> String {
         );
     }
     html.push_str("</dl></header>");
-    if let Some((reference, status)) = request.current {
-        html.push_str("<aside class=\"revision-note\"><h2>Newer revision at export</h2><dl>");
-        field(&mut html, "Latest status", status);
-        field(&mut html, "Latest revision", reference);
-        html.push_str("</dl></aside>");
-        if request.newer_packet {
-            html.push_str("<p><strong>A newer field packet has been issued.</strong> This sheet and its files belong to the earlier edition. Open the current request in Studio for the replacement.</p>");
+    match request.at_export {
+        AtExport::Selected => html.push_str("<aside class=\"revision-note\"><h2>Current when saved</h2><p>This is an offline copy. Check the request in Studio for later changes.</p></aside>"),
+        AtExport::Later { reference, state, replacement } => {
+            html.push_str("<aside class=\"revision-note concern\"><h2>Newer revision at export</h2><p>");
+            html.push_str(match replacement {
+                Some(true) => "<strong>A newer field packet has been issued.</strong> These are the earlier instructions and files. Open the current request in Studio for the replacement.",
+                Some(false) => "This sheet describes the earlier request edition. Its instructions and file selection carried forward; its status may have changed.",
+                None => "The current packet could not be verified. These are the earlier instructions and files, not a current handoff. No return form is included.",
+            });
+            html.push_str("</p><dl>");
+            field(&mut html, "Status at export", state_label(state));
+            field(&mut html, "Latest revision", reference);
+            html.push_str("</dl></aside>");
         }
+        AtExport::Unavailable => html.push_str("<aside class=\"revision-note concern\"><h2>Current request unavailable</h2><p>Saved for the record. The current edition and status could not be verified. Do not use this copy as current instructions. No return form is included.</p></aside>"),
     }
     if let Some(packet) = request.packet {
         prose_section(&mut html, "Field packet · issuer’s instructions", packet["instructions"].as_str().unwrap_or(""));
@@ -281,6 +289,12 @@ pub(super) fn render(request: &RequestSheet<'_>) -> String {
         html.push_str(r#"" data-format=""#);
         html.push_str(field_report::FORMAT);
         html.push_str("\">");
+        html.push_str("<h2>Field report · edition ");
+        html.push_str(&request.revision.to_string());
+        html.push_str("</h2>");
+        if matches!(request.at_export, AtExport::Later { replacement: Some(true), .. }) {
+            html.push_str("<p><strong>Earlier packet.</strong> Return observations about this edition as progress, not as completion of the replacement.</p>");
+        }
         html.push_str(include_str!("field_report.html"));
         html.push_str("</section><script>");
         html.push_str(RETURN_SCRIPT);

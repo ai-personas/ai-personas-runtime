@@ -591,8 +591,7 @@ impl App {
                         if let Some(dialog) =
                             self.export_dialog.as_mut().filter(|d| d.serial == serial)
                         {
-                            dialog.busy = false;
-                            dialog.error = Some(e);
+                            dialog.failed(e);
                         } else {
                             self.error = Some(e);
                         }

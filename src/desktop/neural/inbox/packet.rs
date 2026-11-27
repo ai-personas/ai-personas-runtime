@@ -64,7 +64,7 @@ impl App {
                         )
                         .clicked()
                     {
-                        self.save_request_handoff(&handle(record), s(b, "title"), files);
+                        self.save_current_request(record, true);
                     }
                     if ui
                         .link("Inspect delivery →")
