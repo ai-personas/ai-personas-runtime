@@ -18,7 +18,7 @@ pub(super) const INSTRUCTIONS:&str="Consider this isolated situation. Give a jud
 
 mod encounter;
 
-pub(super) const REPLAY_PROJECTION: u64 = 5;
+pub(super) const REPLAY_PROJECTION: u64 = 6;
 
 pub(super) fn schema() -> Value {
     json!({"type":"object","additionalProperties":false,
@@ -471,11 +471,11 @@ pub(super) struct Inputs {
 
 /// The author can inspect exactly what both arms would get before spending a call.
 /// The index and any retrospective appraisal text are not part of either arm's prompt.
-pub(super) fn inspect(db: &Connection, actor: &str, query: super::tools::ReplayInput) -> Result<Value> {
+pub fn inspect(db: &Connection, actor: &str, query: super::tools::ReplayInput) -> Result<Value> {
     let probe = Probe { replay_decision: Some(query.decision), situation: String::new(),
         references: query.references, appraisal: None, reappraisal: query.reappraisal, include_no_character: false };
     let case = prepare(db, actor, &probe)?;
-    Ok(json!({"origin":case.origin,"situation":case.scenario,"resources":case.resources,
+    Ok(json!({"replay_projection":REPLAY_PROJECTION,"origin":case.origin,"situation":case.scenario,"resources":case.resources,
         "available_resources":case.available_resources,"appraisal":case.appraisal,"ordered_image_blobs":case.images}))
 }
 
@@ -581,17 +581,11 @@ fn prepare_with_projection(
             .as_str()
             .filter(|_| meta["kind"] == "accepted_decision")
             .ok_or_else(|| failure("Replay requires one of your accepted decisions"))?;
-        let (source, receipt): (String, String) = db.query_row(
-            "SELECT snapshot,receipt FROM invocations WHERE id=?1 AND actor=?2 AND state='accepted'",
-            [call, actor],
-            |r| Ok((r.get(0)?,r.get(1)?)),
-        )?;
-        let snapshot: Snapshot = store::object(db, &source)?;
-        if snapshot.invocation != call
-            || snapshot.actor != actor
-            || snapshot.model.is_none()
-            || !snapshot.data["context_recovery"].is_null()
-        {
+        // Authenticate the accepted source, including its ordered input and any
+        // declared final output. The original answer is not part of the case.
+        let super::provider_evidence::Accepted { input_digest: source, receipt_digest: receipt, snapshot, .. } =
+            super::provider_evidence::accepted(db, actor, call, true)?;
+        if snapshot.model.is_none() || !snapshot.data["context_recovery"].is_null() {
             return Err(failure(
                 "Replay requires an ordinary, full-context decision made with an active character",
             ));
@@ -599,7 +593,6 @@ fn prepare_with_projection(
         let data = &snapshot.data;
         let attempt: Value = store::object(db, &receipt)?;
         let audit = &attempt["audit"];
-        super::character::verify_input(db, &snapshot, call, &attempt)?;
         let contextual = &data["last_contextual_evaluation"];
         let evaluation = if contextual["outputs"].is_object() {
             contextual
@@ -665,9 +658,13 @@ fn prepare_with_projection(
             }
         }
         if projection >= 5 {
-            let results = encounter::command_results(&snapshot);
+            let results = encounter::command_results(&snapshot, projection);
             if !results.is_empty() { scenario["local_command_results"] = json!(results); }
             available_resources = encounter::resource_choices(&available);
+        }
+        if projection >= 6 {
+            let observations = encounter::edition_feedback(&snapshot)?;
+            if !observations.is_empty() { scenario["edition_feedback"] = json!(observations); }
         }
         let mut resources = Vec::new();
         for r in &probe.references {

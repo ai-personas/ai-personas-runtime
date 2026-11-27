@@ -5,6 +5,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 
 pub(super) struct Accepted {
+    pub input_digest: String,
+    pub receipt_digest: String,
     pub snapshot: Snapshot,
     pub response: Value,
     pub binding: &'static str,
@@ -54,6 +56,8 @@ pub(super) fn accepted(
     }
     if check_final(db, &receipt, &attempt, &bytes)? { binding = "provider_output"; }
     Ok(Accepted {
+        input_digest: source,
+        receipt_digest: receipt,
         snapshot,
         response,
         binding,

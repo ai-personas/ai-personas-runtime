@@ -2,38 +2,64 @@ use super::*;
 use std::path::Path;
 use std::sync::mpsc::{Receiver, TryRecvError};
 
+mod feedback;
+
+#[derive(Clone)]
+enum Basis {
+    Matched(Option<String>),
+    Preview { owner: String, work: String, input: String, accepted: String },
+}
+
 #[derive(Default)]
 pub(super) struct Encounter {
-    selection: Option<(String, Option<String>)>,
+    selection: Option<(String, Basis)>,
     pending: Option<Receiver<Result<Value, String>>>,
     result: Option<Result<Value, String>>,
     tab: usize,
 }
 
 impl Encounter {
+    pub(super) fn preview(&mut self, ctx: &egui::Context, root: &Path, choice: &Value) {
+        self.load(ctx, root, format!("experience:{}@1", s(choice, "invocation")), Basis::Preview {
+            owner: s(choice, "actor").to_owned(), work: s(choice, "work").to_owned(), input: s(choice, "request").to_owned(),
+            accepted: s(choice, "accepted_utc").to_owned(),
+        });
+    }
+
     fn load(
         &mut self,
         ctx: &egui::Context,
         root: &Path,
         decision: String,
-        matched: Option<String>,
+        basis: Basis,
     ) {
         self.tab = 1;
-        self.selection = Some((decision.clone(), matched.clone()));
+        self.selection = Some((decision.clone(), basis.clone()));
         self.result = None;
         let (sender, receiver) = mpsc::channel();
         self.pending = Some(receiver);
         let root = root.to_owned();
         let ctx = ctx.clone();
         std::thread::spawn(move || {
-            let result = data::comparison_encounter(&root, &decision, matched.as_deref());
+            let result = match basis {
+                Basis::Matched(matched) => data::comparison_encounter(&root, &decision, matched.as_deref()),
+                Basis::Preview { owner, work, input, .. } => data::open(&root).and_then(|db| {
+                    let preview = ai_personas::neural::replay_input(&db, &owner, ai_personas::neural::tools::ReplayInput {
+                        decision, references: Vec::new(), reappraisal: None,
+                    })?;
+                    if preview["origin"]["original_input"] != input || preview["origin"]["work"] != work {
+                        return Err(ai_personas::neural::failure("The input differs from the selected journal entry."));
+                    }
+                    Ok(preview)
+                }),
+            };
             let _ = sender.send(result.map_err(|e| e.to_string()));
             ctx.request_repaint();
         });
     }
 
-    fn show(&mut self, ctx: &egui::Context, root: &Path) -> Option<String> {
-        let (decision, matched) = self.selection.as_ref()?;
+    pub(super) fn show(&mut self, ctx: &egui::Context, root: &Path, status: &Value) -> Option<String> {
+        let (decision, basis) = self.selection.as_ref()?;
         if let Some(reader) = &self.pending {
             match reader.try_recv() {
                 Ok(value) => {
@@ -50,13 +76,49 @@ impl Encounter {
         let mut open = true;
         let mut inspect = None;
         let mut refresh = false;
-        egui::Window::new("Encounter record").open(&mut open).default_width(650.).default_height(450.)
+        let preview = matches!(basis, Basis::Preview { .. });
+        let viewport = ctx.content_rect().shrink(6.);
+        let room = (viewport.size() - theme::titled_window_chrome(ctx)).max(egui::vec2(1., 1.));
+        egui::Window::new(if preview { "Comparison preview" } else { "Encounter record" }).open(&mut open)
+            .default_size(egui::vec2(650., 450.).min(room)).min_size(egui::vec2(160., 64.).min(room))
+            .max_size(room).constrain_to(viewport).collapsible(false)
             .show(ctx, |ui| {
                 let Some(result) = &self.result else { ui.spinner(); return; };
                 let report = match result {
                     Ok(report) => report,
-                    Err(error) => { ui.label(error); refresh = ui.button("Try again").clicked(); return; }
+                    Err(error) => { ui.strong("Encounter unavailable"); ui.label(error); refresh = ui.button("Try again").clicked(); return; }
                 };
+                if let Basis::Preview { owner, accepted, .. } = basis {
+                    egui::ScrollArea::vertical().id_salt(("preview", decision)).show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        eyebrow(ui, "Decision journal  /  Comparison preview");
+                        ui.horizontal_wrapped(|ui| {
+                            let who = persona_label(status, owner);
+                            avatar(ui, who, persona_color(owner), 24.);
+                            ui.heading(format!("{who}’s encounter"));
+                            ui.small(accepted);
+                        });
+                        ui.label("Default input for a new comparison of this decision. No model is called and no command is run.");
+                        let count = report["available_resources"].as_array().map_or(0, Vec::len);
+                        ui.weak(format!("Recorded appraisal · No extra resources selected ({count} views available)"));
+                        ui.separator();
+                        feedback::show(ui, status, &report["situation"]);
+                        egui::CollapsingHeader::new("Brief, exchanges and other inputs").id_salt(decision)
+                            .default_open(report["situation"].get("edition_feedback").is_none())
+                            .show(ui, |ui| before_choice(ui, report, None, &mut inspect));
+                        ui.collapsing("Input provenance", |ui| {
+                            ui.small(format!("Replay projection {} · {decision}", report["replay_projection"]));
+                            if count > 0 { ui.strong("Available to select, not added as resources"); }
+                            for r in report["available_resources"].as_array().into_iter().flatten() {
+                                let range = r.get("range").map(|v| format!(" · bytes {v}")).unwrap_or_default();
+                                ui.add(egui::Label::new(format!("{} · {}{range}", s(r, "via"), s(r, "reference"))).wrap());
+                            }
+                            record_link(ui, "Inspect original input outside preview ↗", report["origin"]["original_input"].as_str(), &mut inspect);
+                        });
+                    });
+                    return;
+                }
+                let Basis::Matched(matched) = basis else { return; };
                 ui.horizontal_wrapped(|ui| {
                     ui.selectable_value(&mut self.tab, 0, "Before the choice");
                     ui.selectable_value(&mut self.tab, 1, "Actual response");
@@ -66,7 +128,12 @@ impl Encounter {
                 ui.separator();
                 egui::ScrollArea::vertical().id_salt(("encounter",decision,self.tab)).show(ui, |ui| {
                     match self.tab {
-                        0 => before_choice(ui, report, matched.as_deref(), &mut inspect),
+                        0 if matched.is_some() => {
+                            ui.weak("Shared input retained for this sampled comparison, not a new preview.");
+                            feedback::show(ui, status, &report["situation"]);
+                            before_choice(ui, report, matched.as_deref(), &mut inspect);
+                        }
+                        0 => { ui.weak("This comparison has no retained shared-input object."); }
                         1 => actual_response(ui, report, decision, &mut inspect),
                         _ => {
                             let responses = report["feedback"].as_array().map(Vec::as_slice).unwrap_or_default();
@@ -83,7 +150,7 @@ impl Encounter {
             self.result = None;
         } else if refresh {
             let tab = self.tab;
-            self.load(ctx, root, decision.clone(), matched.clone());
+            self.load(ctx, root, decision.clone(), basis.clone());
             self.tab = tab;
         }
         inspect
@@ -112,13 +179,9 @@ fn attributed_text(ui: &mut Ui, heading: String, text: Option<&str>, time: Optio
 }
 
 fn before_choice(ui: &mut Ui, report: &Value, matched: Option<&str>, inspect: &mut Option<String>) {
-    if matched.is_none() {
-        ui.weak("This comparison has no retained shared-input object.");
-        return;
-    }
     let scenario = &report["situation"];
-    let images = report["images"]
-        .as_array()
+    let images = report.get("images").or_else(|| report.get("ordered_image_blobs"))
+        .and_then(Value::as_array)
         .map(Vec::as_slice)
         .unwrap_or_default();
     for (index, image) in images.iter().enumerate() {
@@ -170,17 +233,10 @@ fn before_choice(ui: &mut Ui, report: &Value, matched: Option<&str>, inspect: &m
             record_link(ui, "Open exchange ↗", e["experience"].as_str(), inspect);
         });
     }
-    for result in scenario["local_command_results"].as_array().into_iter().flatten() {
+    for result in scenario["local_command_results"].as_array().into_iter().flatten().filter(|r| !r["receiving"].is_object()) {
         ui.push_id(&result["experience"].as_str(), |ui| {
             ui.collapsing(format!("Observed command · {} · exit {}", s(result,"argv0"), result["exit_code"]), |ui| {
-                for name in ["stdout", "stderr"] {
-                    let stream = &result[name];
-                    if let Some(text) = stream["text"].as_str().or(stream["excerpt"].as_str()) {
-                        let scope = if stream["text"].is_string() || stream["excerpt_complete"] == true { "complete" } else { "excerpt" };
-                        ui.small(format!("{name} · {scope}"));
-                        if !text.is_empty() { ui.add(egui::Label::new(text).wrap()); }
-                    } else if stream["bytes"].is_number() { ui.small(format!("{name} · {} bytes, no text supplied", stream["bytes"])); }
-                }
+                feedback::streams(ui, result);
                 record_link(ui, "Original command result ↗", result["experience"].as_str(), inspect);
             });
         });
@@ -368,9 +424,7 @@ impl App {
                                                         ui.ctx(),
                                                         &self.root,
                                                         decision.to_owned(),
-                                                        case["matched_input"]
-                                                            .as_str()
-                                                            .map(str::to_owned),
+                                                        Basis::Matched(case["matched_input"].as_str().map(str::to_owned)),
                                                     );
                                                 }
                                             });
@@ -449,9 +503,6 @@ impl App {
                     ui.weak("No comparisons in this view.");
                 }
             });
-        if let Some(reference) = self.encounter.show(ui.ctx(), &self.root) {
-            self.open_resource(ui.ctx(), reference);
-        }
     }
 
     fn comparison_arm(&mut self, ui: &mut Ui, arm: &Value) {
