@@ -319,6 +319,7 @@ impl App {
     }
 
     pub(super) fn home_package_page(&mut self, ui: &mut Ui) {
+        self.finding_return_link(ui);
         self.refresh_delivery_model();
         let package = self.delivery_desk.model.clone();
         let compact = Self::constrained_activity_layout(ui.ctx());

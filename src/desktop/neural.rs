@@ -45,6 +45,7 @@ mod role_receipts;
 mod relationships;
 mod library_search;
 mod asset_feedback;
+mod finding_notice;
 mod package_reviews;
 mod requested_activities;
 mod inbox;
@@ -199,6 +200,7 @@ pub struct App {
     library_search: library_search::Window,
     asset_feedback: asset_feedback::Window,
     package_reviews: package_reviews::Desk,
+    finding_notice: Option<finding_notice::Reader>,
     requested_activities: requested_activities::Window,
     mesh_profile: mesh_profile::Window,
     command_bench: command_bench::Bench,
@@ -324,6 +326,7 @@ impl App {
             library_search: Default::default(),
             asset_feedback: Default::default(),
             package_reviews: Default::default(),
+            finding_notice: None,
             requested_activities: Default::default(),
             mesh_profile: Default::default(),
             command_bench: Default::default(),
@@ -856,6 +859,7 @@ impl eframe::App for App {
         self.intake_window(ctx);
         self.message_receipt_window(ctx);
         self.packet_changes_window(ctx);
+        self.finding_notice_window(ctx);
         self.rejection_window(ctx);
         self.role_receipts_window(ctx);
         self.export_window(ctx);

@@ -32,7 +32,7 @@ pub(in crate::neural) fn origin(
         Some(super::receiving::link(db, &super::locate(db, Some(owner), event)?, &envelope)?)
     } else { None };
     let review = if meta["kind"] == "package_review" {
-        super::peer_review(db, owner, &super::locate(db, Some(owner), event)?, &envelope)?
+        super::peer_review(db, owner, &super::locate(db, Some(owner), event)?)?
     } else { None };
     let report = if meta["kind"] == "user_message" && meta["target"] == owner && meta["invocation"].is_null()
         && envelope["human_request"].is_string() && envelope["reply_to"].is_string() {

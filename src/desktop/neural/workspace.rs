@@ -1692,6 +1692,7 @@ impl App {
         if self.artifact_mode == ArtifactView::Retained {
             self.delivery_return_link(ui);
             self.packet_return_link(ui);
+            self.finding_return_link(ui);
         }
         let compact = ui.available_width() < 620. || ui.available_height() < 500.;
         if compact {
