@@ -306,7 +306,7 @@ pub(super) fn publish(
     } else {
         format!("operator:{author}")
     };
-    let mut notice = json!({"reference":reference,"criterion":input.criterion,"verdict":input.verdict});
+    let mut notice = super::protocol::PublicationKind::PackageReview.notice(&reference, &body);
     // Operators have no retained model choice against which to check the
     // full finding. Commit its exact text and evidence to the broadcast.
     if call.is_none() { notice["published_record"] = json!(format!("object:{}", written.digest)); }

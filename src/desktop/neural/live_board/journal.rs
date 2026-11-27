@@ -147,9 +147,8 @@ impl App {
                     ui.strong(label);
                     ui.label(text);
                     if step["kind"] == "wait" {
-                        let events: Vec<_> = step["on_events"].as_array().into_iter().flatten().filter_map(Value::as_str)
-                            .map(str::to_owned).chain(peer_wakes(step)).collect();
-                        ui.small(if events.is_empty() { "Wake on any incoming event".into() } else { format!("Wake on: {}",events.join(", ")) });
+                        let events = wake_labels(step, |id| self.label(id));
+                        ui.small(if events.is_empty() { "Wake on any incoming event".into() } else { format!("Wake on: {}",events.join(" or ")) });
                         if let Some(time) = step["wake_at_unix"].as_i64() { ui.small(format!("Scheduled wake · {time} (Unix time)")); }
                     }
                 };

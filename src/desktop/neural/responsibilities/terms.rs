@@ -225,7 +225,7 @@ pub(super) fn show(
                         ui.horizontal_wrapped(|ui| {
                             ui.small("Wake on:");
                             let triggers = items(c, "on_events");
-                            let peers: Vec<_> = live_board::peer_wakes(c).collect();
+                            let peers: Vec<_> = live_board::peer_wakes(c, |id| person(members, id)).collect();
                             if triggers.is_empty() && peers.is_empty() {
                                 ui.label("Any new arrival");
                             }
@@ -244,10 +244,13 @@ pub(super) fn show(
                                         action = Some(Action::Inspect(trigger.into()));
                                     }
                                 } else {
-                                    ui.label(trigger.replace('_', " "));
+                                    ui.label(live_board::wake_event_name(trigger));
                                 }
                             }
-                            for peer in peers { ui.label(peer); }
+                            for (index, peer) in peers.iter().enumerate() {
+                                if index != 0 || !triggers.is_empty() { ui.weak("or"); }
+                                ui.label(peer);
+                            }
                             if let Some(time) = c["wake_at_unix"].as_i64() {
                                 ui.label(format!("or {}", time_label(time)));
                             }

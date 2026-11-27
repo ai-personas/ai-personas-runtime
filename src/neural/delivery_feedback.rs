@@ -84,8 +84,7 @@ pub(crate) fn issued(db: &Connection, reference: &str) -> Result<Issued> {
     if row.get_ref(2)?.as_str()? != owner
         || row.get_ref(3)?.as_str()? != work
         || row.get::<_, Option<String>>(4)?.as_deref() != Some(invocation.as_str())
-        || notice
-            != json!({"reference":reference,"title":record.body["title"],"scope":record.body["scope"]})
+        || notice != super::protocol::PublicationKind::Delivery.notice(reference, &record.body)
         || rows.next()?.is_some()
     {
         return Err(failure("Ambiguous or mismatched public issue notice"));

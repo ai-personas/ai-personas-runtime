@@ -430,15 +430,15 @@ pub fn events(db: &Connection, work: &str, actor: &str, after: i64) -> Result<Ve
     rows.into_iter().map(|(seq,actor,target,kind,digest,invocation,created)| Ok(json!({"event":seq,"experience":format!("experience:event-{seq}@1"),"actor":actor,"target":target,"kind":kind,"body":object::<Value>(db,&digest)?,"digest":digest,"invocation":invocation,"created":created}))).collect()
 }
 
-/// An actual arrival, followed outside-step edition, or peer choice selected by this wait.
+/// An inbox arrival, followed outside-step edition, named publication or peer choice selected by this wait.
 /// This does not deliver a message, override a stop, or include time-based wakes.
 pub fn waiting_arrival(db: &Connection, part: &super::protocol::Participation) -> Result<bool> {
-    let super::protocol::Continuation::Wait { on_events, on_peer_settled, .. } = &part.continuation else { return Ok(false) };
-    // No selections means any arrival. A peer-only watch is narrower, not
-    // an empty event filter accidentally satisfied by an unrelated delivery.
-    Ok(((!on_events.is_empty() || on_peer_settled.is_empty())
-        && has_arrival(db, &part.work, &part.persona, part.cursor, on_events)?)
+    let super::protocol::Continuation::Wait { on_events, on_peer_settled, on_peer_publication, .. } = &part.continuation else { return Ok(false) };
+    // Only a completely unfiltered wait defaults to any inbox arrival.
+    let check_inbox = !on_events.is_empty() || (on_peer_settled.is_empty() && on_peer_publication.is_empty());
+    Ok((check_inbox && has_arrival(db, &part.work, &part.persona, part.cursor, on_events)?)
         || super::human_requests::following::arrived(db, part)?
+        || super::peer_wait::publication_arrived(db, part, on_peer_publication)?
         || !super::peer_wait::changes(db, part)?.is_empty())
 }
 

@@ -198,6 +198,12 @@ A participant may choose to watch a particular collaborator who is still ready. 
 
 For example, after Exodus issue #1571 all four participants were waiting. The listener had no workers; none of their selected arrivals had occurred after their respective input cursors. Ten authored outcomes were still partial. An earlier instruction had reached Eli and led to a separate [manufacturing notice](../examples/exodus-design-room/fixed/DO-NOT-ORDER.txt); a public delivery was not a direct message to the other two waiting peers. This was not evidence of a hung model call, a finished generator, or use of the later peer-choice wake option.
 
+#### Wait for a particular publisher
+
+In **Activity → Work status**, **public delivery from Eli (eli)** means the waiting persona chose to reconsider when Eli next issues an edition in this activity. **public finding from Eli (eli)** is a separate condition for a published package review. Neither asks Eli to do anything. A matching notice says nothing about which files were checked or whether a recipient accepts them.
+
+A persona can set `on_peer_publication: [{"peer":"eli","kind":"delivery"}]` in its `wait` (substitute the exact `participants[].persona` from its input). To watch for a finding, use `"kind":"package_review"`. An unread public notice counts even if it arrived while the persona was deciding. A private message, a copy returned from another activity, and someone else’s publication do not match this condition. The filter controls **when to reconsider**, not **what to read**: the next decision still receives its normal inbox. Additional conditions, including broad `on_events` and a timer, are alternatives, not extra restrictions.
+
 ### What happened to my decision request?
 
 In **Activity → Work status → Decision requests**, select the request number beside its recipient. Or choose **Decision request receipt** on its timeline entry. The receipt starts with the operator’s reason and the brief in force. Expand **Preserved wait** or **Preserved stop** to see the choice that remained in place when the operator asked. Nothing here starts a runner or sends a second request.
