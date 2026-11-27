@@ -556,6 +556,10 @@ impl App {
             self.dialog = Some(self.participation_dialog(dialogs::Action::Invite));
             ui.close_kind(egui::UiKind::Menu);
         }
+        if self.resume_all_button(ui) {
+            self.review_resume_all();
+            ui.close_kind(egui::UiKind::Menu);
+        }
         if ui.add_enabled(!ended && !self.busy && self.dialog.is_none(), egui::Button::new("Resume participant")).clicked() {
             self.dialog = Some(self.resume_dialog());
             ui.close_kind(egui::UiKind::Menu);

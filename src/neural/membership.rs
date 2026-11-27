@@ -6,6 +6,10 @@ use super::{
     protocol::{Continuation, Operation, Participation, PendingResume},
     store, Result,
 };
+mod resume_all;
+pub use resume_all::ResumePlan;
+pub(super) use resume_all::request_all;
+
 use rusqlite::{params, Connection};
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -318,6 +322,21 @@ fn unsettled_inference(db: &Connection, work: &str) -> Result<Vec<Value>> {
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
+fn resume_block(part: &Participation) -> Option<&'static str> {
+    if part.declined || part.departure.is_some() || part.closed_by_activity.is_some() {
+        Some("Send a fresh invitation after a decline, departure or dissolution. The persona decides whether to rejoin.")
+    } else if part.pending_resume.is_some() || matches!(part.continuation, Continuation::Ready { .. }) {
+        Some("The participation is already ready or has a pending resume. No second resume was recorded.")
+    } else {
+        None
+    }
+}
+
+fn decision_in_flight(db: &Connection, work: &str, actor: &str) -> Result<bool> {
+    Ok(db.query_row("SELECT EXISTS(SELECT 1 FROM invocations WHERE work=?1 AND actor=?2
+        AND state IN ('prepared','dispatched','responded','probe_prepared','probe_dispatched'))", params![work, actor], |r| r.get(0))?)
+}
+
 /// Admit one more decision without replacing the last continuation or treating
 /// the operator's reason as the participant's own purpose or commitment.
 /// The caller holds the same write transaction used for operator request IDs.
@@ -330,18 +349,14 @@ pub(super) fn request_resume(
         return Err(failure("The participation changed or belongs to someone else. Inspect the current wait or stop first."));
     }
     let mut part: Participation = serde_json::from_value(prior.body)?;
-    if part.declined || part.departure.is_some() || part.closed_by_activity.is_some() {
-        return Err(failure("Send a fresh invitation after a decline, departure or dissolution. The persona decides whether to rejoin."));
+    if part.work != work || part.persona != actor {
+        return Err(failure("Participation does not match this activity and persona."));
     }
-    if part.pending_resume.is_some() || matches!(part.continuation, Continuation::Ready { .. }) {
-        return Err(failure("The participation is already ready or has a pending resume. No second resume was recorded."));
-    }
+    if let Some(reason) = resume_block(&part) { return Err(failure(reason)); }
     if reason.trim().is_empty() { return Err(failure("Give an attributed reason to resume.")); }
     // A timer or arrival can already have admitted a waiting participant even
     // though its last accepted continuation is still wait. Do not stale that call.
-    let admitted: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM invocations WHERE work=?1 AND actor=?2
-        AND state IN ('prepared','dispatched','responded'))", params![work, actor], |r| r.get(0))?;
-    if admitted { return Err(failure("A decision on this activity is already in flight. Inspect its result before resuming.")); }
+    if decision_in_flight(db, work, actor)? { return Err(failure("A decision on this activity is already in flight. Inspect its result before resuming.")); }
     let event = store::event(db, work, operator, actor, "explicit_resume", &json!({
         "reason":reason, "previous_participation":expected, "brief":activity.reference.handle()
     }), None)?;

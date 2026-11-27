@@ -68,6 +68,7 @@ impl App {
             })
             .collect();
         let (mut request, mut choice, mut inspect, mut receipt) = (None, None, None, None);
+        let mut resume_all = false;
         let now = ai_personas::neural::now();
         egui::ScrollArea::vertical().id_salt(("work-status", &self.work)).show(ui, |ui| {
             eyebrow(ui, "Activity  /  Work status");
@@ -91,6 +92,7 @@ impl App {
                         _ => { ui.label(self.runner_status_text()); }
                     }
                 });
+                resume_all = self.resume_all_button(ui);
                 if !waits.is_empty() {
                     if checked == waits.len() {
                         ui.label(format!("Matching arrival: {matched} of {checked} waits"));
@@ -186,6 +188,9 @@ impl App {
                 ui.add_space(6.);
             }
         });
+        if resume_all {
+            self.review_resume_all();
+        }
         if let Some(id) = request {
             self.show_human_request(&id);
         }

@@ -404,6 +404,16 @@ pub enum Command {
         #[arg(long)]
         expected: String,
     },
+    /// Preview everyone waiting or stopped in this activity and the fingerprint of their exact choices.
+    ResumePlan { work: String },
+    /// Request a decision from each person in a reviewed resume plan. Does not start a runner or lift a hold.
+    ResumeAll {
+        work: String,
+        reason: String,
+        /// Fingerprint returned by resume-plan for this activity.
+        #[arg(long)]
+        expected: String,
+    },
     /// Deliver user input to an existing participation; stopping remains explicit.
     Message {
         work: String,
@@ -590,7 +600,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
         field_report.prepare(note, files)?;
     }
     let mutation = matches!(&command, Command::Request { .. } | Command::Social { .. } | Command::AddPersona { .. }
-        | Command::Invite { .. } | Command::Resume { .. } | Command::Message { .. } | Command::Amend { .. }
+        | Command::Invite { .. } | Command::Resume { .. } | Command::ResumeAll { .. } | Command::Message { .. } | Command::Amend { .. }
         | Command::PackageReview { .. } | Command::AssetFeedback { .. } | Command::Accept { .. } | Command::Control { .. } | Command::Configure { .. }
         | Command::ProposeAgreement { .. } | Command::AgreementPosition { .. } | Command::TaskRole { .. }
         | Command::Dissolve { .. } | Command::Reopen { .. } | Command::HumanRespond { .. } | Command::FinishRun { .. });
@@ -615,6 +625,7 @@ pub async fn execute_with_request(root: &Path, operator: &str, mut command: Comm
     if request_id.is_some() && !matches!(&command,Command::RunCommand{..}) { return Err(failure("--request-id applies to operator actions and portable command runs")); }
     if request_id.is_some_and(|id|id.trim().is_empty()) {return Err(failure("Supply a nonblank operator request ID"));}
     match command {
+        Command::ResumePlan { work } => Ok(serde_json::to_value(super::membership::ResumePlan::inspect(root, &work)?)?),
         Command::ConnectCodex(route) =>
             super::connection::change(root, operator, super::connection::Route::Codex(route)).await,
         Command::ConnectPlatform { platform_key_file } =>
@@ -867,6 +878,7 @@ fn operator_action(root: &Path, db: &rusqlite::Connection, operator: &str, comma
             }
             let record=super::controls::change(db,&scope,&state,&reason,super::controls::Origin::Operator(operator),None)?;Ok(json!({"scope":scope,"state":state,"reason":reason,"record":record.handle(),"stopped_participations_resumed":false}))
         },
+        Command::ResumeAll{work,reason,expected} => super::membership::request_all(db,&work,operator,&reason,&expected),
         Command::Resume{work,persona,reason,expected} => super::membership::request_resume(db,&work,&persona,operator,&reason,&expected),
         Command::Message{work,persona,text,reply_to,delivery,files}=>{
             if text.trim().is_empty() && files.is_empty(){return Err(failure("Write a message or attach a file before sending"));}
