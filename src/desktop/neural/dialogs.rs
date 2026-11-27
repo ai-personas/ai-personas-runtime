@@ -4,6 +4,7 @@ mod amendment;
 mod invitation;
 mod connection;
 mod resume;
+mod resume_all;
 pub(super) use resume::RecipientState;
 
 #[derive(Default)]
@@ -35,6 +36,7 @@ impl Action {
 
 pub(super) enum Dialog {
     Resume(resume::Form),
+    ResumeAll(resume_all::Form),
     Amendment(amendment::Form),
     Agreement(agreements::Form),
     ActivityState { work: String, expected: String, reopen: bool, reason: String },
@@ -120,6 +122,7 @@ impl Dialog {
             Self::Activity { .. } => "New task",
             Self::Participation { action, .. } => action.title(),
             Self::Resume(_) => "Review participation",
+            Self::ResumeAll(_) => "Resume all personas",
             Self::Persona { .. } => "New persona",
             Self::Review(_) => "Review delivery",
             Self::Amendment(_) => "Amend the brief",
@@ -170,6 +173,20 @@ impl App {
         } else if !matches!(self.dialog, Some(Dialog::Settings(_))) {
             self.notice = "Close the current form before opening settings. To keep the draft, open another operator desk from + New.".into();
         }
+    }
+
+    pub(super) fn resume_all_button(&self, ui: &mut Ui) -> bool {
+        let open = self.records("work").iter().any(|r| r["body"]["id"] == self.work && r["body"]["phase"] == "open");
+        let available = open && resume::any_available(self);
+        ui.add_enabled(available && !self.busy && self.dialog.is_none(), egui::Button::new("Resume all…"))
+            .on_hover_text("Review everyone waiting or stopped in this activity before requesting new decisions.")
+            .on_disabled_hover_text(if available { "Finish the current action or close its form first." } else { "No waiting or stopped participants are available to resume in this activity." })
+            .clicked()
+    }
+
+    pub(super) fn review_resume_all(&mut self) {
+        self.error = None;
+        self.dialog = Some(Dialog::ResumeAll(resume_all::Form::open(self)));
     }
 
     pub(super) fn resume_dialog(&self) -> Dialog {
@@ -302,11 +319,11 @@ impl App {
             let initial = egui::vec2(552.0_f32.min(width), 575.0_f32.min((bounds.height()-84.).max(64.)));
             window = window.default_pos(bounds.center()-initial*0.5).default_height(initial.y);
         }
-        let window_id = if invitation { "studio-invitation" } else if matches!(draft, Dialog::Resume(_)) {
+        let window_id = if invitation { "studio-invitation" } else if matches!(draft, Dialog::Resume(_) | Dialog::ResumeAll(_)) {
             let bounds = ctx.content_rect();
             let initial = egui::vec2(510.0_f32.min(width), 460.0_f32.min((bounds.height()-84.).max(64.)));
             window = window.default_pos(bounds.center()-initial*0.5).default_height(initial.y);
-            "studio-participation-choice"
+            if matches!(draft, Dialog::ResumeAll(_)) { "studio-resume-all" } else { "studio-participation-choice" }
         } else { "studio-dialog" };
         window
             .id(egui::Id::new(window_id))
@@ -470,6 +487,7 @@ impl App {
                         }
                     }
                     Dialog::Resume(form) => command = form.show(ui,self),
+                    Dialog::ResumeAll(form) => command = form.show(ui,self),
                     Dialog::Agreement(form) => command = form.show(ui,self),
                     Dialog::Settings(form) => command = self.workspace_settings(ui, ctx, form),
                     Dialog::Render(form) => command=form.show(ui,self),

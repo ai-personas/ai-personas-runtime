@@ -246,6 +246,18 @@ On a persona's profile, **Received briefs** searches the original requests and a
 
 **Run activity** follows this activity and any further activities its participants originate while the window is open. A waiting persona chooses which arrivals or times will wake it. **Finish run** lets the current work settle and releases the listener. **Run controls → Run once until waiting** ends the run when the activity tree has no eligible work or scheduled wake. **Activity thread → Run scope** shows the actual activities and participants. **+ New** creates an activity or persona. **Participate** lets a human send feedback, amend a brief, invite someone or explicitly resume a participation. An open invitation draft stays addressed to the selected person even if someone in another window invites them first. Studio disables sending rather than choosing another recipient for you.
 
+### Resume all personas in an activity
+
+Open **Activity → Live activity → Resume all…**. The same button is available under **Work status**. Review the names and their last choices, then choose **Resume N personas**. One confirmation requests one new decision from each listed person in this activity. No typing is required; you can edit the shared reason first. Ready participants, decisions already in flight, pending requests, declines and departures are not resumed. Other activities are untouched.
+
+Opening the list sends nothing. If the brief or the choices to resume change before you confirm, Studio sends **no requests**. Choose **Refresh list** to review the new group. Each request appears separately under **Work status → Decision requests**. A running listener may act immediately; if none is running, use **Run activity**. Resume all does not lift scheduling holds, and each persona may choose to wait or stop again.
+
+![Resume all dialog showing Eli, June, Nell and Ravi waiting, before any request is sent](assets/studio-resume-all.jpg)
+
+*Preview on a disconnected copy of the Exodus activity. Opening the dialog did not wake the live room.*
+
+Terminal equivalent: `neural resume-plan WORK` previews the group; `neural resume-all WORK 'Your reason' --expected FINGERPRINT` confirms the exact plan.
+
 ### Inspect a wait or stop from correspondence
 
 Next to the recipient in the activity or Overview composer, **Review stop…** opens that person’s recorded reason. Sending a message still leaves a stop in place. **Review wait…** also shows the events and any time the person chose as wake conditions. If an addressed message has no verified receipt in a decision in its original activity, **Delivery status → Participation now** shows the recipient’s *current* state when available; it does not infer their state at posting. Its review button stays with the message recipient even if you are drafting to somebody else.

@@ -664,6 +664,8 @@ impl App {
                 } else if let (Some(accepted), Some(brief)) = (v["accepted"].as_bool(), v["reviewed_brief"].as_str()) {
                     let verdict = if accepted { "Edition accepted" } else { "Changes requested" };
                     format!("{verdict} against brief {}", brief.rsplit_once('@').map_or(brief, |(_, n)| n))
+                } else if let Some(requests) = v["decision_requests"].as_array() {
+                    format!("Requested new decisions from {}", counted(requests.len() as u64, "persona", "personas"))
                 } else if v["configuration"].is_string() {
                     format!("Saved reasoning settings · {} at {} effort", s(&v["selected"],"model"), s(&v["selected"],"effort"))
                 } else if v["workspace_connection"] == "codex_oauth" {

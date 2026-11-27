@@ -78,6 +78,10 @@ impl Choice {
         })
     }
 
+    fn deciding(&self, app: &App) -> bool {
+        app.snapshot.active.iter().any(|call| call["actor"] == self.person && call["work"] == self.work)
+    }
+
     fn current<'a>(&self, app: &'a App) -> Option<&'a Value> {
         if !app
             .records("work")
@@ -112,6 +116,11 @@ impl Choice {
         .on_disabled_hover_text("Finish the current action or close its form first.")
         .clicked()
     }
+}
+
+pub(super) fn any_available(app: &App) -> bool {
+    app.records("participation").iter().filter(|r| r["body"]["work"] == app.work)
+        .filter_map(Choice::read).any(|choice| !choice.deciding(app))
 }
 
 struct Target {
@@ -228,11 +237,7 @@ impl Form {
         }
         ui.small(&choice.participation);
         let current = choice.current(app).is_some();
-        let deciding = app.snapshot.active.iter().any(|call| {
-            call["actor"] == choice.person
-                && call["work"] == choice.work
-                && matches!(s(call, "state"), "prepared" | "dispatched" | "responded")
-        });
+        let deciding = choice.deciding(app);
         if !current {
             ui.colored_label(theme::ACCENT, "This choice is no longer current or available. Close and inspect the current participation.");
         } else if deciding {

@@ -712,6 +712,7 @@ impl App {
             if let Some((_, reason)) = &blocked { status.on_hover_text(reason); }
             ui.separator();
             self.live_shortcuts(ui);
+            if self.resume_all_button(ui) { self.review_resume_all(); }
             if following {
                 if ui
                     .small_button(if whole_workspace { "Finish workspace run" } else { "Finish run" })
