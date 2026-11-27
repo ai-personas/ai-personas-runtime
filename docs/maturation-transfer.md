@@ -113,11 +113,17 @@ The [Studio timeline](desktop.md#which-character-made-the-switch) reads the inpu
 |---|---:|---:|---:|---:|---:|
 | Nell through #291 | 10 | 9 | 4 | 1 | 1 |
 | Nell through #1590 (includes the first interval) | 116 | 115 | 4 | 1 | 1 |
+| Nell through #1755 | 130 | 129 | 4 | 1 | 1 |
 | Ravi through #1590 | 15 | 14 | 4 | 2 | 1 |
+| Ravi through #1755 | 26 | 25 | 4 | 2 | 1 |
 
-The full-question inputs are included in the cue counts here. For each question, two inputs contained a selected record, one a tool result, and one a practice receipt. Receipt of the full text is not itself an application.
+The full-question inputs are included in the cue counts here. For each question, two inputs contained a selected record, one a tool result, and one a practice receipt. In the user-operated interval after #1590, Nell’s 14 additional accepted inputs each contained a revisit cue and an activity-feedback pointer. Ravi’s eleven contained a revisit cue but not that pointer. Neither received its full question again, applied it again or recorded a new finding. Those reminders are not new evidence that the practice helped.
 
 We compared `neural question-history` with the original inputs, responses and question editions on disconnected copies. In **Character Lab → Development → Trace question history…**, choose **Full question inputs** for the four inputs on either timeline. Choose **Practice trail** for the actions and findings; those are different lists. No persona or submitted command was rerun. The receipts show what was checked in the digital files; there was no revised numerical character to compare with its earlier self, and no physical test.
+
+**What the numbers did before a choice.** At #1628 Eli chose to appraise collaboration in light of the desk’s request and three earlier outcomes. On his unchanged network, `0.95 × 0.62 = 0.589`; `tanh(0.589) = 0.529176`, versus zero at baseline. His next input contained that value **before** he chose to ask June about geometry, Nell about metrology and Ravi about the apparatus. [Their actual replies and joint issue](../examples/exodus-design-room/fixed/#did-the-waiting-peers-receive-elis-messages) show cooperation, not that the coefficient caused it. June, meanwhile, chose ready, checked the outside request, and then waited with the same baseline persistence (0.446244). Neither an inclination nor the desk’s request mandated a continuation.
+
+Across the original room through #1755 we independently reproduced **7,620 output values** (598 ordinary completed baselines and 37 additional contextual evaluations, twelve outputs each; largest absolute difference below 1.2 × 10⁻¹⁶). All 579 accepted ordinary decisions retained epoch 1: 577 chose no character change; the other two changed the development records above. They separately chose 91 resource changes. The 62 later accepts included ten contextual inputs, 43 with editable coordinates, 59 citing considered experience and 42 choosing a local behavior. None proposed, assessed or activated a numerical edit. These counts overlap the [earlier seven-history study](user-requirement-audit.md#which-character-reached-the-decision); they are not a second independent cohort. **The missing evidence is a freely chosen, lasting numerical change that helps a later recipient**, not another cue, calculation or review. UR-008, UR-010, UR-026, UR-029 and B09 remain open; the behavioral evidence for UR-027 remains limited.
 
 ## Rhea's handoffs to a teammate
 
