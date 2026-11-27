@@ -30,16 +30,16 @@ pub(super) fn checked(
     record: &store::Record,
     selected: Option<&Edition>,
 ) -> Result<Publication> {
-    let other;
-    let issue = match record.body["subject"]["delivery"].as_str() {
-        Some(r) if selected.is_some_and(|s| s.issue.record.reference.handle() == r) => selected,
-        Some(r) => {
-            other = after_issue::public_issue(db, r)?;
-            Some(&other)
-        }
-        None => None,
-    };
-    verify(db, record, issue)
+    if let Some(issue) = selected.filter(|s| record.body["subject"]["delivery"] == s.issue.record.reference.handle()) {
+        return verify(db, record, Some(issue));
+    }
+    at_subject(db, record).map(|(proof, _)| proof)
+}
+
+pub(super) fn at_subject(db: &Connection, record: &store::Record) -> Result<(Publication, Option<Edition>)> {
+    let issue = record.body["subject"]["delivery"].as_str()
+        .map(|r| after_issue::public_issue(db, r)).transpose()?;
+    Ok((verify(db, record, issue.as_ref())?, issue))
 }
 
 /// With Some(issue), require that very edition as the subject. With None,

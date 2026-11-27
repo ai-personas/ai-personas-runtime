@@ -304,7 +304,7 @@ pub(super) fn responses_to_call(
     for row in reviews.query_map(params![actor, work, call], Experience::row)? {
         let e = row?;
         let body: Value = store::object(db, &e.digest)?;
-        if let Ok(Some(edition)) = peer_review(db, actor, &e, &body) {
+        if let Ok(Some(edition)) = peer_review(db, actor, &e) {
             if edition.issue.invocation == call {
                 replies.push(json!({"experience":e.metadata()["reference"],"sequence":e.id[6..].parse::<i64>()?,
                     "author":e.actor,"kind":e.kind,"relation":"peer_package_review","target":edition.issue.record.reference.handle(),"review":body["reference"]}));
@@ -316,11 +316,14 @@ pub(super) fn responses_to_call(
     Ok(replies)
 }
 
-fn peer_review(db: &Connection, owner: &str, event: &Experience, body: &Value) -> Result<Option<super::activity_sources::delivery::Edition>> {
-    use super::package_review::peer::{reviewed_issue, Notice};
-    let Some(call) = event.invocation.as_deref().filter(|_| event.kind == "package_review" && (event.target == "*" || event.target == owner) && event.actor != owner) else { return Ok(None) };
-    let seq = event.id.strip_prefix("event-").ok_or_else(|| failure("Missing review event"))?.parse()?;
-    reviewed_issue(db, owner, Notice { work:&event.work, peer:&event.actor, target:&event.target, call, seq, body }).map(Some)
+fn finding_notice(db: &Connection, event: &Experience) -> Result<super::package_review::FindingNotice> {
+    let seq = event.id.strip_prefix("event-").ok_or_else(|| failure("Missing finding notice"))?.parse()?;
+    super::package_review::FindingNotice::at(db, &event.work, seq, &event.digest)
+}
+
+fn peer_review(db: &Connection, owner: &str, event: &Experience) -> Result<Option<super::activity_sources::delivery::Edition>> {
+    if event.invocation.is_none() || event.kind != "package_review" || !(event.target == "*" || event.target == owner) || event.actor == owner { return Ok(None); }
+    finding_notice(db, event)?.peer_issue(owner, &event.work).map(Some)
 }
 
 /// A compact invitation to deliberate retrieval. Other activities contribute
@@ -351,7 +354,7 @@ pub(super) fn availability(db: &Connection, actor: &str, work: &str) -> Result<V
     let sql = format!("{EVENTS} WHERE e.kind='package_review' AND e.target=?1 AND e.work<>?2 AND e.invocation IS NOT NULL ORDER BY e.seq DESC LIMIT 1");
     if let Some(e) = db.query_row(&sql, [actor,work], Experience::row).optional()? {
         let body: Value = store::object(db, &e.digest)?;
-        if let Ok(Some(issued)) = peer_review(db, actor, &e, &body) {
+        if let Ok(Some(issued)) = peer_review(db, actor, &e) {
             available["latest_returned_peer_review_elsewhere"] = json!({"experience":e.metadata()["reference"],
                 "work":e.work,"reviewed_by":e.actor,"review":body["reference"],"delivery":issued.issue.record.reference.handle(),
                 "issuing_decision":format!("experience:{}@1",issued.issue.invocation),"bodies_supplied":false});
@@ -377,12 +380,16 @@ pub(super) fn read(db: &Connection, actor: Option<&str>, reference: &str) -> Res
             Err(_) => result["issuance_link_status"] = json!("unavailable"),
         }
     }
-    if item.kind == "package_review" && item.target != "*" {
-        match peer_review(db, &item.target, &item, &event["body"]) {
-            Ok(Some(edition)) => result["issuance_reviewed"] = json!({"delivery":edition.issue.record.reference.handle(),
-                "issuer":item.target,"decision":format!("experience:{}@1",edition.issue.invocation),"operation":edition.operation,
-                "review":event["body"]["reference"],"reporting_work":event["body"]["reporting_work"]}),
-            _ => result["issuance_link_status"] = json!("unavailable"),
+    if item.kind == "package_review" {
+        let finding = finding_notice(db, &item);
+        result["reviewed_subject_now"] = finding.as_ref().map(|f| f.subject()).unwrap_or_else(|_| json!({"status":"unavailable"}));
+        if item.target != "*" {
+            match finding.and_then(|f| f.peer_issue(&item.target, &item.work)) {
+                Ok(edition) => result["issuance_reviewed"] = json!({"delivery":edition.issue.record.reference.handle(),
+                    "issuer":item.target,"decision":format!("experience:{}@1",edition.issue.invocation),"operation":edition.operation,
+                    "review":event["body"]["reference"],"reporting_work":event["body"]["reporting_work"]}),
+                Err(_) => result["issuance_link_status"] = json!("unavailable"),
+            }
         }
     }
     if item.kind == "accepted_decision" {

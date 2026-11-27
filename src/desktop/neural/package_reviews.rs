@@ -70,7 +70,6 @@ enum Reply {
 #[derive(Default)]
 pub(super) struct Desk {
     visible: bool,
-    reading_return: bool,
     selection: Selection,
     offset: usize,
     page: Option<Value>,
@@ -82,6 +81,7 @@ pub(super) struct Desk {
 }
 
 impl Desk {
+    pub(super) fn can_browse(&self) -> bool { self.draft.is_none() && !self.publishing }
     pub(super) fn open(
         &mut self,
         ctx: &egui::Context,
@@ -89,37 +89,24 @@ impl Desk {
         work: &str,
         delivery: Option<&str>,
     ) {
-        self.open_selection(ctx, root, work, delivery, None);
-    }
-    pub(super) fn write_for(&mut self, ctx: &egui::Context, root: &Path, work: &str, edition: &str) {
-        self.open(ctx, root, work, Some(edition));
-        // Opening another entry point must never re-address an existing draft.
-        if !self.publishing { self.draft.get_or_insert_with(Draft::default); }
-    }
-    pub(super) fn open_finding(
-        &mut self, ctx: &egui::Context, root: &Path, work: &str, delivery: &str, finding: &str,
-    ) {
-        self.open_selection(ctx, root, work, Some(delivery), Some(finding));
-    }
-    fn open_selection(
-        &mut self, ctx: &egui::Context, root: &Path, work: &str,
-        delivery: Option<&str>, finding: Option<&str>,
-    ) {
         self.visible = true;
-        if self.draft.is_some() || self.publishing {
+        if !self.can_browse() {
             return;
         }
-        self.reading_return = finding.is_some();
         self.selection = Selection {
             work: work.into(),
             delivery: delivery.unwrap_or_default().into(),
-            specific: finding.unwrap_or_default().into(),
             ..Default::default()
         };
         self.reset();
         if self.selection.can_compare() {
             self.load(ctx, root, 0);
         }
+    }
+    pub(super) fn write_for(&mut self, ctx: &egui::Context, root: &Path, work: &str, edition: &str) {
+        self.open(ctx, root, work, Some(edition));
+        // Opening another entry point must never re-address an existing draft.
+        if !self.publishing { self.draft.get_or_insert_with(Draft::default); }
     }
     fn reset(&mut self) {
         self.page = None;
@@ -250,8 +237,7 @@ impl Desk {
         let mut publish = false;
         let rect = ctx.content_rect().shrink(6.);
         let bounds = (rect.size() - egui::vec2(32., 76.)).max(egui::vec2(1., 1.));
-        let heading = if self.reading_return { "Returned finding" } else { "Package reviews" };
-        egui::Window::new(heading)
+        egui::Window::new("Package reviews")
             .id(egui::Id::new("studio-package-reviews"))
             .open(&mut visible)
             .min_size(egui::vec2(180., 120.).min(bounds))
@@ -260,18 +246,7 @@ impl Desk {
             .constrain_to(rect)
             .resizable(true)
             .show(ctx, |ui| {
-                if self.reading_return {
-                    ui.horizontal_wrapped(|ui| {
-                        theme::badge(ui, "Peer review", TEAL);
-                        ui.weak("Returned to the issuer · not an acceptance");
-                        if ui.small_button("Browse other reviews…").clicked() {
-                            self.reading_return = false;
-                            self.selection.specific.clear();
-                            load = Some(0);
-                        }
-                        if self.pending.is_some() { ui.spinner(); }
-                    });
-                } else if self.draft.is_none() {
+                if self.draft.is_none() {
                     let previous = self.selection.clone();
                     let compare = choose_subject(ui, &mut self.selection, status);
                     if previous != self.selection {
@@ -308,9 +283,7 @@ impl Desk {
                 }
                 if let Some(error) = &self.error {
                     ui.colored_label(ui.visuals().error_fg_color, error);
-                    if self.reading_return && self.pending.is_none() && ui.button("Retry finding").clicked() {
-                        load = Some(0);
-                    } else if self.draft.is_some() && self.pending.is_none() {
+                    if self.draft.is_some() && self.pending.is_none() {
                         ui.horizontal(|ui| {
                             if ui.button("Reload reviewed brief").clicked() {
                                 load = Some(0);

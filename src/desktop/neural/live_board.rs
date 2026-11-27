@@ -1197,7 +1197,7 @@ enum EventAction {
     Agreement(String),
     Open(String),
     Package(String),
-    Finding { delivery: String, review: String },
+    Finding { event: i64, digest: String },
     SourceFile {
         source: String,
         object: String,
@@ -1335,8 +1335,7 @@ impl App {
                     Some(EventAction::Open(reference)) => self.open_resource(ui.ctx(), reference),
                     Some(EventAction::Agreement(reference)) => self.show_agreements(Some(reference)),
                     Some(EventAction::Package(reference)) => self.open_issued_package(ui.ctx(), &reference),
-                    Some(EventAction::Finding { delivery, review }) => self.package_reviews
-                        .open_finding(ui.ctx(), &self.root, &self.work, &delivery, &review),
+                    Some(EventAction::Finding { event, digest }) => self.open_finding_notice(ui.ctx(), event, &digest),
                     Some(EventAction::SourceFile { source, object, name }) => {
                         self.open_named_resource(ui.ctx(), object, Some((source, name)))
                     }
@@ -1748,20 +1747,11 @@ impl App {
                             };
                             theme::badge(ui, &title(verdict), color);
                         }
-                        if let Some(review) = body["reference"].as_str() {
-                            if text_action(ui, "Read finding").on_hover_text(review).clicked() {
-                                action = Some(match body["delivery"].as_str() {
-                                    Some(delivery) => EventAction::Finding {
-                                        delivery: delivery.into(), review: review.into(),
-                                    },
-                                    None => EventAction::Open(review.into()),
-                                });
-                            }
+                        if text_action(ui, "Read finding").on_hover_text("Read the published finding and the exact subject it assessed").clicked() {
+                            action = Some(EventAction::Finding { event: seq, digest: s(event, "digest").into() });
                         }
                     }
-                    if matches!(kind, "request_delivery" | "delivery" | "delivery_check")
-                        || (kind == "package_review" && body["delivery"].is_string())
-                    {
+                    if matches!(kind, "request_delivery" | "delivery" | "delivery_check") {
                         if let Some(package) =
                             body["delivery"].as_str().or(body["reference"].as_str())
                         {

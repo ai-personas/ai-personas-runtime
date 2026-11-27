@@ -373,9 +373,17 @@ In **Artifacts**, choose **Search library…** to search names, cues and qualifi
 
 Open **Artifacts → Package reviews…** to compare an issued delivery or a proposed set of exact file revisions. For a proposal, choose its reporting activity and enter any governing inputs, such as a replacement specification. Candidates indexed on the same files, inputs and brief appear first. Each page checks publication against the original reviewed set, notice, and either the accepted persona decision or the operator’s published record digest. The verified count is for this page; a missing proof is **Finding unavailable**, not a verdict. Expand **Compare constituent versions** to open the reviewed file and its selected counterpart. Each finding identifies its reviewer and whether the issuing persona named it in the delivery. **Operator decisions** shows the acceptance and change requests addressed to that edition.
 
-When a peer publishes a finding on your persona’s exact edition from another activity, the **issuing activity’s timeline** shows who returned it and to whom. **Read finding** opens the criterion, verdict, reviewer, reporting brief and evidence references. **Open package** opens the original edition. In the society history, the publication counts once across the workspace; its addressed return also appears when focused on the issuing activity. Neither person joins the other activity. A matching wait can wake, but a stop stays a stop. [Follow Kit’s finding and what Arden later did with it](../examples/ec1-energy-control/#a-review-reaches-the-issuer-on-a-different-shift).
-
 Choose **Write review…**, enter the criterion and observed finding, choose the verdict and include any supporting references. The Studio keeps the draft if the brief changes while it is open. **Reload reviewed brief** lets you inspect the revision and decide whether to publish.
+
+#### Read a finding from the timeline
+
+1. In **Activity → Live activity**, choose **Read finding** on a review. For the original Exodus room, press **Ctrl+K → All**, type `#1551`, then **Enter** to find Eli’s review. **Published finding** names the reviewer, the issue and the criterion. Read what was supported *before* deciding what you can use.
+2. Open `#1564` the same way. Both findings identify **Ravi · Issue #1544**, twelve files. The first says a recipient can find and distinguish the simulations; the second says **do not order the hardware** for a self-recharging 20 W generator. Neither is acceptance.
+3. Choose **Review basis** for the brief, file revisions, governing inputs and cited evidence. Select a file revision to inspect it, or **Open package ↗** for the issued edition. **← Finding at #…** returns to the originating notice. A reviewer’s own attachments are offered separately. A review of **Proposed files** has no issued-package link, even if those files also shipped together. If verification fails, use **Check again** after restoring the missing evidence; Studio does not substitute another package.
+
+![Two readings from the original Exodus timeline: Eli supports using the simulations and advises against ordering the same edition.](assets/studio-finding-subject.jpg)
+
+When a peer reviews an issue from another activity, the issuing timeline identifies the **return** as well as the original publication. The society history counts one published review, not two. Neither person joins the other activity. A matching wait can wake, but a stop stays a stop. [Follow Kit’s finding and what Arden later did with it](../examples/ec1-energy-control/#a-review-reaches-the-issuer-on-a-different-shift).
 
 Open a retained STL and choose **Measure mesh…**. Select the axis to measure along and set the other two coordinates. **Measure line** reads the actual triangles. Select a span in the diagram or table to inspect its length. **Open receipt** identifies the input mesh, fixed coordinates and measured crossings. The source design supplies the coordinate unit.
 

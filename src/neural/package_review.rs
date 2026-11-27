@@ -1,6 +1,8 @@
 //! A finding belongs to the constituent versions and brief the reviewer assessed.
 //! Matching those identities does not establish the truth of the finding.
 pub mod after_issue;
+mod notice;
+pub use notice::FindingNotice;
 mod comparisons;
 mod files;
 pub use files::EvidenceFile;

@@ -52,6 +52,14 @@ A stronger claim still requires a persona to originate a warranted change, use i
 
 The [two-ticket print job](../examples/museum-deposit-tickets/) follows a same-activity peer review into the issuer’s ordinary decision. Both the professional finding and the original issuing action are attributable; neither is numerical development. The saved EC1 review exposed the missing link, and the new ticket job exercised it through Studio on Astra high/xhigh.
 
+### Which package did the finding assess?
+
+A timeline verdict is about the reviewer’s **criterion**, not acceptance of the work. In the original Exodus room Eli published two findings on Ravi’s twelve-file issue. At **#1551** he supported the simulation handoff after checking seven guide links and the hashes of the two model archives. At **#1564** he advised against ordering a self-recharging generator. Ravi’s next input contained #1564 and Eli’s separate message, not the desk’s original request to Eli. Ravi **selected the review**; the full finding reached his following choice, which issued the [no-order notice](../examples/exodus-design-room/fixed/DO-NOT-ORDER.txt). [Read the two criteria in Studio](desktop.md#read-a-finding-from-the-timeline).
+
+The original broadcast supplied a review address, criterion and verdict, not an edition address. On a **new ordinary input**, `new_events[].reviewed_subject` identifies the verified issued edition, issuer, issue event, brief and counts, or the proposal identified by its review. It does not load the files or finding text. A later experience read calls this `reviewed_subject_now`: it is a check made **now**, not evidence of what an earlier provider saw. If the subject cannot be verified it is `unavailable`. An authentic notice on someone else’s issue does not make their issuing action your own.
+
+On disconnected copies we prepared inputs at ten recorded boundaries. Both Exodus criteria resolved to the same issue. Kit’s two-file pocket-log finding stayed a **proposal** even though those very files were issued before publication. With the reviewer’s effects record removed, Ravi still had the #1564 envelope and the independent message at #1566, without the subject link. These inputs were not sent. No new recipient choice or change of weights is attributed to this additional information.
+
 ### What if the reviewer was invited elsewhere?
 
 Vale had reviewed Tavi’s issued model in **another** activity. The public finding existed, but Tavi did not receive the publication in the activity that issued the model. The old records remain as they happened. For a new peer review of an exact delivery, Studio now records the public finding and an addressed return to its issuer in the same transaction. A review of a proposed file set, self-review, or local broadcast does not need that second event. A human’s feedback or acceptance uses its own path.
