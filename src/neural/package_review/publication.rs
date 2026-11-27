@@ -113,8 +113,7 @@ pub(super) fn verify(
             ));
         }
     }
-    let mut public =
-        json!({"reference":reference,"criterion":r["criterion"],"verdict":r["verdict"]});
+    let mut public = crate::neural::protocol::PublicationKind::PackageReview.notice(&reference, r);
     if version_call.is_none() {
         public["published_record"] = json!(format!("object:{}", record.reference.digest));
     }

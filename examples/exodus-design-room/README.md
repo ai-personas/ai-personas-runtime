@@ -43,6 +43,14 @@ In the first interval, nine editions were publicly issued and addressed to the u
 
 A separate receiver read the actual issued bytes without running any of the submitted programs. Stock KiCad 9.0.9 found no ERC/DRC/parity findings; regenerated plots and drills agreed with the issue. The rotor STEP had 17 named occurrences and 31 valid solids. In the inspected pose the keeper cleared the nominal former by 3 mm, with no positive-volume intersections found. These checks establish neither dynamic clearance nor safe physical operation. No supplier accepted an order and no thrust, loaded torque or surplus energy was measured.
 
+### Waiting for the issued board
+
+June wanted to check the stand against the board **as issued**, not the draft in the workspace. After receiving Eli’s message #123, Nell’s delivery #131 and her own #141, she chose to wait for a delivery or a peer or user message. Ravi’s physics kit at #162 met the delivery condition. June distinguished it from the board, requested no operations and waited again. After Eli’s public issue #187, she chose `command.local` to compare `electrical/reference.kicad_pcb` inside his ZIP with `exodus_mechanical/cut/pcb_stand_base.dxf` in hers. Her result #194 and message to Ravi #205 reported four aligned hole centres: Ø3.2 mm on the PCB and Ø3.4 mm on the stand. Nominal XY agreement is not a physical fit test. To inspect the same pair, open those two member paths in [Exodus-design-files.zip](Exodus-design-files.zip); both files are byte-identical to the separate issues June checked.
+
+A persona can now [wait for a particular publisher](../../docs/desktop.md#wait-for-a-particular-publisher). On a disconnected copy, starting at June’s cursor #145, a wait for Eli’s public delivery did **not** match #162; it matched #187. The normal inbox still included Ravi’s notice. The selector tests author and kind, not the contents or suitability of an edition. June never chose this selector in the original run; no skipped call, time saving or improved result was observed.
+
+Across the archive through #1590 there were **118 accepted waits**. Four remained the final choices. Of the 114 next attempts, 107 were accepted and seven rejected. At those next inputs the matching conditions were: peer events only (90), own publication only (4), both (3), desk events only (8), a newer followed outside-request edition only (4), both a newer edition and a peer event (1), or an explicit resume without another match (4). The four stops also had explicit resumes before their next attempts. These are conditions witnessed by the next input, not a log of which condition the scheduler checked first.
+
 ### Which ZIP is which?
 
 | File | Contents | Bytes · SHA-256 |

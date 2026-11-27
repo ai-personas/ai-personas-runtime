@@ -139,14 +139,7 @@ impl Target {
             label: app.label(&choice.person).into(),
             choice,
             reason: s(continuation, "reason").into(),
-            wake: continuation["on_events"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-                .map(str::to_owned)
-                .chain(live_board::peer_wakes(continuation))
-                .collect(),
+            wake: live_board::wake_labels(continuation, |id| app.label(id)),
             time: continuation["wake_at_unix"].as_i64(),
             draft: String::new(),
         }
@@ -217,18 +210,7 @@ impl Form {
             let triggers = if target.wake.is_empty() {
                 "any new arrival".into()
             } else {
-                target
-                    .wake
-                    .iter()
-                    .map(|s| {
-                        if s.contains(':') {
-                            s.clone()
-                        } else {
-                            s.replace('_', " ")
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                target.wake.join(" or ")
             };
             ui.small(format!("Wake on: {triggers}"));
             if let Some(at) = target.time {

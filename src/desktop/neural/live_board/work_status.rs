@@ -1,13 +1,52 @@
 //! Keep a chosen continuation, a matching wake and actual execution distinct.
 use super::*;
 
-pub(in crate::desktop::neural) fn peer_wakes(c: &Value) -> impl Iterator<Item = String> + '_ {
+pub(in crate::desktop::neural) fn peer_wakes<'a>(
+    c: &'a Value,
+    label: impl Fn(&'a str) -> &'a str + 'a,
+) -> impl Iterator<Item = String> + 'a {
     c["on_peer_settled"]
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(Value::as_str)
         .map(|reference| format!("peer waits or stops after {reference}"))
+        .chain(c["on_peer_publication"].as_array().into_iter().flatten().filter_map(move |watch| {
+            let kind = match watch["kind"].as_str()? {
+                "delivery" => "public delivery",
+                "package_review" => "public finding",
+                _ => return None,
+            };
+            let id = watch["peer"].as_str()?;
+            let name = label(id);
+            Some(if name == id {
+                format!("{kind} from {id}")
+            } else {
+                format!("{kind} from {name} ({id})")
+            })
+        }))
+}
+
+pub(in crate::desktop::neural) fn wake_event_name(event: &str) -> String {
+    if event.contains(':') {
+        event.to_owned()
+    } else {
+        event.replace('_', " ")
+    }
+}
+
+pub(in crate::desktop::neural) fn wake_labels<'a>(
+    c: &'a Value,
+    label: impl Fn(&'a str) -> &'a str + 'a,
+) -> Vec<String> {
+    c["on_events"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(wake_event_name)
+        .chain(peer_wakes(c, label))
+        .collect()
 }
 
 pub(super) fn current_wait(b: &Value) -> bool {
@@ -169,8 +208,7 @@ impl App {
                     });
                     if let Some(reason)=c["reason"].as_str().or(c["purpose"].as_str()) { ui.label(reason); }
                     if open && current_wait(b) {
-                        let triggers: Vec<_> = c["on_events"].as_array().into_iter().flatten().filter_map(Value::as_str)
-                            .map(|t| if t.contains(':') { t.to_owned() } else { t.replace('_'," ") }).chain(peer_wakes(c)).collect();
+                        let triggers = wake_labels(c, |id| self.label(id));
                         ui.small(format!("Wake on: {}", if triggers.is_empty() { "any new arrival".into() } else { triggers.join(" or ") }));
                         let signal = match r["wake_check"]["matched"].as_bool() {
                             Some(false) => "No matching arrival", Some(true) => "Matching arrival recorded", None => "Arrival check unavailable",

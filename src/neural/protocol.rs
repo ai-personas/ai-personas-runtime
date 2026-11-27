@@ -234,6 +234,39 @@ impl ContextResource {
         }
     }
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PeerPublication {
+    /// Exact persona ID from this activity's participants (not a display name or participation revision).
+    pub peer: String,
+    pub kind: PublicationKind,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PublicationKind {
+    Delivery,
+    PackageReview,
+}
+
+impl PublicationKind {
+    /// The room notice, not the addressed copy, full edition, or its files.
+    pub(super) fn notice(self, reference: &str, record: &Value) -> Value {
+        match self {
+            Self::Delivery => json!({"reference":reference,"title":record["title"],"scope":record["scope"]}),
+            Self::PackageReview => json!({"reference":reference,"criterion":record["criterion"],"verdict":record["verdict"]}),
+        }
+    }
+
+    pub(super) fn event(self) -> &'static str {
+        match self {
+            Self::Delivery => "delivery",
+            Self::PackageReview => "package_review",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Continuation {
@@ -254,6 +287,9 @@ pub enum Continuation {
         /// Optional exact participation references from participants in this input. Each must be another accepted, ready peer here. Wake if any one subsequently chooses wait or stop, even without a message. Observe the choice, not task completion. With only this selection, unrelated events do not wake you.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         on_peer_settled: Vec<String>,
+        /// Wake on a new public edition or finding in this activity from a specific accepted peer. Other issuers and private returns do not match. All event, peer and time conditions are alternatives; this does not request work from the peer or filter your inbox.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        on_peer_publication: Vec<PeerPublication>,
     },
     Stop {
         reason: String,

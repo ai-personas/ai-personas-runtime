@@ -5,7 +5,7 @@ use feed::Hold;
 mod tool_result;
 mod journal;
 mod work_status;
-pub(super) use work_status::peer_wakes;
+pub(super) use work_status::{peer_wakes, wake_event_name, wake_labels};
 
 use super::*;
 use ai_personas::neural::live::RunnerObservation;
@@ -1062,7 +1062,7 @@ impl App {
                     .filter_map(Value::as_str)
                     .map(|v| {
                         let Some((id, revision)) = v.strip_prefix("human_request:").and_then(|h| h.rsplit_once('@')) else {
-                            return v.replace('_', " ");
+                            return wake_event_name(v);
                         };
                         let Some(request) = self.records("human_requests").iter()
                             .find(|r| r["reference"]["id"] == id && r["body"]["work"] == self.work) else {
@@ -1080,11 +1080,11 @@ impl App {
                         condition.to_owned()
                     })
                     .collect();
-                names.extend(peer_wakes(continuation));
+                names.extend(peer_wakes(continuation, |id| self.label(id)));
                 let mut triggers = if names.is_empty() {
                     "any new arrival".into()
                 } else {
-                    names.join(", ")
+                    names.join(" or ")
                 };
                 if let Some(at) = continuation["wake_at_unix"].as_i64() {
                     let relative = if at > now {

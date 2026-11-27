@@ -710,7 +710,7 @@ fn internal(
                 actor,
                 "*",
                 "delivery",
-                &json!({"reference":r.handle(),"title":body["title"],"scope":body["scope"]}),
+                &PublicationKind::Delivery.notice(&r.handle(), &body),
                 Some(call),
             )?;
             let origin = super::activity_requests::origin(db, work)?;
@@ -1042,8 +1042,8 @@ pub fn adopt(store: &mut Store, call: &str) -> Result<DecisionV4> {
         if decision.work.reason.trim().is_empty(){return Err(failure("work judgment needs a reason"));}
         check_references(db,&decision.work.evidence)?;
         match &decision.continuation {Continuation::Ready{purpose} if purpose.trim().is_empty()=>return Err(failure("ready needs a purpose")),Continuation::Wait{reason,..}|Continuation::Stop{reason} if reason.trim().is_empty()=>return Err(failure("waiting/stopping needs a reason")),_=>{}}
-        if let Continuation::Wait{on_events,on_peer_settled,..}=&decision.continuation {
-            super::peer_wait::validate(snapshot, on_peer_settled)?;
+        if let Continuation::Wait{on_events,on_peer_settled,on_peer_publication,..}=&decision.continuation {
+            super::peer_wait::validate(snapshot, on_peer_settled, on_peer_publication)?;
             if on_events.iter().any(|kind|kind.trim().is_empty()) {return Err(failure("Use nonblank event kinds for wait.on_events"));}
         }
         let switching=!matches!(decision.next_model,NextModel::Preserve);
