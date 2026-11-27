@@ -14,7 +14,8 @@ pub(in crate::neural) fn origin(
     work: &str,
     event: &str,
 ) -> Result<Option<Value>> {
-    let meta = metadata(db, Some(owner), event)?;
+    let item = super::locate(db, Some(owner), event)?;
+    let meta = item.metadata();
     if meta["work"] != work {
         return Ok(None);
     }
@@ -29,10 +30,10 @@ pub(in crate::neural) fn origin(
     };
     let envelope = body(&meta)?;
     let check = if meta["kind"] == "delivery_check" && meta["target"] == owner {
-        Some(super::receiving::link(db, &super::locate(db, Some(owner), event)?, &envelope)?)
+        Some(super::receiving::link(db, &item, &envelope)?)
     } else { None };
     let review = if meta["kind"] == "package_review" {
-        super::peer_review(db, owner, &super::locate(db, Some(owner), event)?)?
+        super::finding_on_issue(db, owner, &item)?
     } else { None };
     let report = if meta["kind"] == "user_message" && meta["target"] == owner && meta["invocation"].is_null()
         && envelope["human_request"].is_string() && envelope["reply_to"].is_string() {
@@ -41,8 +42,8 @@ pub(in crate::neural) fn origin(
     let (call, parent) =
         if let Some((call, _)) = &report {
             (Some(call.clone()), None)
-        } else if let Some(edition) = &review {
-            (Some(edition.issue.invocation.clone()), None)
+        } else if let Some(link) = &review {
+            (Some(link.edition.issue.invocation.clone()), None)
         } else if let Some(check) = &check {
             (Some(check.call.clone()), None)
         } else if meta["kind"] == "tool_result" && meta["actor"] == owner && meta["target"] == owner {
@@ -114,9 +115,9 @@ pub(in crate::neural) fn origin(
     let ops = r["operations"].as_array().into_iter().flatten();
     let (relation, performed) = if let Some((_, performed)) = report {
         ("outside_report", performed)
-    } else if let Some(edition) = review {
-        ("peer_package_review", json!({"endpoint":{"kind":"operation","id":edition.operation,"tool":"result.deliver"},
-            "delivery":edition.issue.record.reference.handle(),"review":envelope["reference"],"reviewed_by":meta["actor"]}))
+    } else if let Some(link) = review {
+        (link.relation, json!({"endpoint":{"kind":"operation","id":link.edition.operation,"tool":"result.deliver"},
+            "delivery":link.edition.issue.record.reference.handle(),"review":link.review,"reviewed_by":meta["actor"]}))
     } else if let Some(check) = check {
         ("receiving_check", json!({"endpoint":{"kind":"operation","id":check.operation,"tool":"result.deliver"},
             "delivery":check.edition,"checked_by":meta["actor"],"checking_work":envelope["checking_work"],"receipt":envelope["receipt"]}))
@@ -208,6 +209,8 @@ pub(in crate::neural) fn origin(
         "source_response":boundary.body["response"],"response_binding":accepted.binding});
     view["return_kind"] = json!(if relation == "outside_report" {
         "request_reported"
+    } else if relation == "operator_package_review" {
+        "operator_finding_on_edition"
     } else if relation == "peer_package_review" {
         "issued_edition_reviewed"
     } else if relation == "receiving_check" {

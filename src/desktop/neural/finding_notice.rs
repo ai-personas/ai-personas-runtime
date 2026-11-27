@@ -17,12 +17,16 @@ pub(super) struct Reader {
 }
 
 enum Place {
+    Choice { reference: String, issued: bool },
     Edition(String),
     Preview(u64),
 }
 impl Place {
     fn showing(&self, app: &App) -> bool {
         match self {
+            Self::Choice { reference, .. } => {
+                app.layout.editor == Editor::Studio && app.live_board.holding_choice(reference)
+            }
             Self::Edition(r) => app.layout.editor == Editor::Delivery && &app.layout.delivery == r,
             Self::Preview(serial) => {
                 app.layout.editor == Editor::Artifacts
@@ -174,6 +178,14 @@ fn report(
             ));
             if ui.link("Open package ↗").on_hover_text(edition).clicked() {
                 open = Some(Open::Edition(edition.into()));
+            }
+            if let Some(choice) = notice.issuing_decision() {
+                if ui.link("Issuing choice ↗")
+                    .on_hover_text("Read the decision that issued these files, not a response to the later finding.")
+                    .clicked()
+                {
+                    open = Some(Open::Record(choice));
+                }
             }
         } else {
             ui.weak("Not a finding on an issued delivery");
@@ -327,7 +339,11 @@ impl App {
         else {
             return;
         };
-        if ui.link(format!("← Finding at #{}", r.event)).clicked() {
+        let back = ui.link(format!("← Finding at #{}", r.event)).clicked();
+        if matches!(r.back, Some(Place::Choice { issued: true, .. })) {
+            ui.small("This choice issued the files. It does not show that the issuer read the finding.");
+        }
+        if back {
             let (work, event, digest, basis) = (r.work.clone(), r.event, r.digest.clone(), r.basis);
             // Returning to a read is not a request to address its author.
             self.open_home_activity(&work);
@@ -372,9 +388,13 @@ impl App {
                     }
                     Open::Record(r) => {
                         let prior = self.preview_generation;
-                        self.open_choice_or_record(ctx, r);
+                        self.open_choice_or_record(ctx, r.clone());
                         if self.preview_generation != prior {
                             reader.back = Some(Place::Preview(self.preview_generation));
+                        } else if self.layout.editor == Editor::Studio && self.live_board.holding_choice(&r) {
+                            let issued = reader.report.as_ref().and_then(|f| f.as_ref().ok())
+                                .and_then(FindingNotice::issuing_decision).as_ref() == Some(&r);
+                            reader.back = Some(Place::Choice { reference: r, issued });
                         }
                     }
                     Open::File(file) => {

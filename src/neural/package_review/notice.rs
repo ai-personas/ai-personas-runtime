@@ -53,14 +53,27 @@ impl FindingNotice {
     /// A link displayed in an earlier read must still name the same review and
     /// issue bytes. Equal file counts or a matching delivery handle aren't enough.
     pub fn same_publication(&self, other: &Self) -> bool {
-        fn issue_pin(notice: &FindingNotice) -> Option<(&store::Reference, i64)> {
-            let issue = &notice.issue.as_ref()?.issue;
-            Some((&issue.record.reference, issue.sequence))
+        fn issue_pin(notice: &FindingNotice) -> Option<(&store::Reference, i64, &str, &str)> {
+            let edition = notice.issue.as_ref()?;
+            let issue = &edition.issue;
+            Some((
+                &issue.record.reference,
+                issue.sequence,
+                &issue.invocation,
+                &edition.operation,
+            ))
         }
         self.event == other.event
             && self.publication_event == other.publication_event
             && self.record.reference == other.record.reference
             && issue_pin(self) == issue_pin(other)
+    }
+
+    /// Operator navigation only. The public subject metadata does not give other
+    /// personas the issuer’s private decision as an experience of their own.
+    pub fn issuing_decision(&self) -> Option<String> {
+        let issue = &self.issue.as_ref()?.issue;
+        Some(format!("experience:{}@1", issue.invocation))
     }
 
     /// Historical issuer attribution; never use the current reader or reviewer as a fallback.
@@ -91,16 +104,21 @@ impl FindingNotice {
         view
     }
 
-    /// Only an issuer's *own* action is the origin of a peer-review return.
-    /// Other readers can resolve its subject without acquiring that history.
-    pub(in crate::neural) fn peer_issue(self, owner: &str, work: &str) -> Result<Edition> {
-        if self.record.body["author_kind"] != "persona" || self.record.body["author"] == owner {
-            return Err(failure("Not a finding by a peer"));
+    /// Pair an independent finding with the issuer's own action only in the
+    /// issuing activity. A local operator is not a persona of the same name.
+    pub(in crate::neural) fn reviewed_issue(
+        self,
+        reader: Option<&str>,
+        work: &str,
+    ) -> Option<Edition> {
+        let edition = self.issue?;
+        let issuer = edition.issue.record.body["owner"].as_str()?;
+        if edition.issue.record.body["work"] != work
+            || reader.is_some_and(|id| id != issuer)
+            || (self.record.body["author_kind"] == "persona" && self.record.body["author"] == issuer)
+        {
+            return None;
         }
-        let issue = self
-            .issue
-            .ok_or_else(|| failure("Review was not of an issued edition"))?;
-        issue.issue.check_destination(work, owner)?;
-        Ok(issue)
+        Some(edition)
     }
 }
